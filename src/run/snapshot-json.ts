@@ -10,7 +10,7 @@ export function snapshotJson(s: RunSnapshot, runner: { pid: number } | null) {
     cambio: { id: s.change.change_id, titulo: s.change.title, fase: s.change.phase },
     run: s.run ? { id: s.run.run_id, estado: s.run.state, detalle: s.run.detail, rama: s.run.branch, base: s.run.base_sha, activo: runner !== null } : null,
     entrega: s.deliveryBranch,
-    progreso: { integradas: s.integrated, total: s.total, por_estado: s.counts },
+    progreso: { integradas: s.integrated, total: s.total, por_estado: s.counts, minutos_restantes: s.eta?.minutos ?? null, factor_medido: s.eta?.factor ?? null },
     tareas: s.tasks.map((t) => ({
       id: t.id,
       titulo: t.title,

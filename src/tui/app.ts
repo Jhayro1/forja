@@ -1,7 +1,11 @@
 import { emitKeypressEvents } from 'node:readline';
+import { dependencyLines, FILTER_LABEL, TASK_FILTERS } from '../run/describe.js';
 import type { RunSnapshot, TaskView } from '../run/snapshot.js';
 import { screen as ansi, colorsEnabled, type Paint, painter } from './ansi.js';
-import { type BoardModel, renderBoard, type TextScreen, textBodyRows, textScroll } from './board.js';
+import { type BoardModel, renderBoard, type TextScreen, textBodyRows, textScroll, visibleTasks } from './board.js';
+
+/** An external action waiting for approval, as the board shows it (preview without secrets). */
+export type PendingAction = { id: string; hash: string; title: string; preview: string[] };
 
 /**
  * Everything the board needs from the rest of Forja (dependency inversion: the
@@ -22,7 +26,15 @@ export interface BoardSource {
   retry(task: TaskView, note: string | null): void;
   togglePause(task: TaskView): string;
   stop(): string;
+  /** Plan summary shown before approving: the same data the panel shows (MEJORAS 6.4). */
+  planSummary(): string[];
+  approvePlan(): string;
+  pendingActions(): PendingAction[];
+  /** Approves exactly the preview the user saw (`hash`); executing stays in the terminal with the vault. */
+  approveAction(id: string, hash: string): string;
 }
+
+const YES = /^s[ií]?$/i;
 
 export type Key = { name?: string; ctrl?: boolean; sequence?: string };
 
@@ -40,7 +52,7 @@ export class BoardApp {
     private readonly size: () => { width: number; height: number },
     private readonly now: () => number = Date.now,
   ) {
-    this.model = { project: source.project, snapshot: null, selected: 0, runLog: [], runnerAlive: false, screen: { kind: 'principal' }, prompt: null, flash: null, now: now() };
+    this.model = { project: source.project, snapshot: null, selected: 0, runLog: [], runnerAlive: false, screen: { kind: 'principal' }, prompt: null, flash: null, now: now(), filter: 'todas' };
   }
 
   async refresh(): Promise<void> {
@@ -49,9 +61,12 @@ export class BoardApp {
     m.snapshot = this.source.snapshot();
     m.runnerAlive = this.source.runnerAlive();
     m.runLog = m.snapshot?.run ? this.source.runLog(m.snapshot.run.run_id) : [];
-    m.selected = Math.min(m.selected, Math.max(0, (m.snapshot?.tasks.length ?? 1) - 1));
+    m.selected = Math.min(m.selected, Math.max(0, visibleTasks(m).length - 1));
     if (m.flash && m.now > this.flashUntil) m.flash = null;
-    if (m.screen.kind === 'texto' && this.textSource) m.screen.lines = await this.textSource();
+    if (m.screen.kind === 'texto' && this.textSource) {
+      m.screen.lines = await this.textSource();
+      if (m.screen.search) m.screen.hits = hitsOf(m.screen.lines, m.screen.search);
+    }
   }
 
   render(paint: Paint): string[] {
@@ -65,13 +80,35 @@ export class BoardApp {
   }
 
   private selectedTask(): TaskView | undefined {
-    return this.model.snapshot?.tasks[this.model.selected];
+    return visibleTasks(this.model)[this.model.selected];
   }
 
-  private async openText(title: string, load: () => string[] | Promise<string[]>, follow = false): Promise<void> {
+  /** Selects `task` in the list, clearing the filter if it hides it. */
+  private select(task: TaskView): void {
+    if (!visibleTasks(this.model).includes(task)) this.model.filter = 'todas';
+    this.model.selected = visibleTasks(this.model).indexOf(task);
+  }
+
+  private async openText(title: string, load: () => string[] | Promise<string[]>, follow = false, style: TextScreen['style'] = 'plain'): Promise<void> {
     this.textSource = load;
     const lines = await load();
-    this.model.screen = { kind: 'texto', title, lines, scroll: 0, follow };
+    this.model.screen = { kind: 'texto', title, lines, scroll: 0, follow, style, search: null, hits: [] };
+  }
+
+  /** Walks the proposed actions one by one: «si» approves, anything else leaves it for later. */
+  private async reviewActions(queue: PendingAction[]): Promise<void> {
+    const next = queue[0];
+    if (!next) {
+      this.model.screen = { kind: 'principal' };
+      this.textSource = null;
+      return;
+    }
+    await this.openText(`Acción ${next.id} · ${next.title} (${queue.length} por revisar)`, () => next.preview);
+    this.ask(`¿Aprobar ${next.id}? Escribe «si» para aprobar (otra cosa la deja pendiente):`, async (value) => {
+      const msg = YES.test(value.trim()) ? this.source.approveAction(next.id, next.hash) : `${next.id} sigue pendiente`;
+      await this.reviewActions(queue.slice(1));
+      return msg;
+    });
   }
 
   private ask(label: string, action: PromptAction): void {
@@ -109,7 +146,7 @@ export class BoardApp {
 
     if (m.screen.kind !== 'principal') return this.handleTextKey(str, key);
 
-    const tasks = m.snapshot?.tasks ?? [];
+    const tasks = visibleTasks(m);
     const task = this.selectedTask();
     switch (key.name ?? str) {
       case 'q':
@@ -143,15 +180,55 @@ export class BoardApp {
         if (task) await this.openText(`${task.id} · instrucciones que recibió el agente`, () => this.source.taskContext(task));
         break;
       case 'd':
-        if (task) await this.openText(`${task.id} · diferencias`, () => this.source.taskDiff(task));
+        if (task) await this.openText(`${task.id} · diferencias`, () => this.source.taskDiff(task), false, 'diff');
         break;
+      case 'f': {
+        m.filter = TASK_FILTERS[(TASK_FILTERS.indexOf(m.filter) + 1) % TASK_FILTERS.length]!;
+        m.selected = 0;
+        this.flash(`filtro: ${FILTER_LABEL[m.filter]}`, 2000);
+        break;
+      }
+      case 'g':
+        await this.openText('Dependencias', () => (this.model.snapshot ? dependencyLines(this.model.snapshot) : ['Todavía no hay plan.']));
+        break;
+      case 'p':
+        if (!task) break;
+        try {
+          this.flash(this.source.togglePause(task));
+        } catch (error) {
+          this.flash(`✘ ${(error as Error).message}`, 6000);
+        }
+        break;
+      case 'a': {
+        if (!m.snapshot?.pending.some((p) => p.kind === 'aprobacion')) {
+          this.flash('no hay un plan esperando aprobación');
+          break;
+        }
+        await this.openText('Plan · aprobar', () => this.source.planSummary());
+        this.ask('¿Aprobar el plan tal como lo ves? Escribe «si» para aprobar:', (value) => {
+          m.screen = { kind: 'principal' };
+          this.textSource = null;
+          return YES.test(value.trim()) ? this.source.approvePlan() : 'el plan sigue sin aprobar';
+        });
+        break;
+      }
+      case 'x': {
+        const queue = this.source.pendingActions();
+        if (!queue.length) {
+          this.flash('no hay acciones externas esperando aprobación');
+          break;
+        }
+        await this.reviewActions(queue);
+        break;
+      }
       case 'r': {
-        const target = task?.state === 'esperando_respuesta' ? task : tasks.find((t) => t.state === 'esperando_respuesta');
+        const all = m.snapshot?.tasks ?? [];
+        const target = task?.state === 'esperando_respuesta' ? task : all.find((t) => t.state === 'esperando_respuesta');
         if (!target) {
           this.flash('ninguna tarea tiene preguntas para ti');
           break;
         }
-        m.selected = tasks.indexOf(target);
+        this.select(target);
         this.ask(`Respuesta para ${target.id} (${(target.exec.question ?? '').split('\n')[0]!.slice(0, 60)}):`, (value) => {
           if (!value.trim()) throw new Error('respuesta vacía: no se envió');
           this.source.answer(target, value.trim());
@@ -176,7 +253,7 @@ export class BoardApp {
           break;
         }
         this.ask('¿Detener el run? Los agentes en curso terminan y se retoma con forja run. Escribe «si» para confirmar:', (value) => {
-          if (!/^s[ií]?$/i.test(value.trim())) return 'no se detuvo';
+          if (!YES.test(value.trim())) return 'no se detuvo';
           return this.source.stop();
         });
         break;
@@ -200,6 +277,14 @@ export class BoardApp {
     const go = (to: number) => {
       s.scroll = Math.min(Math.max(0, to), maxScroll);
       s.follow = s.scroll >= maxScroll && s.follow;
+    };
+    // Next/previous mark; when the view cannot move (the mark is on the last page), wrap around.
+    const jump = (marks: number[], forward: boolean) => {
+      const target = forward ? following(marks, current) : previous(marks, current);
+      if (target === undefined) return;
+      s.follow = false;
+      go(target);
+      if (s.scroll === current) go(forward ? marks[0]! : marks.at(-1)!);
     };
     switch (key.name ?? str) {
       case 'q':
@@ -234,12 +319,43 @@ export class BoardApp {
           go(0);
         }
         break;
+      case '/':
+        this.ask('Buscar:', (value) => {
+          s.search = value.trim() || null;
+          s.hits = s.search ? hitsOf(s.lines, s.search) : [];
+          if (!s.search) return 'búsqueda borrada';
+          const first = s.hits.find((i) => i >= current) ?? s.hits[0];
+          if (first === undefined) return `«${s.search}» no aparece`;
+          s.follow = false;
+          go(first);
+          return `«${s.search}»: ${s.hits.length} línea(s)`;
+        });
+        break;
+      case 'n':
+        jump(s.hits ?? [], str !== 'N');
+        break;
+      case ']':
+        jump(fileStarts(s), true);
+        break;
+      case '[':
+        jump(fileStarts(s), false);
+        break;
       default:
         break;
     }
     return true;
   }
 }
+
+/** Lines (0-based) containing `term`, case-insensitive. */
+export function hitsOf(lines: string[], term: string): number[] {
+  const t = term.toLowerCase();
+  return lines.flatMap((l, i) => (l.toLowerCase().includes(t) ? [i] : []));
+}
+
+const following = (marks: number[], at: number): number | undefined => marks.find((i) => i > at) ?? marks[0];
+const previous = (marks: number[], at: number): number | undefined => [...marks].reverse().find((i) => i < at) ?? marks.at(-1);
+const fileStarts = (s: TextScreen): number[] => (s.style === 'diff' ? s.lines.flatMap((l, i) => (l.startsWith('diff --git') ? [i] : [])) : []);
 
 export type BoardIo = { stdin: NodeJS.ReadStream; stdout: NodeJS.WriteStream };
 

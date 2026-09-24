@@ -1,5 +1,5 @@
 import { TEXTOS } from '../i18n/textos.js';
-import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine } from '../run/describe.js';
+import { FILTER_LABEL, matchesFilter, modelOf, progressLine, STATE_ICON, STATE_LABEL, type TaskFilter, taskActivityLine } from '../run/describe.js';
 import { agentTasks, compactTokens, costLabel, type RunSnapshot, type TaskView } from '../run/snapshot.js';
 import type { ChangePhase } from '../store/planning-projections.js';
 import { fit, type Paint, type Style, sanitize } from './ansi.js';
@@ -10,7 +10,18 @@ import { fit, type Paint, type Style, sanitize } from './ansi.js';
  * it can be tested at any size without a terminal.
  */
 
-export type TextScreen = { kind: 'texto'; title: string; lines: string[]; scroll: number; follow: boolean };
+export type TextScreen = {
+  kind: 'texto';
+  title: string;
+  lines: string[];
+  scroll: number;
+  follow: boolean;
+  /** «diff» colors added/removed lines and lets [ ] jump between files (MEJORAS 6.1). */
+  style?: 'diff' | 'plain';
+  /** Search term and the lines where it appears (MEJORAS 6.2). */
+  search?: string | null;
+  hits?: number[];
+};
 
 export type Screen = { kind: 'principal' } | { kind: 'ayuda' } | TextScreen;
 
@@ -27,12 +38,19 @@ export type BoardModel = {
   prompt: { label: string; value: string } | null;
   flash: string | null;
   now: number;
+  /** Which tasks the list shows (MEJORAS 6.2); `selected` indexes the filtered list. */
+  filter: TaskFilter;
 };
 
-export const KEYS_MAIN = '[↑↓] mover [enter] detalle [l]ogs [d]iff [c]ontexto [r]esponder [t] reintentar [s] detener [?] ayuda [q] salir';
+/** The tasks the list shows with the current filter. */
+export function visibleTasks(m: Pick<BoardModel, 'snapshot' | 'filter'>): TaskView[] {
+  return (m.snapshot?.tasks ?? []).filter((t) => matchesFilter(t, m.filter));
+}
+
+export const KEYS_MAIN = '[↑↓] mover [enter] detalle [l]ogs [d]iff [f]iltro [g] dependencias [r]esponder [p]ausar [a]probar [x] acciones [?] ayuda [q] salir';
 /** For narrow terminals (80 columns): the rest is in the help screen. */
 export const KEYS_MAIN_SHORT = '[↑↓] [enter] [l]ogs [d]iff [r]esponder [s] detener [?] ayuda [q] salir';
-export const KEYS_TEXT = '[↑↓/PgUp/PgDn] desplazar  [g/G] inicio/fin  [q/esc] volver';
+export const KEYS_TEXT = '[↑↓/PgUp/PgDn] desplazar  [g/G] inicio/fin  [/] buscar [n/N] siguiente/anterior  [ ] ] archivo  [q/esc] volver';
 
 export const HELP_LINES = [
   'Tablero de Forja',
@@ -48,9 +66,18 @@ export const HELP_LINES = [
   '  c             instrucciones exactas que recibió el agente',
   '  r             responder la pregunta de la tarea elegida',
   '  t             reintentar una tarea bloqueada (con nota opcional)',
+  '  p             pausar la tarea elegida o reanudarla si está pausada',
+  '  f             filtrar tareas: todas, en curso, esperan algo de ti, por empezar, terminadas',
+  '  g             dependencias: olas, camino crítico y qué espera a qué',
+  '  a             aprobar el plan (con el mismo resumen que el panel)',
+  '  x             revisar y aprobar acciones externas propuestas',
   '  s             detener el run: no lanza tareas nuevas; los agentes en curso',
   '                siguen y se retoman con forja run',
   '  q             salir (el run sigue si lo lanzaste con forja run)',
+  '',
+  'En logs, diff y otros textos:',
+  '  /             buscar; n / N  siguiente / anterior coincidencia',
+  '  ] / [         siguiente / anterior archivo del diff',
   '',
   'Estados (texto además de color):',
   ...Object.entries(STATE_LABEL).map(([k, v]) => `  ${STATE_ICON[k]} ${k.padEnd(20)} ${v}`),
@@ -160,13 +187,18 @@ function renderMain(m: BoardModel, width: number, height: number, paint: Paint):
   out.push(rule(`Agentes (${agents.length})`, width));
   for (const l of agentLines) out.push(row(l, width));
 
-  out.push(rule(`Tareas ${s.tasks.length ? `(${s.tasks.length})` : ''}`, width, s.tasks.length ? `${m.selected + 1}/${s.tasks.length}` : ''));
+  const shown = visibleTasks(m);
+  const filtered = m.filter !== 'todas' ? ` · filtro: ${FILTER_LABEL[m.filter]}` : '';
+  out.push(rule(`Tareas ${s.tasks.length ? `(${shown.length}${filtered ? ` de ${s.tasks.length}` : ''})${filtered}` : ''}`, width, shown.length ? `${m.selected + 1}/${shown.length}` : ''));
   if (s.tasks.length === 0) {
     out.push(row(s.plan ? `Plan de ${s.plan.tareas.length} tareas; todavía no se ejecuta. ${s.nextStep}` : `Siguiente paso: ${s.nextStep}`, width));
     for (let i = 1; i < taskRows; i++) out.push(row('', width));
+  } else if (shown.length === 0) {
+    out.push(row(paint(`Ninguna tarea con el filtro «${FILTER_LABEL[m.filter]}» ([f] cambia el filtro)`, 'dim'), width));
+    for (let i = 1; i < taskRows; i++) out.push(row('', width));
   } else {
-    const [from, to] = windowAround(s.tasks.length, m.selected, taskRows);
-    for (let i = from; i < to; i++) out.push(taskRow(s.tasks[i]!, width, m.now, paint, i === m.selected));
+    const [from, to] = windowAround(shown.length, m.selected, taskRows);
+    for (let i = from; i < to; i++) out.push(taskRow(shown[i]!, width, m.now, paint, i === m.selected));
     for (let i = to - from; i < taskRows; i++) out.push(row('', width));
   }
 
@@ -186,16 +218,48 @@ function renderMain(m: BoardModel, width: number, height: number, paint: Paint):
 /** Body rows of a text screen at terminal height `height` (title, border and keys take 3). */
 export const textBodyRows = (height: number): number => Math.max(1, height - 3);
 
-function renderText(screen: TextScreen | { kind: 'ayuda' }, width: number, height: number): string[] {
+/** Diff coloring (MEJORAS 6.1): the text stays, color only helps. */
+function diffStyle(line: string): Style | null {
+  if (line.startsWith('diff --git')) return 'bold';
+  if (line.startsWith('@@')) return 'cyan';
+  if (line.startsWith('+') && !line.startsWith('+++')) return 'green';
+  if (line.startsWith('-') && !line.startsWith('---')) return 'red';
+  return null;
+}
+
+/** Highlights every occurrence of `term` (case-insensitive) in an already sanitized line. */
+function highlight(line: string, term: string, paint: Paint): string {
+  if (!term) return line;
+  const lower = line.toLowerCase();
+  const t = term.toLowerCase();
+  let out = '';
+  let from = 0;
+  for (let i = lower.indexOf(t); i >= 0; i = lower.indexOf(t, i + t.length)) {
+    out += line.slice(from, i) + paint(line.slice(i, i + t.length), 'inverse');
+    from = i + t.length;
+  }
+  return out + line.slice(from);
+}
+
+function renderText(screen: TextScreen | { kind: 'ayuda' }, width: number, height: number, paint: Paint): string[] {
   const title = screen.kind === 'ayuda' ? 'Ayuda' : screen.title;
   const source = screen.kind === 'ayuda' ? HELP_LINES : screen.lines;
   const body = textBodyRows(height);
   const scroll = screen.kind === 'texto' ? textScroll(screen, height) : 0;
-  const range = source.length > body ? `${scroll + 1}-${Math.min(source.length, scroll + body)}/${source.length}` : '';
+  const hits = screen.kind === 'texto' && screen.search ? ` · «${screen.search}»: ${screen.hits?.length ?? 0}` : '';
+  const range = source.length > body ? `${scroll + 1}-${Math.min(source.length, scroll + body)}/${source.length}${hits}` : hits.slice(3);
   const out = [rule(sanitize(title), width, range, ['┌', '┐'])];
   for (let i = 0; i < body; i++) {
     const l = source[scroll + i];
-    out.push(row(l === undefined ? '' : sanitize(l), width));
+    if (l === undefined) {
+      out.push(row('', width));
+      continue;
+    }
+    // Fit first, then paint: escape codes must not count as width.
+    let text = fit(sanitize(l), width - 4);
+    if (screen.kind === 'texto' && screen.search) text = highlight(text, screen.search, paint);
+    const style = screen.kind === 'texto' && screen.style === 'diff' ? diffStyle(l) : null;
+    out.push(`│ ${style ? paint(text, style) : text}${' '.repeat(Math.max(0, width - 4 - [...fit(sanitize(l), width - 4)].length))} │`);
   }
   out.push(`└${'─'.repeat(Math.max(0, width - 2))}┘`);
   return out;
@@ -218,7 +282,7 @@ export function renderBoard(m: BoardModel, width: number, height: number, paint:
     if (m.prompt || m.flash) bottom.push('');
     body = renderMain(m, w, h - bottom.length, paint);
   } else {
-    body = renderText(m.screen, w, h);
+    body = renderText(m.screen, w, h, paint);
     bottom.push(fit(paint(KEYS_TEXT, 'dim'), w));
     body = body.slice(0, h - 1);
   }

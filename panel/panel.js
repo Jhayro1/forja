@@ -175,6 +175,13 @@ function pendingCard(p) {
   return body;
 }
 
+/** Remaining time, always labeled as an estimate (MEJORAS 6.5). */
+function restante(p) {
+  if (p.minutos_restantes == null) return '';
+  const base = p.factor_medido == null ? 'estimación del plan' : `estimación ×${p.factor_medido} según lo medido`;
+  return ` · ≈${Math.max(1, Math.round(p.minutos_restantes))} min restantes (${base})`;
+}
+
 function renderResumen(d) {
   if (!d.cambio)
     return [h('div', { class: 'card' }, h('h1', {}, 'Sin cambios todavía'), h('p', {}, 'Empieza en la terminal con ', h('span', { class: 'mono' }, 'forja planear "lo que quieres construir"')))];
@@ -197,7 +204,7 @@ function renderResumen(d) {
             'div',
             {},
             h('div', { class: 'progress', role: 'progressbar', 'aria-valuenow': pct, 'aria-valuemin': 0, 'aria-valuemax': 100 }, h('span', { style: `width:${pct}%` })),
-            h('span', {}, `${d.progreso.integradas}/${d.progreso.total} integradas · run ${d.run.estado}${d.run.activo ? ' (en ejecución)' : ''}`),
+            h('span', {}, `${d.progreso.integradas}/${d.progreso.total} integradas · run ${d.run.estado}${d.run.activo ? ' (en ejecución)' : ''}${restante(d.progreso)}`),
             d.run.detalle ? h('div', { class: 'muted' }, d.run.detalle) : null,
             d.run.activo ? h('button', { class: 'sec', onclick: () => confirm('¿Detener el run? Los agentes en curso terminan su tarea.') && mutate('POST', '/v1/run/detener') }, 'Detener run') : null,
           )

@@ -10,7 +10,7 @@ import { resumeProvider } from '../core/engine.js';
 import { McpRegistry } from '../mcp/registry.js';
 import { GraphStore } from '../memory/graph-store.js';
 import { hashFilesIn, LessonService } from '../memory/lessons.js';
-import { approvePlan, currentApproval, gateProblems } from '../plan/approve.js';
+import { currentApproval, gateProblems } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import { estimatePlan } from '../plan/estimate.js';
 import { waves } from '../plan/plan.js';
@@ -104,10 +104,7 @@ export class EngineRunsBackend implements RunsBackend {
   }
 
   approvePlan(): string {
-    const change = activeChange(this.ctx.engine);
-    if (!change) throw new Error('no hay un cambio en curso');
-    const approval = approvePlan(this.ctx.engine, change.change_id, 'panel');
-    return `plan aprobado (${approval.approval_id}): ${approval.allowed_task_ids.length} tareas; ejecútalo con forja run`;
+    return this.board.approvePlan('panel');
   }
 }
 

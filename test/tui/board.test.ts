@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RunSnapshot, TaskView } from '../../src/run/snapshot.js';
 import { fit, painter, sanitize, stripAnsi, visibleWidth, wrap } from '../../src/tui/ansi.js';
-import { BoardApp, type BoardSource } from '../../src/tui/app.js';
+import { BoardApp, type BoardSource, hitsOf, type PendingAction } from '../../src/tui/app.js';
 import { type BoardModel, renderBoard, windowAround } from '../../src/tui/board.js';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
@@ -73,6 +73,7 @@ function snapshot(tasks: TaskView[]): RunSnapshot {
     deliveryBranch: null,
     providerPauses: [],
     demo: false,
+    eta: null,
     nextStep: 'mira el avance con forja tablero',
   };
 }
@@ -128,6 +129,23 @@ class FakeSource implements BoardSource {
     this.stops++;
     return 'detenido';
   }
+  planApprovals = 0;
+  planSummary() {
+    return ['Plan de prueba', 'Ola 1: T-001'];
+  }
+  approvePlan() {
+    this.planApprovals++;
+    return 'plan aprobado';
+  }
+  actions: PendingAction[] = [];
+  approvedActions: [string, string][] = [];
+  pendingActions() {
+    return this.actions;
+  }
+  approveAction(id: string, hash: string) {
+    this.approvedActions.push([id, hash]);
+    return `${id} aprobada`;
+  }
 }
 
 const plain = painter(false);
@@ -169,6 +187,7 @@ describe('tablero', () => {
     prompt: null,
     flash: null,
     now: NOW,
+    filter: 'todas',
     ...over,
   });
 
@@ -306,5 +325,172 @@ describe('teclado del tablero', () => {
     // Ctrl-C always closes, even with a prompt open.
     await app.handleKey('r', { name: 'r' });
     expect(await app.handleKey(undefined, { name: 'c', ctrl: true })).toBe(false);
+  });
+});
+
+describe('tablero: filtro, búsqueda, diff, dependencias y aprobaciones (MEJORAS 6.x)', () => {
+  const setup = (snap = snapshot(TASKS)) => {
+    const source = new FakeSource(snap);
+    const app = new BoardApp(
+      source,
+      () => ({ width: 100, height: 30 }),
+      () => NOW,
+    );
+    return { source, app };
+  };
+  const key = (app: BoardApp, ch: string) => app.handleKey(ch, ch.length === 1 && /[a-z]/i.test(ch) ? { name: ch.toLowerCase() } : {});
+
+  it('el filtro recorre los grupos y la selección indexa la lista filtrada', async () => {
+    const { app } = setup();
+    await app.refresh();
+    await key(app, 'f');
+    expect(app.model.filter).toBe('activas');
+    let text = app.render(plain).join('\n');
+    expect(text).toContain('Tareas (1 de 34) · filtro: en curso');
+    await key(app, 'f');
+    expect(app.model.filter).toBe('para_ti');
+    await app.handleKey(undefined, { name: 'down' });
+    await app.handleKey(undefined, { name: 'return' });
+    expect(app.model.screen).toMatchObject({ lines: ['detalle T-004'] });
+    await key(app, 'q');
+    await key(app, 'f');
+    await key(app, 'f');
+    expect(app.model.filter).toBe('terminadas');
+    text = app.render(plain).join('\n');
+    const list = text.slice(text.indexOf('Tareas ('), text.indexOf('├', text.indexOf('Tareas (')));
+    expect(list).toContain('T-001');
+    expect(list).not.toContain('T-002');
+  });
+
+  it('responder quita un filtro que esconde la tarea con la pregunta', async () => {
+    const { app } = setup();
+    await app.refresh();
+    for (let i = 0; i < 4; i++) await key(app, 'f');
+    expect(app.model.filter).toBe('terminadas');
+    await key(app, 'r');
+    expect(app.model.filter).toBe('todas');
+    expect(app.model.selected).toBe(2);
+  });
+
+  it('el diff se colorea y ] [ saltan entre archivos; / busca y n N recorren coincidencias', async () => {
+    const { app, source } = setup();
+    const diff = ['diff --git a/x.ts b/x.ts', '@@ -1 +1 @@', '-viejo', '+nuevo', ...Array.from({ length: 80 }, (_, i) => ` contexto ${i}`), 'diff --git a/y.ts b/y.ts', '+otro nuevo'];
+    source.taskDiff = async () => diff;
+    await app.refresh();
+    await key(app, 'd');
+    const colored = app.render(painter(true)).join('\n');
+    expect(colored).toContain('\x1b[32m');
+    expect(colored).toContain('\x1b[31m');
+    for (const l of app.render(painter(true))) expect(visibleWidth(l)).toBeLessThanOrEqual(100);
+    await key(app, ']');
+    expect(app.model.screen).toMatchObject({ scroll: 59 }); // clamped: the second file is on the last page;
+    await key(app, '[');
+    expect(app.model.screen).toMatchObject({ scroll: 0 });
+
+    await key(app, '/');
+    await type(app, 'NUEVO');
+    await app.handleKey(undefined, { name: 'return' });
+    expect(app.model.screen).toMatchObject({ search: 'NUEVO', hits: [3, 85] });
+    expect(app.render(plain)[0]).toContain('«NUEVO»: 2');
+    await key(app, 'n');
+    await key(app, 'n');
+    expect(app.model.screen).toMatchObject({ scroll: 3 });
+    await key(app, 'N');
+    expect((app.model.screen as { scroll: number }).scroll).toBeGreaterThan(3);
+  });
+
+  it('hitsOf no distingue mayúsculas', () => {
+    expect(hitsOf(['Hola', 'nada', 'HOLA mundo'], 'hola')).toEqual([0, 2]);
+  });
+
+  it('g muestra olas, camino crítico y qué espera a qué', async () => {
+    const def = (id: string, depende_de: string[] = [], complejidad: 'baja' | 'media' | 'alta' = 'media') => ({
+      id,
+      titulo: `Tarea ${id}`,
+      objetivo: '',
+      tipo: 'implementacion' as const,
+      criterios: [],
+      requisitos: [],
+      depende_de,
+      escribe: ['src/**'],
+      lee: [],
+      recursos_exclusivos: [],
+      complejidad,
+      red: false,
+      notas: '',
+    });
+    const snap = snapshot([task('T-001', 'integrada'), task('T-002', 'ejecutando'), task('T-003', 'pendiente'), task('T-004', 'pendiente')]);
+    snap.plan = {
+      perfil: null,
+      supuestos: [],
+      spec_hash: 'h',
+      tareas: [def('T-001'), def('T-002', ['T-001']), def('T-003', ['T-002'], 'alta'), def('T-004', ['T-001'], 'baja')],
+    } as unknown as RunSnapshot['plan'];
+    const { app } = setup(snap);
+    await app.refresh();
+    await key(app, 'g');
+    const text = (app.model.screen as { lines: string[] }).lines.join('\n');
+    expect(text).toContain('Ola 1: ✔ T-001');
+    expect(text).toMatch(/Camino crítico de lo que falta: T-002 → T-003/);
+    expect(text).toContain('T-003 espera a T-002');
+    expect(text).toContain('  T-002 → T-003');
+  });
+
+  it('muestra el tiempo restante estimado en el progreso', () => {
+    const snap = snapshot(TASKS);
+    snap.eta = { minutos: 42.4, factor: 1.3, medidas: 3, paralelo: 2 };
+    const m: BoardModel = { project: 'p', snapshot: snap, selected: 0, runLog: [], runnerAlive: true, screen: { kind: 'principal' }, prompt: null, flash: null, now: NOW, filter: 'todas' };
+    expect(renderBoard(m, 140, 40, plain).join('\n')).toContain('≈42 min restantes (estimación ×1.3 según 3 tareas medidas)');
+  });
+
+  it('aprobar el plan muestra el resumen y pide confirmación escrita', async () => {
+    const snap = snapshot([]);
+    snap.pending = [];
+    const { app, source } = setup(snap);
+    await app.refresh();
+    await key(app, 'a');
+    expect(app.model.flash).toMatch(/no hay un plan esperando/);
+    snap.pending = [{ kind: 'aprobacion', id: 'plan', text: 'el plan espera tu aprobación', action: 'forja aprobar plan' }];
+    await key(app, 'a');
+    expect(app.model.screen).toMatchObject({ title: 'Plan · aprobar', lines: ['Plan de prueba', 'Ola 1: T-001'] });
+    await type(app, 'no');
+    await app.handleKey(undefined, { name: 'return' });
+    expect(source.planApprovals).toBe(0);
+    await key(app, 'a');
+    await type(app, 'si');
+    await app.handleKey(undefined, { name: 'return' });
+    expect(source.planApprovals).toBe(1);
+    expect(app.model.screen.kind).toBe('principal');
+    expect(app.model.flash).toBe('plan aprobado');
+  });
+
+  it('x recorre las acciones propuestas y aprueba sólo lo confirmado, con el hash visto', async () => {
+    const { app, source } = setup();
+    source.actions = [
+      { id: 'acc_1', hash: 'h1', title: 'http.json en tienda', preview: ['peticion: POST https://x/pedidos'] },
+      { id: 'acc_2', hash: 'h2', title: 'correo.enviar en correo', preview: ['para: a@b.co'] },
+    ];
+    await app.refresh();
+    await key(app, 'x');
+    expect(app.model.screen).toMatchObject({ lines: ['peticion: POST https://x/pedidos'] });
+    await type(app, 'si');
+    await app.handleKey(undefined, { name: 'return' });
+    expect(app.model.screen).toMatchObject({ lines: ['para: a@b.co'] });
+    await type(app, 'luego');
+    await app.handleKey(undefined, { name: 'return' });
+    expect(source.approvedActions).toEqual([['acc_1', 'h1']]);
+    expect(app.model.screen.kind).toBe('principal');
+    source.actions = [];
+    await key(app, 'x');
+    expect(app.model.flash).toMatch(/no hay acciones externas/);
+  });
+
+  it('p pausa o reanuda la tarea elegida', async () => {
+    const { app, source } = setup();
+    await app.refresh();
+    await app.handleKey(undefined, { name: 'down' });
+    await key(app, 'p');
+    expect(source.toggles).toEqual(['T-002']);
+    expect(app.model.flash).toBe('⏸ T-002');
   });
 });

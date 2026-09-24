@@ -94,11 +94,11 @@ sólo se pueden hacer con tus sesiones de Claude y Codex:
 
 | # | Prioridad | Qué |
 |---|---|---|
-| 6.1 | P2 | Diff con color y navegación por archivo |
-| 6.2 | P2 | Filtro de tareas por estado y búsqueda en logs (`/`) |
-| 6.3 | P3 | Vista de dependencias (grafo en texto: qué espera a qué, camino crítico) |
-| 6.4 | P3 | Aprobar el plan y las acciones desde el tablero (con el mismo resumen que el panel) |
-| 6.5 | P3 | Tiempo estimado restante con la estimación del plan corregida por lo ya medido |
+| 6.1 | ✅ | Diff con color y navegación por archivo — **Hecho:** `d` abre el diff con estilo «diff» (añadidas en verde, quitadas en rojo, `@@` en cian, cabeceras en negrita; el texto no cambia, el color sólo ayuda) y `]`/`[` saltan al siguiente/anterior `diff --git` (`src/tui/board.ts`, `src/tui/app.ts`). |
+| 6.2 | ✅ | Filtro de tareas por estado y búsqueda en logs (`/`) — **Hecho:** `f` recorre los filtros todas/en curso/esperan algo de ti/por empezar/terminadas (`TASK_FILTERS` en `src/run/describe.ts`); la selección indexa la lista filtrada y `r` quita un filtro que esconde la pregunta. En cualquier texto, `/` busca sin distinguir mayúsculas, resalta las coincidencias y `n`/`N` las recorren, volviendo al principio aunque la última esté en la última página. |
+| 6.3 | ✅ | Vista de dependencias (grafo en texto: qué espera a qué, camino crítico) — **Hecho:** `g` muestra `dependencyLines`: olas con su estado actual, camino crítico de lo que falta (minutos estimados de la cadena más larga), qué tarea espera a cuál y cuáles desbloquean más trabajo. |
+| 6.4 | ✅ | Aprobar el plan y las acciones desde el tablero (con el mismo resumen que el panel) — **Hecho:** `a` muestra el resumen del plan (tareas, olas, estimación, archivos y criterios) y aprueba con «si» usando la misma función que el panel (`EngineBoardSource.approvePlan`, que el panel ahora reutiliza). `x` recorre las acciones propuestas con su vista previa sin secretos y aprueba sólo con «si» y el hash que el usuario vio; ejecutar sigue en la terminal con la bóveda. |
+| 6.5 | ✅ | Tiempo estimado restante con la estimación del plan corregida por lo ya medido — **Hecho:** `src/run/eta.ts`: lo que falta del plan se programa sobre N agentes (`scheduleMinutes`), corregido por el factor real/estimado de las tareas ya integradas en este run (con ≥2 medidas, acotado a ×0.25–×4), descontando lo ya trabajado en las tareas en curso. Se muestra siempre como estimación en el tablero, `forja estado`, el JSON (`minutos_restantes`, `factor_medido`) y el panel. |
 
 ## 7. Ideas a evaluar (sin compromiso)
 

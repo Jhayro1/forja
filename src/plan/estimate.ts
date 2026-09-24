@@ -45,26 +45,38 @@ function roleFor(task: PlanTask): 'trabajador' | 'complejo' {
   return task.complejidad === 'alta' ? 'complejo' : 'trabajador';
 }
 
-/** List scheduling with N slots over the DAG: rough wall-clock time. */
-function parallelMinutes(plan: Plan, slots: number): number {
-  const remaining = new Map(plan.tareas.map((t) => [t.id, t]));
-  const done = new Map<string, number>();
+/** Expected minutes of one task including retries (uncalibrated). */
+export const taskMinutes = (t: Pick<PlanTask, 'complejidad'>): number => MINUTES[t.complejidad] * ATTEMPT_FACTOR;
+
+/**
+ * List scheduling with N slots over a DAG: rough wall-clock minutes. Dependencies
+ * outside `tasks` (already done) do not wait.
+ */
+export function scheduleMinutes(tasks: readonly Pick<PlanTask, 'id' | 'depende_de'>[], slots: number, minutesOf: (id: string) => number): number {
+  const ids = new Set(tasks.map((t) => t.id));
+  const remaining = new Map(tasks.map((t) => [t.id, t]));
+  const done = new Set<string>();
   const running: { id: string; end: number }[] = [];
   let now = 0;
   while (remaining.size > 0 || running.length > 0) {
-    const ready = [...remaining.values()].filter((t) => t.depende_de.every((d) => done.has(d) || !plan.tareas.some((x) => x.id === d)));
+    const ready = [...remaining.values()].filter((t) => t.depende_de.every((d) => done.has(d) || !ids.has(d)));
     while (running.length < slots && ready.length > 0) {
       const t = ready.shift()!;
       remaining.delete(t.id);
-      running.push({ id: t.id, end: now + MINUTES[t.complejidad] * ATTEMPT_FACTOR });
+      running.push({ id: t.id, end: now + minutesOf(t.id) });
     }
     if (running.length === 0) break; // unreachable dependencies
     running.sort((a, b) => a.end - b.end);
     const next = running.shift()!;
     now = next.end;
-    done.set(next.id, now);
+    done.add(next.id);
   }
   return Math.round(now);
+}
+
+function parallelMinutes(plan: Plan, slots: number): number {
+  const byId = new Map(plan.tareas.map((t) => [t.id, t]));
+  return scheduleMinutes(plan.tareas, slots, (id) => taskMinutes(byId.get(id)!));
 }
 
 export function estimatePlan(plan: Plan, config: ForjaConfig, prices: Prices | null): Estimate {

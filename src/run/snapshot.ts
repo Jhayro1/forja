@@ -8,6 +8,7 @@ import { activeChange, type ChangeRow, listChanges } from '../planner/session.js
 import { latestSpec, specAnswers } from '../spec/generate.js';
 import { listTasks } from '../store/projections.js';
 import { type AgentActivity, agentActivity } from './activity.js';
+import { type Eta, remainingTime } from './eta.js';
 import { type ExecRow, getExec, type RunRow, runsOf } from './records.js';
 
 /**
@@ -54,6 +55,8 @@ export type RunSnapshot = {
   providerPauses: ProviderPause[];
   /** Scripted agents are active (FORJA_SIMULACION): shown everywhere so a demo is never taken for real work. */
   demo: boolean;
+  /** Remaining time estimate while the run is open (MEJORAS 6.5). */
+  eta: Eta | null;
   nextStep: string;
 };
 
@@ -187,6 +190,15 @@ export function runSnapshot(engine: Engine, change: ChangeRow): RunSnapshot {
     deliveryBranch: delivered,
     providerPauses: activePauses(engine),
     demo: engine.simulation !== undefined,
+    eta:
+      run && plan && run.state !== 'completado' && run.state !== 'cancelado'
+        ? remainingTime(
+            engine,
+            run,
+            plan,
+            tasks.map((t) => ({ id: t.id, state: t.state })),
+          )
+        : null,
     nextStep: nextStep(change, run, approved, pending, delivered),
   };
 }

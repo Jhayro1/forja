@@ -92,7 +92,7 @@ export function loadResolveContext(root: string, files: readonly string[]): Reso
       : [];
   if (existsSync(join(root, 'pnpm-workspace.yaml'))) {
     try {
-      globs = [...globs, ...(((parseYaml(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')) as { packages?: string[] }) ?? {}).packages ?? [])];
+      globs = [...globs, ...((parseYaml(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')) as { packages?: string[] })?.packages ?? [])];
     } catch {
       // Unreadable: no workspaces from it.
     }

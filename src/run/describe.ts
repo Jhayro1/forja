@@ -1,5 +1,7 @@
 import { TEXTOS } from '../i18n/textos.js';
-import type { PlanTask } from '../plan/plan.js';
+import { taskMinutes } from '../plan/estimate.js';
+import { type PlanTask, waves } from '../plan/plan.js';
+import { etaLabel } from './eta.js';
 import { compactTokens, elapsed, type RunSnapshot, type TaskView } from './snapshot.js';
 
 /**
@@ -29,7 +31,7 @@ export function taskActivityLine(t: TaskView, now = Date.now()): string {
 
 export function progressLine(s: RunSnapshot): string {
   const running = s.tasks.filter((t) => t.state === 'reservada' || t.state === 'ejecutando').length;
-  return `${s.integrated}/${s.total} integradas · ${running} agente(s) trabajando`;
+  return `${s.integrated}/${s.total} integradas · ${running} agente(s) trabajando${s.eta ? ` · ${etaLabel(s.eta)}` : ''}`;
 }
 
 export function taskDetailLines(t: TaskView, def: PlanTask | undefined): string[] {
@@ -72,4 +74,74 @@ export function taskDetailLines(t: TaskView, def: PlanTask | undefined): string[
     ...(e.last_error ? ['', `Último error: ${e.last_error}`] : []),
   ];
   return lines;
+}
+
+/** Task filters of the board (MEJORAS 6.2). */
+export const TASK_FILTERS = ['todas', 'activas', 'para_ti', 'pendientes', 'terminadas'] as const;
+export type TaskFilter = (typeof TASK_FILTERS)[number];
+export const FILTER_LABEL: Record<TaskFilter, string> = { todas: 'todas', activas: 'en curso', para_ti: 'esperan algo de ti', pendientes: 'por empezar', terminadas: 'terminadas' };
+
+export function matchesFilter(t: TaskView, f: TaskFilter): boolean {
+  switch (f) {
+    case 'todas':
+      return true;
+    case 'activas':
+      return ['reservada', 'ejecutando', 'verificando', 'verificada', 'integrando'].includes(t.state);
+    case 'para_ti':
+      return ['esperando_respuesta', 'bloqueada', 'pausada'].includes(t.state);
+    case 'pendientes':
+      return t.state === 'pendiente' || t.state === 'lista';
+    case 'terminadas':
+      return ['integrada', 'invalidada', 'cancelada'].includes(t.state);
+  }
+}
+
+/**
+ * Dependencies as text (MEJORAS 6.3): waves with their current state, the
+ * critical path of what is left (the chain that decides when the run ends),
+ * what waits on what, and which tasks unblock the most work.
+ */
+export function dependencyLines(s: RunSnapshot): string[] {
+  const plan = s.plan;
+  if (!plan) return ['Todavía no hay plan.'];
+  const state = new Map(s.tasks.map((t) => [t.id, t.state]));
+  const label = (id: string) => `${STATE_ICON[state.get(id) ?? 'pendiente'] ?? '·'} ${id}`;
+  const done = (id: string) => ['integrada', 'invalidada', 'cancelada'].includes(state.get(id) ?? '');
+  const byId = new Map(plan.tareas.map((t) => [t.id, t]));
+  const out = ['Olas del plan (estado actual):'];
+  waves(plan.tareas).forEach((w, i) => out.push(`  Ola ${i + 1}: ${w.map((id) => `${label(id)} ${byId.get(id)?.titulo ?? ''}`.trim()).join('  ·  ')}`));
+
+  // Longest remaining chain by estimated minutes.
+  const memo = new Map<string, { minutes: number; chain: string[] }>();
+  const longest = (id: string): { minutes: number; chain: string[] } => {
+    const known = memo.get(id);
+    if (known) return known;
+    const t = byId.get(id)!;
+    const own = done(id) ? 0 : taskMinutes(t);
+    const next = plan.tareas.filter((x) => x.depende_de.includes(id)).map((x) => longest(x.id));
+    const best = next.sort((a, b) => b.minutes - a.minutes)[0] ?? { minutes: 0, chain: [] };
+    const r = { minutes: own + best.minutes, chain: done(id) ? best.chain : [id, ...best.chain] };
+    memo.set(id, r);
+    return r;
+  };
+  const roots = plan.tareas.filter((t) => t.depende_de.every((d) => done(d) || !byId.has(d)) && !done(t.id));
+  const critical = roots.map((t) => longest(t.id)).sort((a, b) => b.minutes - a.minutes)[0];
+  out.push('');
+  out.push(
+    critical?.chain.length ? `Camino crítico de lo que falta: ${critical.chain.join(' → ')} (~${Math.round(critical.minutes)} min sin reintentos extra)` : 'Camino crítico: no queda nada por hacer.',
+  );
+
+  const waiting = plan.tareas
+    .filter((t) => !done(t.id))
+    .flatMap((t) => {
+      const missing = t.depende_de.filter((d) => !done(d));
+      return missing.length ? [`  ${t.id} espera a ${missing.map((d) => `${d} (${STATE_LABEL[state.get(d) ?? 'pendiente'] ?? state.get(d)})`).join(', ')}`] : [];
+    });
+  out.push('', waiting.length ? 'Esperando:' : 'Nada espera a otra tarea.', ...waiting);
+  const unblocks = plan.tareas
+    .map((t) => ({ id: t.id, next: plan.tareas.filter((x) => x.depende_de.includes(t.id)).map((x) => x.id) }))
+    .filter((x) => x.next.length && !done(x.id))
+    .sort((a, b) => b.next.length - a.next.length);
+  if (unblocks.length) out.push('', 'Desbloquean a otras:', ...unblocks.map((u) => `  ${u.id} → ${u.next.join(', ')}`));
+  return out;
 }

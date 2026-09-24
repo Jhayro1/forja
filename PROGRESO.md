@@ -5,7 +5,7 @@ Formato: fecha · punto · qué quedó · cómo se verificó · qué sigue.
 
 ## Dónde estoy
 
-**Último punto terminado:** V2-014 · **Siguiente:** V2-015 (registro de proyectos, CLI base)
+**Último punto terminado:** V2-015 · **Siguiente:** V2-016 (runner supervisado con spool)
 
 ## Bitácora
 
@@ -18,3 +18,4 @@ Formato: fecha · punto · qué quedó · cómo se verificó · qué sigue.
 | 2026-09-24 | V2-012 | Almacén de eventos SQLite, comandos idempotentes, outbox, proyección de tareas | 11 tests |
 | 2026-09-24 | V2-013 | Parsers de Claude/Codex con fixtures reales, proveedor simulado, `forja doctor` | 21 tests |
 | 2026-09-24 | V2-014 | Redactor (valores conocidos + variantes base64/url + formas típicas; streaming por líneas que no parte secretos ni llaves privadas), entorno por lista positiva, política efectiva = intersección de lo pedido con lo aprobado | 10 tests; un test encontró y corrigió una fuga en el redactor de streaming |
+| 2026-09-24 | V2-015 | Registro global (checkouts separados por clon), forja.yaml validado (claves desconocidas = error), importación estática (commits, sucio, submódulos, LFS, symlinks, lenguajes), bloqueo por proyecto con identidad pid+inicio, comandos nuevo/importar/proyectos/usar/proyecto archivar/desarchivar/vincular. La API local autenticada se hace junto con el tablero (V2-039) | 8 tests + prueba manual del CLI (clon, nombre duplicado, carpeta movida) |

@@ -145,6 +145,17 @@ const MIGRATIONS: readonly string[] = [
     created_at   TEXT NOT NULL
   );
   `,
+  `
+  -- User answers to open questions of a spec (incorporated in the next revision).
+  CREATE TABLE spec_answers (
+    change_id   TEXT NOT NULL REFERENCES changes(change_id),
+    question_id TEXT NOT NULL,
+    question    TEXT NOT NULL,
+    answer      TEXT NOT NULL,
+    answered_seq INTEGER NOT NULL,
+    PRIMARY KEY (change_id, question_id)
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

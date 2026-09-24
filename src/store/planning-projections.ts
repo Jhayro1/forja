@@ -15,6 +15,7 @@ export const EV = {
   approvalGranted: 'aprobacion.otorgada',
   approvalState: 'aprobacion.estado_cambiado',
   usage: 'uso.observado',
+  specAnswer: 'spec.pregunta_respondida',
 } as const;
 
 export const ChangeCreated = z.object({ title: z.string().min(1), mode: z.enum(['idea', 'mejora']) }).strict();
@@ -53,6 +54,8 @@ export const UsageObserved = z
     cost_micro: z.number().nullable(),
   })
   .strict();
+
+export const SpecAnswer = z.object({ question_id: z.string(), question: z.string(), answer: z.string().min(1) }).strict();
 
 export class PlanningProjectionError extends Error {}
 
@@ -142,10 +145,18 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
       ).run(p.launch_id, e.aggregate_type === 'cambio' ? id : null, e.run_id, e.task_id, p.role, p.provider, p.model, p.input, p.output, p.cache_read, p.cache_write, p.cost_micro, e.occurred_at);
       return;
     }
+    case EV.specAnswer: {
+      const p = SpecAnswer.parse(e.payload);
+      db.prepare(
+        `INSERT INTO spec_answers (change_id, question_id, question, answer, answered_seq) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(change_id, question_id) DO UPDATE SET answer = excluded.answer, answered_seq = excluded.answered_seq`,
+      ).run(id, p.question_id, p.question, p.answer, e.seq);
+      return;
+    }
     default:
       return;
   }
 }
 
 /** Deletion order respects foreign keys. */
-export const PLANNING_TABLES = ['planner_turns', 'discovery', 'specs', 'plans', 'approvals', 'usage', 'changes'] as const;
+export const PLANNING_TABLES = ['planner_turns', 'discovery', 'spec_answers', 'specs', 'plans', 'approvals', 'usage', 'changes'] as const;

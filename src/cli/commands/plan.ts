@@ -14,6 +14,13 @@ import {
   transcript,
   type TurnResult,
 } from '../../planner/session.js';
+import { approvePlan, currentApproval, gateProblems } from '../../plan/approve.js';
+import { dividePlan, latestPlan } from '../../plan/divide.js';
+import { estimatePlan, loadPrices, type Estimate } from '../../plan/estimate.js';
+import { waves, type Plan } from '../../plan/plan.js';
+import { renderDocs, writeDocs } from '../../spec/docs.js';
+import { answerSpecQuestion, changeDir, generateSpec, latestSpec } from '../../spec/generate.js';
+import { blockingQuestions } from '../../spec/spec.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
 import { hasProductCode, openEngine, repoEvidence, type EngineContext } from '../engine-context.js';
 
@@ -205,4 +212,170 @@ export function registerPlanCommands(program: Command): void {
         ctx.close();
       }
     });
+
+  program
+    .command('especificar')
+    .description('convierte el descubrimiento aprobado en especificación y documentos')
+    .action(async (_o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const change = activeChange(ctx.engine);
+        if (!change) throw new CliError('no hay un cambio en curso; empieza con: forja planear', EXIT.precondition);
+        const stop = spinner(`especificando con ${ctx.config.roles.planeador[0]}…`);
+        let result;
+        try {
+          result = await generateSpec(ctx.engine, {
+            changeId: change.change_id,
+            repoPath: ctx.checkout.path,
+            projectId: ctx.config.project_id,
+            ...(await planningInputs(ctx, change.mode)),
+          });
+        } catch (error) {
+          if (error instanceof NoProviderError || error instanceof PlannerError) throw new CliError(error.message, EXIT.environment);
+          throw error;
+        } finally {
+          stop();
+        }
+        const dir = changeDir(ctx.checkout.path, change.change_id);
+        const report = writeDocs(dir, result.spec, renderDocs(result.spec));
+        const errors = result.issues.filter((i) => i.severity === 'error');
+        const warnings = result.issues.filter((i) => i.severity === 'aviso');
+        if (g.json) return printJson({ spec: { revision: result.revision, hash: result.hash }, problemas: result.issues, documentos: report, carpeta: dir });
+        const s = result.spec;
+        print(`${errors.length ? '!' : '✔'} Especificación revisión ${result.revision} (${result.attempts} llamada${result.attempts > 1 ? 's' : ''} al planeador)`);
+        print(`  ${s.casos_uso.length} casos de uso · ${s.criterios.length} criterios · ${s.requisitos.length} requisitos · ${s.reglas.length} reglas · ${s.entidades.length} entidades`);
+        print(`  Documentos en ${dir}`);
+        print(`  ${report.written.length} escritos · ${report.unchanged.length} sin cambios${report.conflicts.length ? ` · ${report.conflicts.length} editados a mano (versión nueva en .nuevo)` : ''}`);
+        for (const e of errors) print(`  ✘ ${e.path}: ${e.message}`);
+        for (const w of warnings) print(`  ! ${w.path}: ${w.message}`);
+        const qs = blockingQuestions(s);
+        for (const q of qs) print(`  ? ${q.id} ${q.texto} (bloquea ${q.bloquea.join(', ')})`);
+        print(errors.length ? '\nCorrige o vuelve a ejecutar forja especificar.' : '\nSiguiente paso: forja dividir');
+        if (errors.length) process.exitCode = EXIT.verification;
+      } finally {
+        ctx.close();
+      }
+    });
+
+  program
+    .command('responder <pregunta> <respuesta...>')
+    .description('responde una pregunta pendiente de la especificación (luego: forja especificar)')
+    .action(async (questionId: string, words: string[], _o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const change = activeChange(ctx.engine);
+        if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
+        try {
+          answerSpecQuestion(ctx.engine, change.change_id, questionId.toUpperCase(), words.join(' '));
+        } catch (error) {
+          throw new CliError((error as Error).message, EXIT.input);
+        }
+        const pending = (latestSpec(ctx.engine, change.change_id)?.spec.preguntas ?? []).filter(
+          (q) => !ctx.engine.store.db.prepare('SELECT 1 FROM spec_answers WHERE change_id = ? AND question_id = ?').get(change.change_id, q.id),
+        );
+        print(`✔ Respuesta a ${questionId.toUpperCase()} registrada.`);
+        print(pending.length ? `  Quedan ${pending.length} pregunta(s): ${pending.map((q) => q.id).join(', ')}` : '  No quedan preguntas: ejecuta forja especificar para incorporar las respuestas.');
+      } finally {
+        ctx.close();
+      }
+    });
+
+  program
+    .command('dividir')
+    .description('divide la especificación en tareas ejecutables (con estimación)')
+    .action(async (_o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const change = activeChange(ctx.engine);
+        if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
+        const stop = spinner(`dividiendo en tareas con ${ctx.config.roles.planeador[0]}…`);
+        let result;
+        try {
+          result = await dividePlan(ctx.engine, {
+            changeId: change.change_id,
+            repoPath: ctx.checkout.path,
+            hasCode: await hasProductCode(ctx.checkout.path),
+            ...(await planningInputs(ctx, change.mode)),
+          });
+        } catch (error) {
+          if (error instanceof NoProviderError || error instanceof PlannerError) throw new CliError(error.message, EXIT.precondition);
+          throw error;
+        } finally {
+          stop();
+        }
+        const estimate = estimatePlan(result.plan, ctx.config, loadPrices(ctx.home));
+        if (g.json) return printJson({ plan: result.plan, hash: result.hash, problemas: result.issues, estimacion: estimate });
+        const errors = result.issues.filter((i) => i.severity === 'error');
+        print(`${errors.length ? '!' : '✔'} Plan revisión ${result.plan.revision}: ${result.plan.tareas.length} tareas en ${waves(result.plan.tareas).length} olas`);
+        for (const e of errors) print(`  ✘ ${e.task ?? 'plan'}: ${e.message}`);
+        for (const w of result.issues.filter((i) => i.severity === 'aviso')) print(`  ! ${w.task ?? 'plan'}: ${w.message}`);
+        showPlan(result.plan, estimate);
+        print(errors.length ? '\nEl plan tiene errores: vuelve a ejecutar forja dividir.' : '\nRevisa el plan y apruébalo con: forja aprobar plan');
+      } finally {
+        ctx.close();
+      }
+    });
+
+  program
+    .command('plan')
+    .description('muestra el plan vigente, su estimación y si está aprobado')
+    .action(async (_o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const change = activeChange(ctx.engine);
+        const current = change ? latestPlan(ctx.engine, change.change_id) : null;
+        if (!change || !current) throw new CliError('todavía no hay plan; ejecuta forja dividir', EXIT.precondition);
+        const estimate = estimatePlan(current.plan, ctx.config, loadPrices(ctx.home));
+        const approval = currentApproval(ctx.engine, change.change_id);
+        if (g.json) return printJson({ plan: current.plan, hash: current.hash, estimacion: estimate, aprobacion: approval, problemas: gateProblems(ctx.engine, change.change_id) });
+        print(`Plan de «${change.title}» · revisión ${current.revision} · ${approval ? `aprobado (${approval.approval_id})` : 'sin aprobar'}`);
+        showPlan(current.plan, estimate);
+      } finally {
+        ctx.close();
+      }
+    });
+
+  const aprobarCmd = program.commands.find((c) => c.name() === 'aprobar')!;
+  aprobarCmd
+    .command('plan')
+    .description('aprueba exactamente esta especificación, este plan, este perfil y esta política')
+    .action(async (_o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const change = activeChange(ctx.engine);
+        if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
+        let approval;
+        try {
+          approval = approvePlan(ctx.engine, change.change_id);
+        } catch (error) {
+          throw new CliError((error as Error).message, EXIT.precondition);
+        }
+        print(`✔ Plan aprobado (${approval.approval_id}): ${approval.allowed_task_ids.length} tareas.`);
+        print('  Cualquier cambio en la especificación, el plan, el perfil o la política invalida esta aprobación.');
+        print('  Siguiente paso: forja run');
+      } finally {
+        ctx.close();
+      }
+    });
+}
+
+function showPlan(plan: Plan, e: Estimate): void {
+  print(`  Stack: ${plan.perfil.stack.join(', ')} (${plan.perfil.gestor}) · test: ${plan.perfil.comandos.test ? [plan.perfil.comandos.test.executable, ...plan.perfil.comandos.test.args].join(' ') : '—'}`);
+  const byId = new Map(plan.tareas.map((t) => [t.id, t]));
+  waves(plan.tareas).forEach((w, i) => {
+    print(`  Ola ${i + 1}:`);
+    for (const id of w) {
+      const t = byId.get(id)!;
+      print(`    ${t.id} [${t.tipo}, ${t.complejidad}] ${t.titulo}${t.depende_de.length ? `  ← ${t.depende_de.join(', ')}` : ''}`);
+    }
+  });
+  print('  Estimación (sin calibrar):');
+  for (const [role, r] of Object.entries(e.por_rol)) print(`    ${role.padEnd(11)} ${r.modelo.padEnd(20)} ~${r.llamadas} llamadas · ${Math.round(r.entrada / 1000)}k entrada · ${Math.round(r.salida / 1000)}k salida`);
+  print(`    Tiempo: ~${e.minutos_en_paralelo} min con ${e.paralelo} en paralelo (≈${e.minutos_en_serie} min en serie)`);
+  print(`    Costo: ${e.costo_equivalente_usd === null ? 'desconocido' : `~US$ ${e.costo_equivalente_usd}`} — ${e.costo_nota}`);
 }

@@ -15,6 +15,15 @@ Funciona con las **suscripciones** de Claude y Codex: maneja sus CLI oficiales
 > Estado: **definición**. Aquí sólo hay documentación; todavía no hay código.
 > El propio proyecto se especifica con el método que va a automatizar.
 
+## Estado del código
+
+M1 en curso: dominio (ids, hash canónico, estados de tarea, aprobaciones), almacén de eventos en SQLite, parsers de Claude y Codex probados con salidas reales de [M0](m0/RESULTADOS.md), proveedor simulado y `forja doctor`.
+
+```bash
+npm install && npm run check   # typecheck + tests
+npm run build && node dist/cli/main.js doctor
+```
+
 ## Cómo leer esta carpeta
 
 | # | Documento | De qué trata |

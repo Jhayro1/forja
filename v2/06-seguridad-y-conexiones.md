@@ -23,6 +23,8 @@ El CLI necesita comunicarse con su proveedor, mientras las herramientas no deben
 
 Forja no extrae, copia ni distribuye tokens de sesión. El usuario autentica el binario oficial. El proceso del CLI y su almacén de credenciales pertenecen a una zona de confianza; las herramientas ejecutadas deben quedar privadas de leerlos. Si un modo no logra esa separación, no se certifica para ejecución autónoma. La alternativa es otro modo oficialmente soportado o limitarse a planificación, no desactivar controles en silencio.
 
+**Decisión D2-21 (M0).** Cada usuario usa sus propias cuentas en su propia máquina. `forja doctor` comprueba que `claude` y `codex` estén instalados y con sesión iniciada; si no, indica el comando oficial (`claude`, `codex login`) y nunca pide la credencial. Riesgo residual aceptado: una herramienta del agente puede leer el login de su mismo CLI. Con una inyección desde contenido no confiable, el peor caso es el uso de la suscripción de ese usuario hasta que cierre sesión. Mitigaciones: sin red para herramientas (D2-20), revisión de diffs por el valor exacto del token y redacción en logs.
+
 No se heredan todas las variables del daemon. Entorno por lista positiva; sin tokens Git, SSH agent, sockets Docker ni clave maestra. No usar permisos de root como solución a incompatibilidades.
 
 ## Secretos y bóveda futura

@@ -22,9 +22,9 @@
 
 | Tema | Recomendación de esta revisión | Momento de confirmar |
 |---|---|---|
-| Plataforma y stack inicial | Linux, un usuario, TS/JS | Antes de M0; si cambia, añadir matriz correspondiente |
+| Plataforma y stack inicial | **Linux y Windows vía WSL2** (D2-19), un usuario, proyectos TS/JS; Windows nativo y macOS después | Decidido 2026-09-24 |
 | Proveedores del MVP | **Claude y Codex** (decidido por el usuario); uno bloqueado no detiene al otro | V2-005 |
-| Mecanismo exacto de sandbox/runner | Backend Linux que demuestre separación de auth y herramientas | V2-003/V2-004; bloquea workers reales |
+| Mecanismo exacto de sandbox/runner | bwrap de Forja (`--die-with-parent --unshare-pid`, `$HOME` oculto) + filtro de red propio (D2-20); login del propio CLI visible, aceptado (D2-21) | Decidido con evidencia de M0 |
 | Modelos efectivos | Catálogo inicial Claude (fable, opus, sonnet, haiku) y Codex (gpt-6-astra, gpt-6-sol, gpt-6-luna), configurable y verificado | M0 (V2-006) y evaluación M4 |
 | Precio/suscripción/API | Respetar modo elegido, informar capacidades y costo observado | M0; sin cobros implícitos por fallback |
 | Alcance de UI inicial | **Tablero de terminal detallado en M3** (decidido por el usuario); panel web en M4 | M3/M4 |

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.forja-dev/
+*.log
+.env
+.env.*

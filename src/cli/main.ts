@@ -10,6 +10,7 @@ import { registerPlanCommands } from './commands/plan.js';
 import { registerProjectCommands } from './commands/projects.js';
 import { registerRunCommands } from './commands/run.js';
 import { registerUiCommands } from './commands/ui.js';
+import { registerVaultCommands } from './commands/vault.js';
 import { FORJA_VERSION } from '../version.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from './context.js';
 
@@ -60,6 +61,7 @@ registerRunCommands(program);
 registerUiCommands(program);
 registerConformanceCommands(program);
 registerPilotCommands(program);
+registerVaultCommands(program);
 
 try {
   await program.parseAsync();

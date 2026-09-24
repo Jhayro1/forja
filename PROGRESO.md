@@ -5,7 +5,7 @@ Formato: fecha · punto · qué quedó · cómo se verificó · qué sigue.
 
 ## Dónde estoy
 
-**Último punto terminado:** V2-016 · **Siguiente:** V2-017 (backup y restauración)
+**Último punto terminado:** V2-017 · **Siguiente:** V2-018 (adaptadores reales Claude y Codex)
 
 ## Bitácora
 
@@ -20,3 +20,4 @@ Formato: fecha · punto · qué quedó · cómo se verificó · qué sigue.
 | 2026-09-24 | V2-014 | Redactor (valores conocidos + variantes base64/url + formas típicas; streaming por líneas que no parte secretos ni llaves privadas), entorno por lista positiva, política efectiva = intersección de lo pedido con lo aprobado | 10 tests; un test encontró y corrigió una fuga en el redactor de streaming |
 | 2026-09-24 | V2-015 | Registro global (checkouts separados por clon), forja.yaml validado (claves desconocidas = error), importación estática (commits, sucio, submódulos, LFS, symlinks, lenguajes), bloqueo por proyecto con identidad pid+inicio, comandos nuevo/importar/proyectos/usar/proyecto archivar/desarchivar/vincular. La API local autenticada se hace junto con el tablero (V2-039) | 8 tests + prueba manual del CLI (clon, nombre duplicado, carpeta movida) |
 | 2026-09-24 | V2-016 | Runner separado por lanzamiento: orden durable antes del proceso, candado por lanzamiento (orden duplicada no lanza otro escritor), spool redactado con seq, latido, tiempo máximo, cancelación, resultado atómico. Sandbox bwrap: HOME real oculto, sólo el workspace escribible, --unshare-pid + --die-with-parent. Filtro de red D2-20: sin red + proxy CONNECT con lista de hosts. Probado con los CLI reales: Claude y Codex funcionan montando sólo su archivo de credenciales y saliendo sólo a su API (api.anthropic.com / chatgpt.com); telemetría y red de herramientas bloqueadas | 9 tests (incluye kill -9 que no deja huérfanos con setsid, aislamiento de disco y red, proxy 403/502) + pruebas manuales con claude y codex reales |
+| 2026-09-24 | V2-017 | Copias: instantánea consistente de la base (VACUUM INTO), lanzamientos, bundle de las ramas forja/*, manifiesto con tamaño y sha256; verificación (archivos, hashes, integrity_check); restauración que exige copia verificada, aparta el estado actual (no borra) y sólo toca ramas de Forja; comandos forja backup crear/listar/verificar/restaurar --confirmar | 4 tests + prueba manual del CLI |

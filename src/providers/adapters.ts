@@ -24,6 +24,8 @@ export type LaunchParams = {
   /** Private launch input directory (schema, simulator script), mounted read-only. */
   inputsDir: string;
   tools: ToolProfile;
+  /** Mount the workspace read-only (planner, reviewer). */
+  workspaceReadOnly?: boolean;
   /** Extra hosts beyond the provider API (e.g. a package registry for an install task). */
   extraHosts?: string[];
   outputSchema?: object;
@@ -146,6 +148,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         mounts: commonMounts(p, cred, '.credentials.json'),
         read_only: binaryBinds([this.executable, process.execPath]),
         network_hosts: [...ClaudeAdapter.HOSTS, ...(p.extraHosts ?? [])],
+        workspace_read_only: p.workspaceReadOnly ?? false,
       },
       redact_files: [cred],
     };
@@ -194,6 +197,7 @@ export class CodexAdapter implements ProviderAdapter {
         mounts: commonMounts(p, cred, 'auth.json'),
         read_only: binaryBinds([this.executable, process.execPath]),
         network_hosts: [...CodexAdapter.HOSTS, ...(p.extraHosts ?? [])],
+        workspace_read_only: p.workspaceReadOnly ?? false,
       },
       redact_files: [cred],
     };
@@ -234,6 +238,7 @@ export class SimulatedAdapter implements ProviderAdapter {
             ],
             read_only: binaryBinds([process.execPath]),
             network_hosts: [],
+            workspace_read_only: p.workspaceReadOnly ?? false,
           }
         : { mode: 'ninguno' },
       redact_files: [],

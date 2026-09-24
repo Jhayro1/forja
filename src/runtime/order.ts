@@ -26,6 +26,7 @@ export const LaunchOrder = z
           mounts: z.array(z.object({ src: z.string(), dest: z.string(), rw: z.boolean() }).strict()),
           read_only: z.array(z.string()),
           network_hosts: z.array(z.string()).nullable(),
+          workspace_read_only: z.boolean().default(false),
         })
         .strict(),
       /** Only for Forja's own tests: runs the command without isolation. */

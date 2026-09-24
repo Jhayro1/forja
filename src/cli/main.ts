@@ -5,6 +5,7 @@ import { overall, runChecks, type Level } from '../doctor/checks.js';
 import { ConfigError } from '../registry/config.js';
 import { ProjectError } from '../registry/projects.js';
 import { registerOpsCommands } from './commands/ops.js';
+import { registerPlanCommands } from './commands/plan.js';
 import { registerProjectCommands } from './commands/projects.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from './context.js';
 
@@ -45,6 +46,7 @@ program
 
 registerProjectCommands(program);
 registerOpsCommands(program);
+registerPlanCommands(program);
 
 try {
   await program.parseAsync();

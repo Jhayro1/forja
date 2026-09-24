@@ -70,6 +70,81 @@ const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX tasks_state ON tasks(run_id, state);
   `,
+  `
+  -- M2: changes (increments), discovery, spec, plan, approvals, usage.
+  CREATE TABLE changes (
+    change_id          TEXT PRIMARY KEY,
+    title              TEXT NOT NULL,
+    mode               TEXT NOT NULL CHECK (mode IN ('idea', 'mejora')),
+    phase              TEXT NOT NULL,
+    discovery_revision INTEGER NOT NULL DEFAULT 0,
+    spec_revision      INTEGER NOT NULL DEFAULT 0,
+    plan_revision      INTEGER NOT NULL DEFAULT 0,
+    created_at         TEXT NOT NULL,
+    updated_seq        INTEGER NOT NULL
+  );
+
+  CREATE TABLE discovery (
+    change_id  TEXT PRIMARY KEY REFERENCES changes(change_id),
+    revision   INTEGER NOT NULL,
+    state      TEXT NOT NULL,
+    approved_revision INTEGER
+  );
+
+  CREATE TABLE planner_turns (
+    turn_id      TEXT PRIMARY KEY,
+    change_id    TEXT NOT NULL REFERENCES changes(change_id),
+    n            INTEGER NOT NULL,
+    user_text    TEXT,
+    planner_text TEXT NOT NULL,
+    provider     TEXT NOT NULL,
+    model        TEXT,
+    created_seq  INTEGER NOT NULL
+  );
+  CREATE INDEX planner_turns_change ON planner_turns(change_id, n);
+
+  CREATE TABLE specs (
+    change_id TEXT NOT NULL REFERENCES changes(change_id),
+    revision  INTEGER NOT NULL,
+    hash      TEXT NOT NULL,
+    spec      TEXT NOT NULL,
+    PRIMARY KEY (change_id, revision)
+  );
+
+  CREATE TABLE plans (
+    plan_id   TEXT NOT NULL,
+    change_id TEXT NOT NULL REFERENCES changes(change_id),
+    revision  INTEGER NOT NULL,
+    hash      TEXT NOT NULL,
+    plan      TEXT NOT NULL,
+    PRIMARY KEY (plan_id, revision)
+  );
+
+  CREATE TABLE approvals (
+    approval_id TEXT PRIMARY KEY,
+    change_id   TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_hash TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    approval    TEXT NOT NULL
+  );
+
+  CREATE TABLE usage (
+    launch_id    TEXT PRIMARY KEY,
+    change_id    TEXT,
+    run_id       TEXT,
+    task_id      TEXT,
+    role         TEXT NOT NULL,
+    provider     TEXT NOT NULL,
+    model        TEXT,
+    input        INTEGER,
+    output       INTEGER,
+    cache_read   INTEGER,
+    cache_write  INTEGER,
+    cost_micro   INTEGER,
+    created_at   TEXT NOT NULL
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

@@ -1,6 +1,7 @@
 import type { StoredEvent } from '../domain/events.js';
 import { TASK_CREATED, TASK_STATE_CHANGED, TaskCreatedPayload, TaskStateChangedPayload } from '../domain/events.js';
 import { checkTransition, type TaskState, type TransitionReason } from '../domain/task-state.js';
+import { PLANNING_TABLES, applyPlanningEvent } from './planning-projections.js';
 import type { Db } from './sqlite.js';
 
 export type TaskRow = {
@@ -64,8 +65,9 @@ export function applyEvent(db: Db, event: StoredEvent): void {
       return;
     }
     default:
+      applyPlanningEvent(db, event);
       return;
   }
 }
 
-export const PROJECTION_TABLES = ['tasks'] as const;
+export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES] as const;

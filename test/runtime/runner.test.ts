@@ -112,7 +112,7 @@ describe.skipIf(!HAS_BWRAP)('runner con bwrap', () => {
     const script = 'setsid sh -c "while true; do date +%s%N >> latidos.txt; sleep 0.1; done" & sleep 60';
     const { dir, order: o } = order({
       argv: ['sh', '-c', script],
-      sandbox: { mode: 'bwrap', home: '/root', mounts: [], read_only: [], network_hosts: null },
+      sandbox: { mode: 'bwrap', home: '/root', mounts: [], read_only: [], network_hosts: null, workspace_read_only: false },
     });
     writeOrder(dir, o);
     spawnRunner(dir, RUNNER);
@@ -133,7 +133,7 @@ describe.skipIf(!HAS_BWRAP)('runner con bwrap', () => {
     const script = `ls -A "$HOME" | wc -l; (echo x > ${outside}) 2>/dev/null && echo escribio || echo no_escribio; (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && echo con_red || echo sin_red`;
     const { dir, order: o } = order({
       argv: ['bash', '-c', script],
-      sandbox: { mode: 'bwrap', home: '/root', mounts: [], read_only: [], network_hosts: [] },
+      sandbox: { mode: 'bwrap', home: '/root', mounts: [], read_only: [], network_hosts: [], workspace_read_only: false },
     });
     writeOrder(dir, o);
     spawnRunner(dir, RUNNER);
@@ -148,7 +148,7 @@ describe.skipIf(!HAS_BWRAP)('runner con bwrap', () => {
     const js = `const net=require('net');function t(h){return new Promise(r=>{const s=net.connect(18080,'127.0.0.1',()=>s.write('CONNECT '+h+':443 HTTP/1.1\\r\\nHost: '+h+'\\r\\n\\r\\n'));s.once('data',d=>{r(d.toString().split('\\r\\n')[0]);s.destroy()});s.on('error',e=>r('error '+e.message));s.on('close',()=>r('cerrado'))})}(async()=>{console.log(await t('permitido.invalid'));console.log(await t('example.com'))})()`;
     const { dir, order: o } = order({
       argv: [node, '-e', js],
-      sandbox: { mode: 'bwrap', home: '/root', mounts: [], read_only: [], network_hosts: ['permitido.invalid'] },
+      sandbox: { mode: 'bwrap', home: '/root', mounts: [], read_only: [], network_hosts: ['permitido.invalid'], workspace_read_only: false },
     });
     writeOrder(dir, o);
     spawnRunner(dir, RUNNER);

@@ -1,0 +1,41 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createEngine, type Engine, type Simulation } from '../../src/core/engine.js';
+import { newId } from '../../src/domain/ids.js';
+import { SimulatedAdapter } from '../../src/providers/adapters.js';
+import { ForjaConfig } from '../../src/registry/config.js';
+import { EventStore } from '../../src/store/event-store.js';
+
+export const ROOT = resolve(import.meta.dirname, '../..');
+export const RUNNER = join(ROOT, 'dist/runtime/runner-main.js');
+
+let built = false;
+export function ensureBuilt(): void {
+  if (built) return;
+  execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore' });
+  built = true;
+}
+
+export function testEngine(simulation: Simulation, roles: Partial<ForjaConfig['roles']> = {}): { engine: Engine; dir: string; cleanup(): void } {
+  ensureBuilt();
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'forja-eng-')));
+  const store = EventStore.open(join(dir, 'estado.db'), 'chk_test');
+  const sim = ['simulado:sim'];
+  const config = ForjaConfig.parse({
+    schema_version: 1,
+    project_id: newId('prj'),
+    nombre: 'prueba',
+    roles: { planeador: sim, trabajador: sim, complejo: sim, revisor: sim, ...roles },
+  });
+  const engine = createEngine({
+    store,
+    dataDir: dir,
+    config,
+    runnerScript: RUNNER,
+    simulation,
+    adapters: { simulado: new SimulatedAdapter({ agentDir: join(ROOT, 'dist/providers') }) },
+  });
+  return { engine, dir, cleanup: () => { store.close(); rmSync(dir, { recursive: true, force: true }); } };
+}

@@ -130,6 +130,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
         : order.env;
       const spec = {
         workspace: order.cwd,
+        workspaceReadOnly: order.sandbox.workspace_read_only,
         home: order.sandbox.home,
         mounts: order.sandbox.mounts,
         readOnly: order.sandbox.read_only,

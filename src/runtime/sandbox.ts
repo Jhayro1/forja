@@ -7,6 +7,8 @@ export type Mount = { src: string; dest: string; rw: boolean };
 export type SandboxSpec = {
   /** The task workspace: the only writable project path. */
   workspace: string;
+  /** Planner and reviewer read the project but never write it. */
+  workspaceReadOnly?: boolean;
   /** Fake HOME inside the sandbox (a tmpfs). */
   home: string;
   /** Provider config dir inside the sandbox (persistent per checkout) and the files bound into it. */
@@ -36,7 +38,7 @@ export function bwrapArgs(spec: SandboxSpec): string[] {
   if (spec.home !== realHome) args.push('--tmpfs', spec.home);
   for (const dir of spec.readOnly) args.push('--ro-bind', dir, dir);
   for (const m of spec.mounts) args.push(m.rw ? '--bind' : '--ro-bind', m.src, m.dest);
-  args.push('--bind', spec.workspace, spec.workspace);
+  args.push(spec.workspaceReadOnly ? '--ro-bind' : '--bind', spec.workspace, spec.workspace);
   args.push('--ro-bind', spec.helperDir, SANDBOX_HELPER_DIR);
   if (spec.proxySocket) args.push('--bind', spec.proxySocket, SANDBOX_PROXY_SOCKET, '--unshare-net');
   args.push('--unshare-pid', '--unshare-ipc', '--unshare-uts', '--die-with-parent', '--new-session', '--chdir', spec.workspace);

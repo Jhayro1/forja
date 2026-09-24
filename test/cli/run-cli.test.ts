@@ -86,6 +86,19 @@ describe.skipIf(!HAS_BWRAP)('forja run por el CLI (agentes simulados en sandbox)
 
   it('una pregunta detiene sólo su tarea; se ve en estado y preguntas; se responde y se entrega', () => {
     const main = sh(repo, 'rev-parse', 'main');
+    const solo = forja('run', '--solo', 'T-003');
+    expect(solo.code).toBe(3);
+    expect(solo.err).toContain('T-003 depende de tareas sin integrar (T-002)');
+    const paused = forja('pausar', 'T-002');
+    expect(paused.code, paused.err).toBe(0);
+    expect(paused.out).toContain('⏸ T-002 pausada.');
+    expect(forja('preguntas').out).toContain('T-002 · tarea pausada');
+    expect(forja('reanudar', 'T-002').out).toContain('▶ T-002 reanudada (pendiente).');
+    expect(forja('reanudar', 'T-002').code).toBe(3);
+    expect(forja('reasignar', 'T-002', 'claude:opus').err).toContain('no está permitido por la política');
+    expect(forja('reasignar', 'T-002', 'simulado:sim').code).toBe(0);
+    expect(forja('reasignar', 'T-002', '--quitar').out).toContain('vuelve al orden de su rol');
+    expect(forja('proveedores').out).toContain('Ningún proveedor en pausa.');
     const first = forja('run', '--paralelo', '2');
     expect(first.code, `${first.out}\n${first.err}`).toBe(3);
     expect(first.out).toMatch(/\? T-003 pregunta: ¿Se permiten montos con decimales\?/);

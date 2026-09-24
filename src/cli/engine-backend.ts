@@ -9,6 +9,7 @@ import { McpRegistry } from '../mcp/registry.js';
 import { actionService } from './commands/actions.js';
 import type { EventFeed } from '../api/server.js';
 import { approvePlan } from '../plan/approve.js';
+import { resumeProvider } from '../core/engine.js';
 import { activeChange } from '../planner/session.js';
 import { runningOrchestrator } from '../run/process.js';
 import { snapshotJson } from '../run/snapshot-json.js';
@@ -59,6 +60,33 @@ export class EngineRunsBackend implements RunsBackend {
     const t = this.find(taskId);
     if (!t) throw new Error(`no existe la tarea ${taskId}`);
     this.board.retry(t, note);
+  }
+
+  private must(taskId: string): TaskView {
+    const t = this.find(taskId);
+    if (!t) throw new Error(`no existe la tarea ${taskId}`);
+    return t;
+  }
+
+  pause(taskId: string): string {
+    const t = this.must(taskId);
+    if (t.state === 'pausada') throw new Error(`${taskId} ya está pausada`);
+    return this.board.togglePause(t);
+  }
+
+  resume(taskId: string): string {
+    const t = this.must(taskId);
+    if (t.state !== 'pausada' && t.exec.control !== 'pausar') throw new Error(`${taskId} no está pausada`);
+    return this.board.togglePause(t);
+  }
+
+  reassign(taskId: string, model: string | null): string {
+    return this.board.reassign(this.must(taskId), model);
+  }
+
+  resumeProvider(key: string): string {
+    if (!resumeProvider(this.ctx.engine, key)) throw new Error(`${key} no está en pausa`);
+    return `${key} disponible de nuevo`;
   }
 
   stop(): string {

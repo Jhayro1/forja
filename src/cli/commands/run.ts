@@ -21,27 +21,14 @@ import { gatewayForProject } from '../gateway-setup.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
 import { openEngine, type EngineContext } from '../engine-context.js';
 import { showPlan } from '../plan-view.js';
-
-function snapshotOrFail(ctx: EngineContext): RunSnapshot {
-  const change = currentChange(ctx.engine);
-  if (!change) throw new CliError('no hay cambios todavía: empieza con forja planear', EXIT.precondition);
-  return runSnapshot(ctx.engine, change);
-}
-
-function taskOrFail(s: RunSnapshot, id: string): TaskView {
-  if (!s.run) throw new CliError('el cambio todavía no tiene un run: ejecuta forja run', EXIT.precondition);
-  const task = s.tasks.find((t) => t.id === id.toUpperCase());
-  if (!task) throw new CliError(`no existe la tarea ${id} en el run ${s.run.run_id}`, EXIT.input);
-  return task;
-}
-
-const domainError = (error: unknown) => new CliError((error as Error).message, EXIT.precondition);
+import { listTasks } from '../../store/projections.js';
+import { domainError, snapshotOrFail, taskOrFail } from '../run-selection.js';
 
 function showPending(s: RunSnapshot): void {
   if (s.pending.length === 0) return;
   print(`Pendiente de ti (${s.pending.length}):`);
   for (const p of s.pending) {
-    print(`  ${p.kind === 'tarea_bloqueada' ? '✘' : '?'} ${p.id}: ${p.text.split('\n')[0]}`);
+    print(`  ${p.kind === 'tarea_bloqueada' ? '✘' : p.kind === 'tarea_pausada' ? '⏸' : '?'} ${p.id}: ${p.text.split('\n')[0]}`);
     print(`      → ${p.action}`);
   }
 }
@@ -63,9 +50,27 @@ function showSnapshot(s: RunSnapshot, runner: { pid: number } | null): void {
       print(`Consumo: ${s.usage.map((u) => `${u.role} ${compactTokens(u.tokens)} tok en ${u.calls} llamada(s)${u.costMicro !== null ? ` ≈US$ ${(u.costMicro / 1e6).toFixed(2)}` : ''}`).join(' · ')}`);
     }
   }
+  for (const p of s.providerPauses) print(`⏸ ${p.key}: en pausa hasta ${new Date(p.until).toLocaleTimeString()} (${p.reason})`);
   print();
   showPending(s);
   print(`Siguiente paso: ${s.nextStep}`);
+}
+
+/** `--solo` never skips dependencies: the task must be able to run on what is already integrated. */
+function soloTarget(ctx: EngineContext, runId: string, id: string): string {
+  const tasks = listTasks(ctx.store.db, runId);
+  const task = tasks.find((t) => t.task_id === id.toUpperCase());
+  if (!task) throw new CliError(`no existe la tarea ${id} en el run ${runId}`, EXIT.input);
+  if (task.state === 'integrada') throw new CliError(`${task.task_id} ya está integrada: no hay nada que ejecutar`, EXIT.precondition);
+  if (['invalidada', 'cancelada'].includes(task.state)) throw new CliError(`${task.task_id} está ${task.state}`, EXIT.precondition);
+  const pending = task.depends_on.filter((d) => tasks.find((t) => t.task_id === d)?.state !== 'integrada');
+  if (pending.length) {
+    throw new CliError(`${task.task_id} depende de tareas sin integrar (${pending.join(', ')}): ejecútalas antes (forja run --solo ${pending[0]}) o corre el plan completo`, EXIT.precondition);
+  }
+  if (task.state === 'bloqueada' || task.state === 'esperando_respuesta' || task.state === 'pausada') {
+    throw new CliError(`${task.task_id} está ${task.state}: resuélvelo primero (forja preguntas)`, EXIT.precondition);
+  }
+  return task.task_id;
 }
 
 function exitCodeFor(summary: RunSummary, stoppedByUser: boolean): number {
@@ -97,7 +102,8 @@ export function registerRunCommands(program: Command): void {
     .option('--sin-revisor', 'omite el revisor independiente (más barato, menos control)')
     .option('--tablero', 'muestra el tablero en vivo mientras ejecuta')
     .option('--sin-conformidad', 'permite modelos sin conformidad aprobada con la versión instalada de su CLI (queda registrado)')
-    .action(async (opts: { paralelo?: number; estimar?: boolean; sinRevisor?: boolean; tablero?: boolean; sinConformidad?: boolean }, cmd: Command) => {
+    .option('--solo <tarea>', 'ejecuta sólo esa tarea (para depurarla); sus dependencias deben estar integradas')
+    .action(async (opts: { paralelo?: number; estimar?: boolean; sinRevisor?: boolean; tablero?: boolean; sinConformidad?: boolean; solo?: string }, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       if (opts.paralelo !== undefined && (!Number.isInteger(opts.paralelo) || opts.paralelo < 1 || opts.paralelo > 16)) {
         throw new CliError('--paralelo debe ser un número entre 1 y 16');
@@ -144,6 +150,7 @@ export function registerRunCommands(program: Command): void {
           throw error;
         }
         const { runId } = started;
+        const only = opts.solo ? soloTarget(ctx, runId, opts.solo) : undefined;
         const log = RunLog.of(ctx.dataDir, runId);
         const board = Boolean(opts.tablero && process.stdout.isTTY && process.stdin.isTTY && !g.json);
         let echo = !board && !g.json;
@@ -153,6 +160,7 @@ export function registerRunCommands(program: Command): void {
         };
         say(started.resumed ? `↺ se retoma el run ${runId}` : `▶ run ${runId} iniciado sobre ${ctx.checkout.path}`);
         if (unverified.length) say(`⚠ se ejecuta con modelos sin conformidad aprobada (--sin-conformidad): ${unverified.join('; ')}`);
+        if (only) say(`· modo --solo: sólo se lanza ${only}`);
         if (started.inherited.length) say(`  heredadas del run anterior (ya integradas y sin cambios): ${started.inherited.join(', ')}`);
 
         const controller = new AbortController();
@@ -177,6 +185,7 @@ export function registerRunCommands(program: Command): void {
           ...(gateway ? { gateway } : {}),
           ...(opts.paralelo ? { parallel: opts.paralelo } : {}),
           review: !opts.sinRevisor,
+          ...(only ? { only } : {}),
           signal: controller.signal,
           onLog: say,
         });
@@ -256,7 +265,7 @@ export function registerRunCommands(program: Command): void {
           return;
         }
         for (const p of s.pending) {
-          print(`${p.kind === 'tarea_bloqueada' ? '✘' : '?'} ${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind]}`);
+          print(`${p.kind === 'tarea_bloqueada' ? '✘' : '?'} ${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', tarea_pausada: 'tarea pausada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind]}`);
           for (const l of p.text.split('\n')) print(`  ${l}`);
           print(`  → ${p.action}`);
           print();

@@ -21,6 +21,8 @@ export const EV = {
   /** How a run segment was executed (N, reviewer): evidence for the pilot; no projection. */
   runParams: 'run.parametros',
   taskExec: 'tarea.ejecucion_actualizada',
+  /** A provider (or a simulated model) answered «quota» or «no session»: skipped until `until`. */
+  providerPaused: 'proveedor.pausado',
 } as const;
 
 export const RUN_STATES = ['ejecutando', 'pausado', 'bloqueado', 'completado', 'cancelado'] as const;
@@ -58,6 +60,9 @@ export const TASK_EXEC_FIELDS = [
   'question',
   'answer',
   'steps',
+  'env_failures',
+  'control',
+  'pinned_model',
 ] as const;
 export const TaskExecPatch = z.object(Object.fromEntries(TASK_EXEC_FIELDS.map((f) => [f, z.union([z.string(), z.number(), z.null()]).optional()]))).strict();
 
@@ -99,6 +104,8 @@ export const UsageObserved = z
   .strict();
 
 export const SpecAnswer = z.object({ question_id: z.string(), question: z.string(), answer: z.string().min(1) }).strict();
+
+export const ProviderPaused = z.object({ key: z.string().min(1), until: z.string(), reason: z.string() }).strict();
 
 export class PlanningProjectionError extends Error {}
 
@@ -226,10 +233,18 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
       ).run(id, p.question_id, p.question, p.answer, e.seq);
       return;
     }
+    case EV.providerPaused: {
+      const p = ProviderPaused.parse(e.payload);
+      db.prepare(
+        `INSERT INTO provider_pauses (pause_key, until, reason, updated_seq) VALUES (?, ?, ?, ?)
+         ON CONFLICT(pause_key) DO UPDATE SET until = excluded.until, reason = excluded.reason, updated_seq = excluded.updated_seq`,
+      ).run(p.key, p.until, p.reason, e.seq);
+      return;
+    }
     default:
       return;
   }
 }
 
 /** Deletion order respects foreign keys. */
-export const PLANNING_TABLES = ['task_exec', 'runs', 'planner_turns', 'discovery', 'spec_answers', 'specs', 'plans', 'approvals', 'usage', 'changes'] as const;
+export const PLANNING_TABLES = ['provider_pauses', 'task_exec', 'runs', 'planner_turns', 'discovery', 'spec_answers', 'specs', 'plans', 'approvals', 'usage', 'changes'] as const;

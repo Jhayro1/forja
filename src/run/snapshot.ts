@@ -1,4 +1,4 @@
-import type { Engine } from '../core/engine.js';
+import { activePauses, type Engine, type ProviderPause } from '../core/engine.js';
 import { deliveryBranch as deliveryBranchName } from '../git/workspace.js';
 import { ACTIVE_STATES, type TaskState } from '../domain/task-state.js';
 import { currentApproval } from '../plan/approve.js';
@@ -8,7 +8,7 @@ import { activeChange, listChanges, type ChangeRow } from '../planner/session.js
 import { latestSpec, specAnswers } from '../spec/generate.js';
 import { listTasks } from '../store/projections.js';
 import { agentActivity, type AgentActivity } from './activity.js';
-import { getExec, runsOf, type ExecRow, type RunRow } from './orchestrator.js';
+import { getExec, runsOf, type ExecRow, type RunRow } from './records.js';
 
 /**
  * Read model of a change and its latest run, shared by `forja estado`,
@@ -26,7 +26,7 @@ export type TaskView = {
   activity: AgentActivity | null;
 };
 
-export type PendingKind = 'pregunta_tarea' | 'tarea_bloqueada' | 'pregunta_spec' | 'aprobacion';
+export type PendingKind = 'pregunta_tarea' | 'tarea_bloqueada' | 'tarea_pausada' | 'pregunta_spec' | 'aprobacion';
 
 export type PendingItem = { kind: PendingKind; id: string; text: string; action: string };
 
@@ -45,6 +45,8 @@ export type RunSnapshot = {
   usage: UsageByRole[];
   /** Branch with the delivered result, once the run completed. */
   deliveryBranch: string | null;
+  /** Providers skipped for quota or session, persisted so every process sees them (MEJORAS 2.2). */
+  providerPauses: ProviderPause[];
   nextStep: string;
 };
 
@@ -89,6 +91,8 @@ export function pendingItems(engine: Engine, change: ChangeRow, tasks: TaskView[
       out.push({ kind: 'pregunta_tarea', id: t.id, text: t.exec.question ?? '(pregunta sin texto)', action: `forja responder ${t.id} "<respuesta>"` });
     } else if (t.state === 'bloqueada') {
       out.push({ kind: 'tarea_bloqueada', id: t.id, text: t.exec.last_error ?? 'bloqueada', action: `forja reintentar ${t.id} ["nota para el agente"]` });
+    } else if (t.state === 'pausada') {
+      out.push({ kind: 'tarea_pausada', id: t.id, text: 'pausada por el usuario', action: `forja reanudar ${t.id}` });
     }
   }
   if (change.phase === 'especificar') {
@@ -154,6 +158,7 @@ export function runSnapshot(engine: Engine, change: ChangeRow): RunSnapshot {
     pending,
     usage: run ? usageByRole(engine, run.run_id) : [],
     deliveryBranch: delivered,
+    providerPauses: activePauses(engine),
     nextStep: nextStep(change, run, approved, pending, delivered),
   };
 }

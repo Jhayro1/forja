@@ -20,6 +20,7 @@ export interface BoardSource {
   /** Mutations go through the same domain functions as the CLI. They throw with a user message. */
   answer(task: TaskView, text: string): void;
   retry(task: TaskView, note: string | null): void;
+  togglePause(task: TaskView): string;
   stop(): string;
 }
 

@@ -19,6 +19,7 @@ function task(id: string, state: TaskView['state'], extra: Partial<TaskView['exe
       task_id: id,
       attempt: 1,
       quality_failures: 0,
+      env_failures: 0,
       level: 'trabajador',
       launch_id: null,
       launch_dir: null,
@@ -34,6 +35,8 @@ function task(id: string, state: TaskView['state'], extra: Partial<TaskView['exe
       question: null,
       answer: null,
       steps: null,
+      control: null,
+      pinned_model: null,
       ...extra,
     },
   };
@@ -56,6 +59,7 @@ function snapshot(tasks: TaskView[]): RunSnapshot {
       .map((t) => ({ kind: 'pregunta_tarea' as const, id: t.id, text: t.exec.question ?? '', action: `forja responder ${t.id} "<respuesta>"` })),
     usage: [{ role: 'trabajador', calls: 4, tokens: 96_000, costMicro: null }],
     deliveryBranch: null,
+    providerPauses: [],
     nextStep: 'mira el avance con forja tablero',
   };
 }
@@ -101,6 +105,11 @@ class FakeSource implements BoardSource {
   }
   retry(t: TaskView, note: string | null) {
     this.retries.push([t.id, note]);
+  }
+  toggles: string[] = [];
+  togglePause(t: TaskView) {
+    this.toggles.push(t.id);
+    return `⏸ ${t.id}`;
   }
   stop() {
     this.stops++;

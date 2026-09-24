@@ -8,6 +8,10 @@ export interface RunsBackend {
   diff(id: string): Promise<string[]>;
   answer(taskId: string, text: string): void;
   retry(taskId: string, note: string | null): void;
+  pause(taskId: string): string;
+  resume(taskId: string): string;
+  reassign(taskId: string, model: string | null): string;
+  resumeProvider(key: string): string;
   stop(): string;
   approvePlan(): string;
 }
@@ -48,6 +52,26 @@ export function runsModule(backend: RunsBackend): ApiModule {
           backend.retry(params[0]!.toUpperCase(), stringField(await body(), 'nota', { optional: true })?.trim() || null);
           return { ok: true, mensaje: 'la tarea vuelve a la cola' };
         },
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/tareas\/(T-\d{1,5})\/pausar$/i,
+        handler: ({ params }) => ({ ok: true, mensaje: backend.pause(params[0]!.toUpperCase()) }),
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/tareas\/(T-\d{1,5})\/reanudar$/i,
+        handler: ({ params }) => ({ ok: true, mensaje: backend.resume(params[0]!.toUpperCase()) }),
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/tareas\/(T-\d{1,5})\/reasignar$/i,
+        handler: async ({ params, body }) => ({ ok: true, mensaje: backend.reassign(params[0]!.toUpperCase(), stringField(await body(), 'modelo', { optional: true })?.trim() || null) }),
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/proveedores\/([a-z]+(?::[\w.-]+)?)\/reanudar$/i,
+        handler: ({ params }) => ({ ok: true, mensaje: backend.resumeProvider(params[0]!) }),
       },
       { method: 'POST', path: /^\/v1\/run\/detener$/, handler: () => ({ ok: true, mensaje: backend.stop() }) },
       { method: 'POST', path: /^\/v1\/plan\/aprobar$/, handler: () => ({ ok: true, mensaje: backend.approvePlan() }) },

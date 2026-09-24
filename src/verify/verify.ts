@@ -64,6 +64,8 @@ export async function verifyTask(
     cmd: CommandContext;
     runId: string;
     review: boolean;
+    /** The agent changed nothing: the task passes only if checks prove the code already meets it. */
+    noChanges?: boolean;
   },
 ): Promise<Verification> {
   const { plan, task, worktree } = input;
@@ -73,6 +75,7 @@ export async function verifyTask(
     return { ok: false, steps, feedback: `Falló «${paso}»:\n${detalle.slice(-4000)}`, environmentFailure };
   };
   const c = plan.perfil.comandos;
+  let evidence = false;
 
   // Anti-cheat on every test file the task touched (v2/09 · paso 6).
   for (const f of input.changedFiles.filter((x) => /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/.test(x))) {
@@ -109,13 +112,22 @@ export async function verifyTask(
     if (selection.length > 0) {
       const r = await runCommand(input.cmd, worktree, c.test, selection);
       if (!r.ok) return fail('pruebas', r.output);
+      evidence = true;
       steps.push({ paso: 'pruebas', ok: true, detalle: `${selection.length} archivo(s): ${selection.slice(0, 6).join(', ')}${selection.length > 6 ? '…' : ''}` });
     } else {
       steps.push({ paso: 'pruebas', ok: true, detalle: 'no hay pruebas que ejecutar todavía' });
     }
   }
 
-  if (!input.review || task.tipo === 'pruebas' || task.tipo === 'infraestructura') return { ok: true, steps, feedback: '', environmentFailure: false };
+  const reviews = input.review && task.tipo !== 'pruebas' && task.tipo !== 'infraestructura';
+  if (input.noChanges && !evidence && !reviews) {
+    return fail('sin_cambios', 'El agente no cambió nada y no hay pruebas ni revisión que demuestren que la tarea ya se cumple. Implementa lo que pide la tarea.');
+  }
+  const done = (): Verification => {
+    if (input.noChanges) steps.push({ paso: 'sin_cambios', ok: true, detalle: 'el código ya cumplía la tarea: se integra sin cambios' });
+    return { ok: true, steps, feedback: '', environmentFailure: false };
+  };
+  if (!reviews) return done();
 
   // Independent review on a read-only copy (another provider when configured).
   const diff = (await git(worktree, ['diff', input.baseSha, input.candidateSha, '--', '.', ':(exclude)package-lock.json'])).stdout;
@@ -123,7 +135,11 @@ export async function verifyTask(
   const { prompt } = compose([loadPrompt('trabajo/revisor')], {
     tarea: { id: task.id, titulo: task.titulo, objetivo: task.objetivo, notas: task.notas },
     criterios: criteria,
-    diff: diff.length > 60_000 ? `${diff.slice(0, 60_000)}\n… [recortado]` : diff,
+    diff: input.noChanges
+      ? '(sin cambios: el agente no modificó nada. Comprueba en el código del directorio si los criterios YA se cumplen; si no hay evidencia clara, recházalo.)'
+      : diff.length > 60_000
+        ? `${diff.slice(0, 60_000)}\n… [recortado]`
+        : diff,
   });
   const call = await callRole(engine, {
     role: 'revisor',
@@ -154,5 +170,5 @@ export async function verifyTask(
     };
   }
   steps.push({ paso: 'revision', ok: true, detalle: review.resumen });
-  return { ok: true, steps, feedback: '', environmentFailure: false, review };
+  return { ...done(), review };
 }

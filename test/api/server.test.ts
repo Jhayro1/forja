@@ -40,6 +40,21 @@ class FakeBackend implements RunsBackend {
     this.answers.push([taskId, text]);
   }
   retry() {}
+  pauses: string[] = [];
+  pause(taskId: string) {
+    this.pauses.push(taskId);
+    return `⏸ ${taskId} pausada`;
+  }
+  resume(taskId: string) {
+    return `▶ ${taskId} reanudada`;
+  }
+  reassign(taskId: string, model: string | null) {
+    if (model && !model.includes(':')) throw new Error(`«${model}» no está permitido`);
+    return `${taskId} → ${model}`;
+  }
+  resumeProvider(key: string) {
+    return `${key} disponible`;
+  }
   stop() {
     return 'detenido';
   }
@@ -154,6 +169,19 @@ describe('API local · sesión y protecciones', () => {
     expect(pre.body.error.mensaje).toMatch(/no está esperando/);
     expect((await call('GET', '/v1/tareas/T-009', { headers: { Cookie: cookie } })).status).toBe(404);
     expect((await call('GET', '/v1/tareas/T-001/diff', { headers: { Cookie: cookie } })).body.diff).toEqual(['+ a']);
+  });
+
+  it('pausar, reanudar, reasignar y reanudar un proveedor, con los mismos controles', async () => {
+    const { cookie, csrf } = await login();
+    const h = { Cookie: cookie, ...origin(), 'X-Forja-CSRF': csrf, 'Content-Type': 'application/json' };
+    expect((await call('POST', '/v1/tareas/T-001/pausar', { headers: { Cookie: cookie, ...origin(), 'Content-Type': 'application/json' }, body: {} })).status).toBe(403);
+    expect((await call('POST', '/v1/tareas/T-001/pausar', { headers: h, body: {} })).body.mensaje).toBe('⏸ T-001 pausada');
+    expect(backend.pauses).toEqual(['T-001']);
+    expect((await call('POST', '/v1/tareas/T-001/reanudar', { headers: h, body: {} })).body.mensaje).toBe('▶ T-001 reanudada');
+    expect((await call('POST', '/v1/tareas/T-001/reasignar', { headers: h, body: { modelo: 'codex:gpt' } })).body.mensaje).toBe('T-001 → codex:gpt');
+    expect((await call('POST', '/v1/tareas/T-001/reasignar', { headers: h, body: { modelo: 'nada' } })).status).toBe(409);
+    expect((await call('POST', '/v1/proveedores/claude/reanudar', { headers: h, body: {} })).body.mensaje).toBe('claude disponible');
+    expect((await call('POST', '/v1/proveedores/..%2Fx/reanudar', { headers: h, body: {} })).status).toBe(404);
   });
 
   it('la misma Idempotency-Key no repite el efecto', async () => {

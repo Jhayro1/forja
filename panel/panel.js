@@ -128,7 +128,7 @@ function activityText(t) {
 function pendingCard(p) {
   const bad = p.kind === 'tarea_bloqueada';
   const body = h('div', { class: `card pending${bad ? ' bad' : ''}` },
-    h('strong', {}, `${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind] || p.kind}`),
+    h('strong', {}, `${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', tarea_pausada: 'tarea pausada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind] || p.kind}`),
     h('p', {}, p.text),
   );
   if (p.kind === 'pregunta_tarea') {
@@ -142,6 +142,8 @@ function pendingCard(p) {
   } else if (bad) {
     const note = h('input', { type: 'text', placeholder: 'Nota para el agente (opcional)', 'aria-label': `Nota para reintentar ${p.id}` });
     body.append(note, h('button', { class: 'act', onclick: () => mutate('POST', `/v1/tareas/${p.id}/reintentar`, { nota: note.value.trim() }) }, 'Reintentar'));
+  } else if (p.kind === 'tarea_pausada') {
+    body.append(h('button', { class: 'act', onclick: () => mutate('POST', `/v1/tareas/${p.id}/reanudar`) }, 'Reanudar'));
   } else if (p.kind === 'aprobacion') {
     body.append(h('button', { class: 'act', onclick: () => confirm('¿Aprobar exactamente este plan, esta especificación y esta política?') && mutate('POST', '/v1/plan/aprobar') }, 'Aprobar plan'));
   } else {
@@ -169,6 +171,12 @@ function renderResumen(d) {
       d.entrega ? h('p', {}, 'Entregado en ', h('span', { class: 'mono' }, d.entrega)) : null,
     ),
   ];
+  const pauses = d.proveedores_en_pausa || [];
+  if (pauses.length) {
+    out.push(h('div', { class: 'card pending' }, h('strong', {}, 'Proveedores en pausa'),
+      pauses.map((p) => h('div', {}, `${p.proveedor}: hasta ${new Date(p.hasta).toLocaleTimeString()} · ${p.motivo} `,
+        h('button', { class: 'sec', onclick: () => confirm(`¿Ya renovaste la sesión o la cuota de ${p.proveedor}?`) && mutate('POST', `/v1/proveedores/${encodeURIComponent(p.proveedor)}/reanudar`) }, 'Reanudar')))));
+  }
   if (d.pendientes.length) out.push(h('h2', {}, `Pendiente de ti (${d.pendientes.length})`), h('div', { class: 'grid' }, d.pendientes.map(pendingCard)));
   out.push(h('h2', {}, `Agentes (${agents.length})`));
   out.push(agents.length
@@ -216,8 +224,13 @@ async function openTask(id, tab) {
     body = h('p', { class: 's-bloqueada' }, e.message);
   }
   const tabs = [['detalle', 'Detalle'], ['registro', 'Registro del agente'], ['diff', 'Diferencias'], ['instrucciones', 'Instrucciones']];
+  const row = state.data && state.data.tareas ? state.data.tareas.find((t) => t.id === id) : null;
+  const PAUSABLE = ['pendiente', 'lista', 'reservada', 'ejecutando', 'verificando', 'verificada', 'integrando'];
+  const control = !row ? null : row.estado === 'pausada'
+    ? h('button', { class: 'act', onclick: () => mutate('POST', `/v1/tareas/${id}/reanudar`).then(() => openTask(id)) }, 'Reanudar')
+    : PAUSABLE.includes(row.estado) ? h('button', { class: 'sec', onclick: () => mutate('POST', `/v1/tareas/${id}/pausar`).then(() => openTask(id)) }, 'Pausar') : null;
   drawer.replaceChildren(
-    h('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, h('h1', {}, id), h('button', { class: 'sec', onclick: closeTask, 'aria-label': 'Cerrar detalle' }, 'Cerrar')),
+    h('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:.5rem' }, h('h1', {}, id), h('span', {}, control, ' ', h('button', { class: 'sec', onclick: closeTask, 'aria-label': 'Cerrar detalle' }, 'Cerrar'))),
     h('div', { class: 'tabs', role: 'tablist' }, tabs.map(([k, label]) => h('button', { role: 'tab', 'aria-selected': state.taskTab === k ? 'true' : 'false', onclick: () => openTask(id, k) }, label))),
     body,
   );
@@ -360,6 +373,7 @@ async function refresh(force) {
   const view = VIEWS.find((v) => v.id === state.view) || VIEWS[0];
   try {
     const data = await api('GET', view.path);
+    if (view.id === 'resumen') state.data = data[view.key];
     const app = document.getElementById('app');
     app.replaceChildren(...view.render(data[view.key], data));
     if (state.taskOpen && view.id === 'resumen' && state.taskTab === 'registro') openTask(state.taskOpen);

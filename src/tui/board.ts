@@ -130,7 +130,11 @@ function renderMain(m: BoardModel, width: number, height: number, paint: Paint):
   const agentLines = agents.length
     ? agents.map((t) => `${paint('▶', 'cyan')} ${t.id.padEnd(6)} ${fit(sanitize(t.title), 22)} ${fit(modelOf(t), 18)} ${sanitize(taskActivityLine(t, m.now))}`)
     : [paint(m.runnerAlive ? 'ningún agente trabajando en este momento' : 'nadie ejecutando: lanza o retoma con forja run', 'dim')];
-  const pending = s.pending.slice(0, 4).map((p) => `${paint(p.kind === 'tarea_bloqueada' ? '✘' : '?', p.kind === 'tarea_bloqueada' ? 'red' : 'yellow')} ${p.id}: ${sanitize(p.text.split('\n')[0]!)}  → ${p.action}`);
+  const icon = (k: string) => (k === 'tarea_bloqueada' ? paint('✘', 'red') : k === 'tarea_pausada' ? paint('⏸', 'yellow') : paint('?', 'yellow'));
+  const pending = [
+    ...s.providerPauses.map((p) => `${paint('⏸', 'yellow')} ${p.key}: en pausa hasta ${new Date(p.until).toTimeString().slice(0, 5)} (${sanitize(p.reason)})`),
+    ...s.pending.map((p) => `${icon(p.kind)} ${p.id}: ${sanitize(p.text.split('\n')[0]!)}  → ${p.action}`),
+  ].slice(0, 4);
   const usage = s.usage.length
     ? s.usage.map((u) => `${u.role} ${compactTokens(u.tokens)} tok (${u.calls})${u.costMicro !== null ? ` ≈US$ ${(u.costMicro / 1e6).toFixed(2)}` : ''}`).join(' · ')
     : 'sin consumo registrado en este run';

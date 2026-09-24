@@ -240,6 +240,20 @@ const MIGRATIONS: readonly string[] = [
     updated_seq INTEGER NOT NULL
   );
   `,
+  `
+  -- Mejoras: control por tarea, fallos de entorno acotados y pausas de proveedor visibles
+  -- desde cualquier proceso (MEJORAS 1.5, 4.6, 2.2).
+  ALTER TABLE task_exec ADD COLUMN env_failures INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE task_exec ADD COLUMN control TEXT;
+  ALTER TABLE task_exec ADD COLUMN pinned_model TEXT;
+
+  CREATE TABLE provider_pauses (
+    pause_key   TEXT PRIMARY KEY,
+    until       TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

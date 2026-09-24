@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { git } from '../git/git.js';
 import { diffText } from '../git/workspace.js';
-import type { ExecRow } from './orchestrator.js';
+import type { ExecRow } from './records.js';
 
 /**
  * Diff of a task for review: the captured candidate if there is one, otherwise

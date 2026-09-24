@@ -18,8 +18,6 @@ export type Engine = {
   adapters: Record<'claude' | 'codex' | 'simulado', ProviderAdapter>;
   runnerScript?: string;
   simulation?: Simulation;
-  /** Providers paused in this process after a quota/auth answer (until restart or the given time). */
-  paused: Map<string, { until: number; reason: string }>;
 };
 
 export function createEngine(opts: {
@@ -41,7 +39,6 @@ export function createEngine(opts: {
     },
     ...(opts.runnerScript ? { runnerScript: opts.runnerScript } : {}),
     ...(opts.simulation ? { simulation: opts.simulation } : {}),
-    paused: new Map(),
   };
 }
 
@@ -72,25 +69,64 @@ export class NoProviderError extends Error {
   }
 }
 
+export type ProviderRef = { ref: string; provider: 'claude' | 'codex' | 'simulado'; model: string };
+export type ProviderPause = { key: string; until: number; reason: string };
+
+/** Real providers share one quota per account; simulated models are independent. */
+export const pauseKeyOf = (ref: string): string => {
+  const { provider } = parseRef(ref);
+  return provider === 'simulado' ? ref : provider;
+};
+
+/**
+ * Pauses are events (`proveedor.pausado`), not process memory: the board, the
+ * panel and `forja estado` show them, and a restarted `forja run` respects them.
+ */
+export function activePauses(engine: Engine, now = Date.now()): ProviderPause[] {
+  const rows = engine.store.db.prepare('SELECT pause_key, until, reason FROM provider_pauses').all() as { pause_key: string; until: string; reason: string }[];
+  return rows.map((r) => ({ key: r.pause_key, until: Date.parse(r.until), reason: r.reason })).filter((p) => p.until > now);
+}
+
+export function providerPause(engine: Engine, ref: string, now = Date.now()): ProviderPause | null {
+  return activePauses(engine, now).find((p) => p.key === pauseKeyOf(ref)) ?? null;
+}
+
+export function pauseProvider(engine: Engine, ref: string, reason: string, ms = 15 * 60_000): void {
+  const key = pauseKeyOf(ref);
+  const until = new Date(Date.now() + ms).toISOString();
+  engine.store.execute({ request_id: newId('req'), type: 'pausar_proveedor', input: { key } }, () => ({
+    result: null,
+    events: [{ type: EV.providerPaused, aggregate_type: 'proveedor', aggregate_id: key, payload: { key, until, reason: reason.slice(0, 200) } }],
+  }));
+}
+
+/** Lifts a pause before its time (the user renewed the session or the quota). */
+export function resumeProvider(engine: Engine, key: string): boolean {
+  if (!activePauses(engine).some((p) => p.key === key)) return false;
+  engine.store.execute({ request_id: newId('req'), type: 'reanudar_proveedor', input: { key } }, () => ({
+    result: null,
+    events: [{ type: EV.providerPaused, aggregate_type: 'proveedor', aggregate_id: key, payload: { key, until: new Date(0).toISOString(), reason: 'reanudado por el usuario' } }],
+  }));
+  return true;
+}
+
 /** First configured model of a role whose provider is not paused. */
-export function pickCandidate(engine: Engine, role: Role): { ref: string; provider: 'claude' | 'codex' | 'simulado'; model: string } | null {
+export function pickCandidate(engine: Engine, role: Role): ProviderRef | null {
   for (const ref of engine.config.roles[role]) {
-    const { provider, model } = parseRef(ref);
-    const pause = engine.paused.get(provider === 'simulado' ? ref : provider);
-    if (pause && pause.until > Date.now()) continue;
-    return { ref, provider, model };
+    if (providerPause(engine, ref)) continue;
+    return { ref, ...parseRef(ref) };
   }
   return null;
 }
 
-export function pauseProvider(engine: Engine, ref: string, reason: string, ms = 15 * 60_000): void {
-  const { provider } = parseRef(ref);
-  engine.paused.set(provider === 'simulado' ? ref : provider, { until: Date.now() + ms, reason });
+/** Every model the policy allows in some role (a reassignment must pick one of these). */
+export function allowedModels(engine: Engine): string[] {
+  return [...new Set(Object.values(engine.config.roles).flat())];
 }
 
-function parseRef(ref: string): { provider: 'claude' | 'codex' | 'simulado'; model: string } {
-  const [provider, model] = ref.split(':') as ['claude' | 'codex' | 'simulado', string];
-  return { provider, model };
+export function parseRef(ref: string): { provider: 'claude' | 'codex' | 'simulado'; model: string } {
+  const i = ref.indexOf(':');
+  return { provider: ref.slice(0, i) as 'claude' | 'codex' | 'simulado', model: ref.slice(i + 1) };
 }
 
 /**
@@ -103,10 +139,8 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
   const skipped: string[] = [];
   for (const ref of candidates) {
     const { provider, model } = parseRef(ref);
-    // Real providers share one quota per account; simulated models are independent.
-    const pauseKey = provider === 'simulado' ? ref : provider;
-    const pause = engine.paused.get(pauseKey);
-    if (pause && pause.until > Date.now()) {
+    const pause = providerPause(engine, ref);
+    if (pause) {
       skipped.push(`${ref}: en pausa (${pause.reason})`);
       continue;
     }
@@ -146,7 +180,7 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
     recordUsage(engine, opts, launchId, provider, model, outcome);
     const err = outcome.summary.error;
     if (err && (err.category === 'quota' || err.category === 'auth')) {
-      engine.paused.set(pauseKey, { until: Date.now() + (err.retryAfterMs ?? 15 * 60_000), reason: err.message.slice(0, 120) });
+      pauseProvider(engine, ref, err.message.slice(0, 120), err.retryAfterMs ?? 15 * 60_000);
       skipped.push(`${ref}: ${err.category === 'quota' ? 'cuota agotada' : 'sin sesión'} (${err.message.slice(0, 100)})`);
       continue;
     }

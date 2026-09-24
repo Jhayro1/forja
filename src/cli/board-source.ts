@@ -1,6 +1,6 @@
 import { launchPrompt, readSpoolTail, readableLog } from '../run/activity.js';
 import { taskDetailLines } from '../run/describe.js';
-import { answerTaskQuestion, unblockTask } from '../run/orchestrator.js';
+import { answerTaskQuestion, applyTaskControls, reassignTask, requestPause, resumeTask, unblockTask } from '../run/task-control.js';
 import { requestStop, runningOrchestrator } from '../run/process.js';
 import { RunLog } from '../run/run-log.js';
 import { currentChange, runSnapshot, type RunSnapshot, type TaskView } from '../run/snapshot.js';
@@ -62,6 +62,27 @@ export class EngineBoardSource implements BoardSource {
 
   retry(task: TaskView, note: string | null): void {
     unblockTask(this.ctx.engine, this.runId(), task.id, note);
+  }
+
+  /** Pauses a working task or resumes a paused one (the same commands as forja pausar/reanudar). */
+  togglePause(task: TaskView): string {
+    const runId = this.runId();
+    if (task.state === 'pausada' || task.exec.control === 'pausar') {
+      const to = resumeTask(this.ctx.engine, runId, task.id);
+      return `▶ ${task.id} reanudada (${to})`;
+    }
+    const r = requestPause(this.ctx.engine, runId, task.id);
+    if (r.immediate) return `⏸ ${task.id} pausada`;
+    if (!this.runnerAlive()) {
+      applyTaskControls(this.ctx.engine, runId, new Set());
+      return `⏸ ${task.id} pausada`;
+    }
+    return `⏸ se pidió pausar ${task.id}: el run la detiene en cuanto sea seguro`;
+  }
+
+  reassign(task: TaskView, ref: string | null): string {
+    reassignTask(this.ctx.engine, this.runId(), task.id, ref);
+    return ref ? `✔ ${task.id} usará ${ref} desde su próximo intento` : `✔ ${task.id} vuelve al orden de su rol`;
   }
 
   stop(): string {

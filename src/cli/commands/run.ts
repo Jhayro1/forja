@@ -11,6 +11,7 @@ import { STATE_ICON, STATE_LABEL, modelOf, progressLine, taskActivityLine, taskD
 import { Orchestrator, RunError, answerTaskQuestion, getExec, startOrResumeRun, unblockTask, type RunSummary } from '../../run/orchestrator.js';
 import { RUN_PURPOSE, acquireOrchestratorLock, requestStop, runningOrchestrator } from '../../run/process.js';
 import { RunLog } from '../../run/run-log.js';
+import { snapshotJson } from '../../run/snapshot-json.js';
 import { compactTokens, currentChange, runSnapshot, type RunSnapshot, type TaskView } from '../../run/snapshot.js';
 import { runBoard } from '../../tui/app.js';
 import { EngineBoardSource, taskLogLines } from '../board-source.js';
@@ -62,29 +63,6 @@ function showSnapshot(s: RunSnapshot, runner: { pid: number } | null): void {
   print();
   showPending(s);
   print(`Siguiente paso: ${s.nextStep}`);
-}
-
-function snapshotJson(s: RunSnapshot, runner: { pid: number } | null) {
-  return {
-    cambio: { id: s.change.change_id, titulo: s.change.title, fase: s.change.phase },
-    run: s.run ? { id: s.run.run_id, estado: s.run.state, detalle: s.run.detail, rama: s.run.branch, base: s.run.base_sha, activo: runner !== null } : null,
-    entrega: s.deliveryBranch,
-    progreso: { integradas: s.integrated, total: s.total, por_estado: s.counts },
-    tareas: s.tasks.map((t) => ({
-      id: t.id,
-      titulo: t.title,
-      estado: t.state,
-      modelo: t.exec.provider ? `${t.exec.provider}:${t.exec.model}` : null,
-      intento: t.exec.attempt,
-      fallos_calidad: t.exec.quality_failures,
-      actividad: t.activity,
-      error: t.exec.last_error,
-      pregunta: t.state === 'esperando_respuesta' ? t.exec.question : null,
-    })),
-    pendientes: s.pending,
-    consumo: s.usage,
-    siguiente: s.nextStep,
-  };
 }
 
 function exitCodeFor(summary: RunSummary, stoppedByUser: boolean): number {

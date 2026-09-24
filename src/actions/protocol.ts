@@ -1,8 +1,3 @@
-import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { hashJson } from '../domain/hash.js';
 import { newId } from '../domain/ids.js';
 import { Redactor } from '../security/redact.js';
@@ -10,7 +5,8 @@ import { type ActionState, AEV } from '../store/action-projections.js';
 import type { EventStore } from '../store/event-store.js';
 import type { Connection, ConnectionStore } from './connections.js';
 import type { ExecutorOrder, ExecutorResult } from './executor-main.js';
-import { operation, urlUnder } from './operations.js';
+import { type ExecutorRunner, ProcessExecutorRunner } from './executor-runner.js';
+import { type ActionEvidence, operation, urlUnder } from './operations.js';
 
 /**
  * External action protocol (V2-051, v2/06): proposal → validation → preview →
@@ -49,7 +45,6 @@ export type LinkRow = { connection: string; version: number; operations: string[
 export type SecretResolver = (name: string) => string | null;
 
 const PROPOSAL_TTL_MS = 30 * 60_000;
-export const DEFAULT_EXECUTOR = fileURLToPath(new URL('./executor-main.js', import.meta.url));
 
 export class ActionService {
   private readonly now: () => number;
@@ -57,10 +52,13 @@ export class ActionService {
   constructor(
     private readonly store: EventStore,
     private readonly connections: ConnectionStore,
-    private readonly opts: { now?: () => number; executorScript?: string; timeoutMs?: number } = {},
+    private readonly opts: { now?: () => number; executorScript?: string; timeoutMs?: number; executor?: ExecutorRunner } = {},
   ) {
     this.now = opts.now ?? Date.now;
+    this.executor = opts.executor ?? new ProcessExecutorRunner(opts.executorScript);
   }
+
+  private readonly executor: ExecutorRunner;
 
   private emit(type: string, id: string, payload: Record<string, unknown>, requestId = newId('req')): void {
     this.store.execute({ request_id: requestId, type, input: { id, payload } }, () => ({
@@ -187,10 +185,14 @@ export class ActionService {
     if (conn.secret && credential === null) throw new ActionError(`no se pudo leer el secreto «${conn.secret}»: abre la bóveda o guárdalo con forja boveda guardar ${conn.secret}`);
 
     let attempt = 0;
+    const retrySafe = conn.idempotent && operation(before.type).retrySafe !== false;
     this.store.execute({ request_id: newId('req'), type: AEV.executing, input: { id } }, () => {
       const a = this.get(id);
-      const retry = a.state === 'desconocido' && conn.idempotent;
-      if (a.state === 'desconocido' && !conn.idempotent) throw new ActionError('resultado desconocido y el servicio no garantiza idempotencia: concílialo a mano (forja accion conciliar)');
+      const retry = a.state === 'desconocido' && retrySafe;
+      if (a.state === 'desconocido' && !retrySafe)
+        throw new ActionError(
+          'resultado desconocido y no es seguro reenviarla (el servicio no garantiza idempotencia o la operación no se puede deshacer): concílialo a mano (forja accion conciliar)',
+        );
       if (a.state !== 'aprobada' && !retry) throw new ActionError(`la acción está ${a.view_state}: sólo se ejecuta una acción aprobada`);
       if (a.state === 'aprobada' && a.view_state === 'caducada') throw new ActionError('la aprobación caducó: vuelve a proponer la acción');
       if (a.connection_version !== conn.version) throw new ActionError('la conexión cambió desde la propuesta: vuelve a proponer la acción');
@@ -213,7 +215,35 @@ export class ActionService {
     const { state, detail } = classify(outcome);
     const evidence = JSON.parse(redactor.redact(JSON.stringify({ ...outcome, attempt }))) as Record<string, unknown>;
     this.emit(AEV.result, id, { state, detail: redactor.redact(detail), evidence });
+    if (state === 'desconocido' && conn.lookup_path) await this.checkByLookup(id, conn, credential);
     return this.get(id);
+  }
+
+  /**
+   * Automatic reconciliation by query (MEJORAS 4.8): a service that cannot take
+   * the same key twice may still find an action by its key. Found → confirmed,
+   * with the query as evidence. Not found proves nothing (it may appear later):
+   * the action stays «desconocido» for a human, with that fact recorded.
+   */
+  private async checkByLookup(id: string, conn: Connection, credential: string | null): Promise<void> {
+    const a = this.get(id);
+    const url = urlUnder(conn.base_url, conn.lookup_path!.replace('{clave}', encodeURIComponent(a.idempotency_key)));
+    const r = await this.runExecutor({
+      request: { method: 'GET', url, body: null, precondition: null },
+      idempotencyKey: `forja-consulta-${newId('prueba')}`,
+      auth: credential ? { header: conn.auth_header, value: conn.auth_scheme ? `${conn.auth_scheme} ${credential}` : credential } : null,
+      allowLocal: conn.allow_local,
+      timeoutMs: this.opts.timeoutMs ?? 30_000,
+    });
+    if (r.phase !== 'respuesta' || r.status !== 200) return;
+    let found = false;
+    try {
+      const body = JSON.parse(r.body) as unknown;
+      found = Array.isArray(body) ? body.length > 0 : body !== null && typeof body === 'object' && Object.keys(body).length > 0;
+    } catch {
+      found = false;
+    }
+    if (found) this.emit(AEV.reconciled, id, { state: 'confirmada', actor: 'consulta automática', note: `GET ${url} encontró la acción por su clave` });
   }
 
   /** Lowest-impact check of a connection: GET its test path through the same isolated executor. */
@@ -233,36 +263,23 @@ export class ActionService {
     return { ok: false, detail: r.detail };
   }
 
-  /** Separate process, empty environment and working directory; killed at the deadline. */
+  /** The isolated executor: a plain process, or bubblewrap with a tunnel to the destination only. */
   private runExecutor(order: ExecutorOrder): Promise<ExecutorResult> {
-    const cwd = mkdtempSync(join(tmpdir(), 'forja-ejecutor-'));
-    return new Promise<ExecutorResult>((resolve) => {
-      const child = spawn(process.execPath, [this.opts.executorScript ?? DEFAULT_EXECUTOR], { cwd, env: {}, stdio: ['pipe', 'pipe', 'pipe'] });
-      let out = '';
-      let settled = false;
-      const done = (r: ExecutorResult) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        rmSync(cwd, { recursive: true, force: true });
-        resolve(r);
-      };
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        done({ phase: 'incierto', detail: 'el ejecutor no terminó a tiempo' });
-      }, order.timeoutMs + 5_000);
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', (c: string) => (out += c));
-      child.on('error', (e) => done({ phase: 'no_enviado', detail: `no arrancó el ejecutor: ${e.message}` }));
-      child.on('close', () => {
-        try {
-          done(JSON.parse(out.trim().split('\n').at(-1) ?? '') as ExecutorResult);
-        } catch {
-          done({ phase: 'incierto', detail: 'el ejecutor terminó sin informar el resultado' });
-        }
-      });
-      child.stdin.end(JSON.stringify(order));
-    });
+    return this.executor.run(order);
+  }
+
+  /**
+   * «Deshacer» (MEJORAS 4.5): the inverse of a confirmed action as a NEW
+   * proposal, with its own preview, hash and approval. Nothing runs here.
+   */
+  undo(id: string, origin: string): ActionRow {
+    const a = this.get(id);
+    if (a.state !== 'confirmada') throw new ActionError(`sólo se deshace una acción confirmada (está ${a.view_state})`);
+    const op = operation(a.type);
+    const conn = this.connections.get(a.connection);
+    const inverse = op.undo?.(conn, op.params.parse(a.params), (a.result?.evidence ?? {}) as ActionEvidence) ?? { reason: 'esta operación no sabe deshacerse' };
+    if ('reason' in inverse) throw new ActionError(`no se puede deshacer ${id}: ${inverse.reason}`);
+    return this.propose({ type: inverse.type, connection: a.connection, params: inverse.params, origin: `deshacer ${id} · ${origin}` });
   }
 
   /** Human decision for an uncertain result after checking the service. */

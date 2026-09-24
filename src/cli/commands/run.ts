@@ -5,7 +5,7 @@ import { label, TEXTOS } from '../../i18n/textos.js';
 import { latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { activeChange, getChange } from '../../planner/session.js';
-import { ConformanceStore, conformanceProblems, uncertifiedModels } from '../../providers/conformance.js';
+import { ConformanceStore, conformanceProblems, mcpGaps, uncertifiedModels } from '../../providers/conformance.js';
 import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { readableLog } from '../../run/activity.js';
 import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine, taskDetailLines } from '../../run/describe.js';
@@ -205,6 +205,8 @@ export function registerRunCommands(program: Command): void {
         process.on('SIGTERM', onSignal);
 
         const gateway = await gatewayForProject(ctx, say);
+        const noMcp = gateway ? await mcpGaps(store, [...roles.trabajador, ...roles.complejo], FORJA_VERSION) : [];
+        if (noMcp.length) say(`⚠ sin prueba MCP aprobada: ${noMcp.join(', ')}; esos modelos podrían no poder proponer acciones (forja conformidad)`);
         if (gateway)
           say(
             `· gateway MCP activo: conexiones vinculadas${gateway.externals.length ? ` y ${gateway.externals.map((e) => e.def.name).join(', ')}` : ''} (los agentes sólo proponen; nada se ejecuta sin tu aprobación)`,

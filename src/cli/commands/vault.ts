@@ -1,7 +1,8 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import type { Command } from 'commander';
 import { forjaHome } from '../../registry/home.js';
-import { restoreVault, Vault, VaultError, vaultPaths } from '../../vault/vault.js';
+import { systemKeyring, vaultAccount } from '../../vault/keyring.js';
+import { purgeBackups, restoreVault, Vault, VaultError, vaultPaths } from '../../vault/vault.js';
 import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { readSecret, vaultPassphrase } from '../secret-input.js';
 
@@ -35,7 +36,7 @@ export function registerVaultCommands(program: Command): void {
     .action(async () => {
       const paths = vaultPaths(forjaHome());
       if (Vault.exists(paths)) throw new CliError('ya existe una bóveda', EXIT.precondition);
-      const pass = await vaultPassphrase('Clave nueva de la bóveda: ');
+      const pass = await vaultPassphrase('Clave nueva de la bóveda: ', process.env, null);
       if (!process.env.FORJA_BOVEDA_CLAVE && process.stdin.isTTY && (await readSecret('Repite la clave: ')) !== pass) throw new CliError('las claves no coinciden');
       try {
         Vault.create(paths, pass).close();
@@ -83,6 +84,10 @@ export function registerVaultCommands(program: Command): void {
         const next = await readSecret('Clave nueva: ');
         if (process.stdin.isTTY && (await readSecret('Repite la clave nueva: ')) !== next) throw new CliError('las claves no coinciden');
         v.changePassphrase(next);
+        // Keep the keyring in step: a stale saved key would lock the user out.
+        const keyring = systemKeyring();
+        const account = vaultAccount(vaultPaths(forjaHome()).file);
+        if (keyring?.get(account)) keyring.set(account, next);
       });
       print('✔ Clave cambiada. La copia anterior sigue cifrada con la clave vieja en boveda/copias.');
     });
@@ -112,10 +117,66 @@ export function registerVaultCommands(program: Command): void {
     .requiredOption('--confirmar', 'confirma la restauración')
     .action(async (file: string) => {
       try {
-        const r = restoreVault(vaultPaths(forjaHome()), file, await vaultPassphrase('Clave de la copia: '));
+        const r = restoreVault(vaultPaths(forjaHome()), file, await vaultPassphrase('Clave de la copia: ', process.env, null));
         print(`✔ Restaurada (generación ${r.generation}).${r.previous ? ` La anterior quedó en ${r.previous}` : ''}`);
       } catch (error) {
         throw new CliError((error as Error).message, EXIT.precondition);
       }
+    });
+
+  boveda
+    .command('purgar-copias')
+    .description('borra copias cifradas viejas (conservan valores rotados o borrados)')
+    .option('--conservar <n>', 'generaciones más recientes que se conservan', (v) => Number.parseInt(v, 10), 2)
+    .requiredOption('--confirmar', 'confirma el borrado')
+    .action(async (o: { conservar: number }) => {
+      // Proves the user holds the key before deleting anything.
+      await withVault(() => undefined);
+      let r: ReturnType<typeof purgeBackups>;
+      try {
+        r = purgeBackups(vaultPaths(forjaHome()), o.conservar);
+      } catch (error) {
+        throw new CliError((error as Error).message, EXIT.input);
+      }
+      print(`✔ ${r.removed.length} copia(s) borrada(s); se conservan ${r.kept.length}${r.kept.length ? ` (${r.kept.join(', ')})` : ''}.`);
+    });
+
+  const llavero = boveda.command('llavero').description('guarda la clave de la bóveda en el llavero del sistema (evita FORJA_BOVEDA_CLAVE)');
+  const keyringOrFail = () => {
+    const k = systemKeyring();
+    if (!k) throw new CliError('no hay llavero del sistema disponible (en Linux instala libsecret-tools: secret-tool)', EXIT.environment);
+    return k;
+  };
+  const account = () => vaultAccount(vaultPaths(forjaHome()).file);
+
+  llavero
+    .command('guardar')
+    .description('comprueba la clave abriendo la bóveda y la guarda en el llavero')
+    .action(async () => {
+      const k = keyringOrFail();
+      const pass = await vaultPassphrase('Clave de la bóveda: ', process.env, null);
+      try {
+        Vault.open(vaultPaths(forjaHome()), pass).close();
+      } catch (error) {
+        throw new CliError((error as Error).message, EXIT.precondition);
+      }
+      k.set(account(), pass);
+      print(`✔ Clave guardada en ${k.id}. Forja la usará sin preguntar; bórrala con forja boveda llavero olvidar.`);
+    });
+
+  llavero
+    .command('olvidar')
+    .description('borra la clave del llavero (la bóveda no cambia)')
+    .action(() => {
+      const k = keyringOrFail();
+      print(k.delete(account()) ? '✔ Clave borrada del llavero.' : 'El llavero no tenía la clave.');
+    });
+
+  llavero
+    .command('estado')
+    .description('dice si la clave está en el llavero (nunca la muestra)')
+    .action(() => {
+      const k = systemKeyring();
+      print(!k ? 'No hay llavero del sistema disponible.' : k.get(account()) ? `La clave está guardada en ${k.id}.` : `${k.id} disponible; la clave no está guardada.`);
     });
 }

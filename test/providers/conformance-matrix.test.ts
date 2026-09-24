@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SimulatedAdapter } from '../../src/providers/adapters.js';
-import { type ConformanceReport, ConformanceStore, conformanceProblems, runConformance, SIMULATED_CONFORMANCE, uncertifiedModels } from '../../src/providers/conformance.js';
+import { type ConformanceReport, ConformanceStore, conformanceProblems, mcpGaps, runConformance, SIMULATED_CONFORMANCE, uncertifiedModels } from '../../src/providers/conformance.js';
 import { ensureBuilt, HAS_BWRAP, ROOT, RUNNER } from '../helpers/engine.js';
 
 let dir: string;
@@ -21,7 +21,7 @@ describe.skipIf(!HAS_BWRAP)('matriz de conformidad (V2-040)', () => {
     const r = await runConformance({ adapter: sim(), model: 'sim', cliVersion: 'forja-0', dir: join(dir, 'ok'), runnerScript: RUNNER, simulation: GOOD, timeoutMs: 30_000 });
     expect(r.passed, JSON.stringify(r.checks)).toBe(true);
     const by = Object.fromEntries(r.checks.map((c) => [c.id, c.estado]));
-    expect(by).toMatchObject({ edicion: 'ok', sesion: 'ok', esquema: 'ok', aislamiento: 'ok', aislamiento_sandbox: 'ok', red: 'ok' });
+    expect(by).toMatchObject({ edicion: 'ok', sesion: 'ok', esquema: 'ok', aislamiento: 'ok', aislamiento_sandbox: 'ok', red: 'ok', mcp: 'ok' });
     expect(['ok', 'desconocido']).toContain(by.uso);
   }, 120_000);
 
@@ -32,6 +32,17 @@ describe.skipIf(!HAS_BWRAP)('matriz de conformidad (V2-040)', () => {
     expect(by.aislamiento).toMatchObject({ estado: 'desconocido', detalle: expect.stringContaining('se negó a intentarlo') });
     expect(by.aislamiento_sandbox!.estado).toBe('ok');
     expect(r.passed).toBe(true);
+  }, 120_000);
+
+  it('la prueba MCP es una capacidad aparte: si falla, el modelo sigue aprobado para trabajar sin conexiones (MEJORAS 4.1)', async () => {
+    const noMcp = { ...GOOD, mcp: { pasos: [], resultado: 'No tengo herramientas MCP.' } };
+    const r = await runConformance({ adapter: sim(), model: 'sim', cliVersion: 'forja-0', dir: join(dir, 'sin-mcp'), runnerScript: RUNNER, simulation: noMcp, timeoutMs: 30_000 });
+    const mcp = r.checks.find((c) => c.id === 'mcp')!;
+    expect(mcp).toMatchObject({ estado: 'fallo', detalle: expect.stringContaining('no llegó al gateway') });
+    expect(r.passed).toBe(true);
+    const store = new ConformanceStore(join(dir, 'mcp.json'));
+    store.record({ ...r, provider: 'claude', model: 'haiku', cli_version: '2.0' });
+    expect(await mcpGaps(store, ['claude:haiku', 'simulado:sim'], '0', async (p) => (p === 'claude' ? '2.0' : 'forja-0'))).toEqual(['claude:haiku']);
   }, 120_000);
 
   it('un proveedor que no hace lo pedido o no respeta el esquema no se aprueba', async () => {

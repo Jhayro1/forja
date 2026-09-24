@@ -1,8 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ActionService } from '../actions/protocol.js';
+import { MCP_SOCKET_NAME } from '../providers/adapters.js';
 import { FORJA_VERSION } from '../version.js';
 import type { ExternalMcp, McpTool, ToolResult } from './external.js';
 import { MCP_PROTOCOL } from './external.js';
@@ -127,18 +129,34 @@ export function gatewayHandler(ctx: GatewayContext): (method: string, params: un
 export class GatewayHost {
   private readonly dir: string;
   private readonly servers = new Map<string, Server>();
-  private n = 0;
 
+  /**
+   * `baseDir`: where each launch gets its own folder with `p.sock`. A stable
+   * base (derived from the checkout) lets a restarted `forja run` recreate the
+   * socket of an agent that kept working, at the path its sandbox mounted.
+   */
   constructor(
     private readonly actions: ActionService,
     readonly externals: ExternalMcp[] = [],
+    baseDir?: string,
   ) {
     // Short path: unix socket paths are limited to ~107 bytes.
-    this.dir = mkdtempSync(join(tmpdir(), 'fmcp-'));
+    this.dir = baseDir ?? mkdtempSync(join(tmpdir(), 'fmcp-'));
+    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
   }
 
-  async socketFor(origin: string): Promise<string> {
-    const path = join(this.dir, `${++this.n}.sock`);
+  /** Stable short base folder for a checkout's data directory. */
+  static baseFor(dataDir: string): string {
+    return join(tmpdir(), `fmcp-${createHash('sha256').update(dataDir).digest('hex').slice(0, 12)}`);
+  }
+
+  /** Socket for one launch (`key`: its launch id), recreated at the same path if it already existed. */
+  async socketFor(origin: string, key: string): Promise<string> {
+    const folder = join(this.dir, createHash('sha256').update(key).digest('hex').slice(0, 12));
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    const path = join(folder, MCP_SOCKET_NAME);
+    this.servers.get(path)?.close();
+    rmSync(path, { force: true });
     const server = createServer((socket) => serveRpc(socket, socket, gatewayHandler({ origin, actions: this.actions, externals: this.externals })));
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
@@ -157,6 +175,5 @@ export class GatewayHost {
     for (const s of this.servers.values()) s.close();
     this.servers.clear();
     for (const e of this.externals) e.close();
-    rmSync(this.dir, { recursive: true, force: true });
   }
 }

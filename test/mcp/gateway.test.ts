@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConnectionStore } from '../../src/actions/connections.js';
 import { ActionService } from '../../src/actions/protocol.js';
-import { ExternalMcp } from '../../src/mcp/external.js';
+import { ExternalMcp, outputValidator } from '../../src/mcp/external.js';
 import { GatewayHost, gatewayHandler } from '../../src/mcp/gateway.js';
 import { McpRegistry, mcpLinkName } from '../../src/mcp/registry.js';
 import { ClaudeAdapter, CodexAdapter, MCP_SOCKET_IN_SANDBOX } from '../../src/providers/adapters.js';
@@ -73,6 +73,22 @@ describe('servidor MCP externo a través del gateway', () => {
     expect((await ext.call('borrar_todo', {})).isError).toBe(true);
   });
 
+  it('valida la salida estructurada contra el outputSchema declarado (MEJORAS 4.10)', async () => {
+    const def = McpRegistry.in(dir).save({ name: 'falso', command: FAKE, args: [], declared_version: '1.0.0', tools: ['precio'], secrets: { SECRET_TOKEN: 'X' } });
+    const ext = await ExternalMcp.start(def, { SECRET_TOKEN: 'tok-precio-456' });
+    closers.push(() => ext.close());
+    const ok = await ext.call('precio', { q: 'ok' });
+    expect(ok.isError).toBeUndefined();
+    // Validated and redacted before reaching the agent.
+    expect(ok.structuredContent).toEqual({ monto: 5, moneda: '«secreto:SECRET_TOKEN»' });
+    const bad = await ext.call('precio', { q: 'mal' });
+    expect(bad).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('no cumple su outputSchema: monto') }] });
+    expect(bad.structuredContent).toBeUndefined();
+    expect((await ext.call('precio', { q: 'nada' })).content[0]!.text).toMatch(/no devolvió structuredContent/);
+    expect(outputValidator({ type: 'object', properties: { a: { type: 'integer' } }, required: ['a'] })({ a: 1 })).toEqual({ ok: true });
+    expect(outputValidator(undefined)(undefined)).toEqual({ ok: true });
+  });
+
   it('el gateway ofrece sus herramientas y las externas con prefijo; proponer nunca ejecuta', async () => {
     const store = EventStore.open(join(dir, 'e.db'), 'chk');
     closers.push(() => store.close());
@@ -136,17 +152,19 @@ describe('adaptadores con gateway', () => {
         ...(mcpSocket ? { mcpSocket } : {}),
       });
       const claude = new ClaudeAdapter('/usr/bin/true');
-      const withGw = claude.buildOrder(params('/tmp/fmcp-x/1.sock'));
+      const withGw = claude.buildOrder(params('/tmp/fmcp-x/a1/p.sock'));
       const cfg = JSON.parse(withGw.argv[withGw.argv.indexOf('--mcp-config') + 1]!);
       expect(Object.keys(cfg.mcpServers)).toEqual(['forja']);
       expect(cfg.mcpServers.forja.args).toContain(MCP_SOCKET_IN_SANDBOX);
       expect(withGw.argv[withGw.argv.indexOf('--allowedTools') + 1]).toMatch(/mcp__forja$/);
-      expect(withGw.sandbox.mode === 'bwrap' && withGw.sandbox.mounts.some((m) => m.src === '/tmp/fmcp-x/1.sock' && m.dest === MCP_SOCKET_IN_SANDBOX)).toBe(true);
+      // The socket's folder is mounted, so a gateway recreated at the same path stays visible (MEJORAS 4.7).
+      expect(withGw.sandbox.mode === 'bwrap' && withGw.sandbox.mounts.some((m) => m.src === '/tmp/fmcp-x/a1' && `${m.dest}/p.sock` === MCP_SOCKET_IN_SANDBOX)).toBe(true);
+      expect(() => claude.buildOrder(params('/tmp/fmcp-x/otro.sock'))).toThrow(/debe llamarse p.sock/);
       const without = claude.buildOrder(params());
       expect(JSON.parse(without.argv[without.argv.indexOf('--mcp-config') + 1]!)).toEqual({ mcpServers: {} });
       expect(without.argv.join(' ')).not.toContain('mcp__forja');
 
-      const codex = new CodexAdapter('/usr/bin/true').buildOrder(params('/tmp/fmcp-x/2.sock'));
+      const codex = new CodexAdapter('/usr/bin/true').buildOrder(params('/tmp/fmcp-x/a2/p.sock'));
       expect(codex.argv.join(' ')).toMatch(/mcp_servers\.forja\.command=/);
       expect(new CodexAdapter('/usr/bin/true').buildOrder(params()).argv.join(' ')).not.toContain('mcp_servers');
     } finally {
@@ -181,4 +199,53 @@ describe.skipIf(!HAS_BWRAP)('de punta a punta: un agente en el sandbox propone p
     expect(a!.preview.peticion).toBe('POST https://api.example.com/avisos');
     expect(mcpLinkName('x')).toBe('mcp:x');
   }, 300_000);
+});
+
+describe('el agente conserva el gateway si forja run se reinicia (MEJORAS 4.7)', () => {
+  it('el socket se recrea en la misma ruta y el puente responde error a lo que quedó en vuelo y se reconecta', async () => {
+    const { spawn } = await import('node:child_process');
+    const store = EventStore.open(join(mkdtempSync(join(tmpdir(), 'forja-gw7-')), 'estado.db'), 'chk');
+    closers.push(() => store.close());
+    const actions = services(store);
+    const base = join(tmpdir(), `fmcp-t${Date.now().toString(36)}`);
+    const first = new GatewayHost(actions, [], base);
+    const path = await first.socketFor('agente T-001 · run_x', 'lan_abc');
+    expect(path).toBe(await first.socketFor('agente T-001 · run_x', 'lan_abc'));
+    expect(path.endsWith('/p.sock')).toBe(true);
+    const bridge = spawn(process.execPath, [join(ROOT, 'dist/mcp/bridge-main.js'), path], { stdio: ['pipe', 'pipe', 'pipe'] });
+    closers.push(() => bridge.kill());
+    const lines: Record<string, unknown>[] = [];
+    let buf = '';
+    bridge.stdout.on('data', (c) => {
+      buf += String(c);
+      let i = buf.indexOf('\n');
+      while (i >= 0) {
+        lines.push(JSON.parse(buf.slice(0, i)) as Record<string, unknown>);
+        buf = buf.slice(i + 1);
+        i = buf.indexOf('\n');
+      }
+    });
+    const ask = (id: number) => bridge.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/list' })}\n`);
+    const until = async (pred: () => boolean) => {
+      for (let i = 0; i < 100 && !pred(); i++) await new Promise((r) => setTimeout(r, 50));
+    };
+    ask(1);
+    await until(() => lines.some((l) => l.id === 1));
+    expect((lines.find((l) => l.id === 1)!.result as { tools: unknown[] }).tools.length).toBeGreaterThan(0);
+    // forja run stops: the old process closes its gateway.
+    first.close();
+    await new Promise((r) => setTimeout(r, 300));
+    ask(2);
+    // A new forja run recreates the socket for the running agent at the same path.
+    const second = new GatewayHost(actions, [], base);
+    closers.push(() => second.close());
+    expect(await second.socketFor('agente T-001 · run_x', 'lan_abc')).toBe(path);
+    await until(() => lines.some((l) => l.id === 2));
+    ask(3);
+    await until(() => lines.some((l) => l.id === 3));
+    const byId = (id: number) => lines.find((l) => l.id === id)!;
+    // The request sent while the gateway was down is delivered after reconnecting (or answered with an error): never lost.
+    expect(byId(2).result ?? byId(2).error).toBeTruthy();
+    expect((byId(3).result as { tools: unknown[] }).tools.length).toBeGreaterThan(0);
+  }, 30_000);
 });

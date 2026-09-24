@@ -1,5 +1,8 @@
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
+import { forjaHome } from '../registry/home.js';
+import { type Keyring, systemKeyring, vaultAccount } from '../vault/keyring.js';
+import { vaultPaths } from '../vault/vault.js';
 
 /**
  * Reads a secret without echo on a terminal, or one line from stdin when piped.
@@ -32,9 +35,15 @@ export async function readSecret(label: string): Promise<string> {
   return answer;
 }
 
-/** Vault passphrase: FORJA_BOVEDA_CLAVE (scripts; visible to your other processes) or a hidden prompt. */
-export async function vaultPassphrase(label = 'Clave de la bóveda: ', env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  return env.FORJA_BOVEDA_CLAVE ?? (await readSecret(label));
+/**
+ * Vault passphrase: FORJA_BOVEDA_CLAVE (scripts; visible to your other
+ * processes), else the system keyring if you saved it there (forja boveda
+ * llavero guardar), else a hidden prompt.
+ */
+export async function vaultPassphrase(label = 'Clave de la bóveda: ', env: NodeJS.ProcessEnv = process.env, keyring: Keyring | null = systemKeyring()): Promise<string> {
+  if (env.FORJA_BOVEDA_CLAVE) return env.FORJA_BOVEDA_CLAVE;
+  const saved = keyring?.get(vaultAccount(vaultPaths(forjaHome(env)).file));
+  return saved ?? (await readSecret(label));
 }
 
 /** Yes/no question on an interactive terminal; `false` when there is no TTY (scripts never block). */

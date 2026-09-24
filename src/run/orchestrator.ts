@@ -12,7 +12,7 @@ import { OutcomeHandler } from './pipeline/outcome-handler.js';
 import { Reconciler } from './pipeline/reconciler.js';
 import { RunContext } from './pipeline/run-context.js';
 import { dependentCounts, HOLDING_STATES, nextToIntegrate, selectLaunches } from './pipeline/scheduler.js';
-import { TaskLauncher } from './pipeline/task-launcher.js';
+import { gatewayOrigin, TaskLauncher } from './pipeline/task-launcher.js';
 import { TaskVerifier } from './pipeline/task-verifier.js';
 import { getRun, setRunState } from './records.js';
 import { applyTaskControls } from './task-control.js';
@@ -108,6 +108,7 @@ export class Orchestrator {
 
   async loop(): Promise<RunSummary> {
     await new Reconciler(this.ctx).reconcile();
+    await this.restoreGatewaySockets();
     this.engine.store.execute({ request_id: newId('req'), type: 'parametros_run', input: { runId: this.runId } }, () => ({
       result: null,
       events: [
@@ -156,6 +157,20 @@ export class Orchestrator {
       .filter((t) => t.state === 'ejecutando')
       .map((t) => this.ctx.execOf(t.task_id).launch_dir)
       .filter((d): d is string => d !== null);
+  }
+
+  /**
+   * Agents that kept working while `forja run` was down lost their gateway: the
+   * socket is recreated at the same path (their sandbox mounted its folder) and
+   * their bridge reconnects (MEJORAS 4.7).
+   */
+  private async restoreGatewaySockets(): Promise<void> {
+    const gateway = this.opts.gateway;
+    if (!gateway) return;
+    for (const t of this.ctx.tasks().filter((x) => x.state === 'ejecutando')) {
+      const exec = this.ctx.execOf(t.task_id);
+      if (exec.launch_id) await gateway.socketFor(gatewayOrigin(t.task_id, this.runId), exec.launch_id);
+    }
   }
 
   /** One scheduling round. Returns a summary promise when the run left `ejecutando`. */

@@ -1,5 +1,6 @@
 import { auditTrail } from '../actions/audit.js';
 import { ConnectionStore } from '../actions/connections.js';
+import type { ActionService } from '../actions/protocol.js';
 import type { ConnectionsBackend } from '../api/modules/connections.js';
 import type { MemoryBackend } from '../api/modules/memory.js';
 import type { PlanningBackend } from '../api/modules/planning.js';
@@ -21,6 +22,7 @@ import { currentChange } from '../run/snapshot.js';
 import { snapshotJson } from '../run/snapshot-json.js';
 import { answerSpecQuestion, latestSpec, specAnswers } from '../spec/generate.js';
 import { validateSpec } from '../spec/spec.js';
+import type { Vault } from '../vault/vault.js';
 import { EngineBoardSource } from './board-source.js';
 import { actionService } from './commands/actions.js';
 import type { EngineContext } from './engine-context.js';
@@ -127,10 +129,31 @@ export class EngineEventFeed implements EventFeed {
 }
 
 export class EngineConnectionsBackend implements ConnectionsBackend {
-  constructor(private readonly ctx: EngineContext) {}
+  /** `vault`: opened by `forja ui --boveda` (closes itself after inactivity), or null. */
+  constructor(
+    private readonly ctx: EngineContext,
+    private readonly vault: Vault | null = null,
+    private readonly makeService: () => ActionService = () => actionService(ctx),
+  ) {}
 
-  private service() {
-    return actionService(this.ctx);
+  vaultState(): 'abierta' | 'cerrada' | 'no' {
+    if (!this.vault) return 'no';
+    return this.vault.isOpen ? 'abierta' : 'cerrada';
+  }
+
+  async execute(id: string, hash: string): Promise<object> {
+    const svc = this.service();
+    const a = svc.get(id);
+    // The panel executes exactly what the user saw and approved (v2/06).
+    if (a.hash !== hash) throw new Error('la acción cambió desde que la viste: recarga el panel');
+    if (!this.vault) throw new Error('el panel se abrió sin la bóveda: usa forja ui --boveda o ejecuta en la terminal (forja accion ejecutar)');
+    if (!this.vault.isOpen) throw new Error('la bóveda se cerró por inactividad: vuelve a abrir el panel con forja ui --boveda');
+    const vault = this.vault;
+    return svc.execute(id, (name) => (vault.has(name) ? vault.get(name) : null));
+  }
+
+  private service(): ActionService {
+    return this.makeService();
   }
 
   overview(): object {

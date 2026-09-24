@@ -39,5 +39,5 @@ export async function gatewayForProject(ctx: EngineContext, warn: (line: string)
     }
   }
   vault?.close();
-  return new GatewayHost(actions, externals);
+  return new GatewayHost(actions, externals, GatewayHost.baseFor(ctx.dataDir));
 }

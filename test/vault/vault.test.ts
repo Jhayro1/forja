@@ -155,3 +155,83 @@ describe('bóveda (V2-050)', () => {
     expect(() => Vault.create(paths, PASS, FAST)).toThrow(/ya existe/);
   });
 });
+
+describe('llavero del sistema (MEJORAS 4.3)', () => {
+  it('secret-tool: guarda por stdin, lee y borra; el secreto nunca va en los argumentos', async () => {
+    const { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { SecretToolKeyring, MacKeychain, vaultAccount } = await import('../../src/vault/keyring.js');
+    const { vaultPassphrase } = await import('../../src/cli/secret-input.js');
+    const dir = mkdtempSync(join(tmpdir(), 'forja-llavero-'));
+    try {
+      const store = join(dir, 'guardado');
+      const argsLog = join(dir, 'args');
+      const fake = join(dir, 'secret-tool');
+      writeFileSync(
+        fake,
+        `#!/bin/sh\necho "$@" >> ${argsLog}\ncase "$1" in\n  store) cat > ${store} ;;\n  lookup) [ -f ${store} ] && cat ${store} || exit 1 ;;\n  clear) [ -f ${store} ] && rm ${store} || exit 1 ;;\nesac\n`,
+      );
+      chmodSync(fake, 0o755);
+      const k = new SecretToolKeyring(fake);
+      expect(k.get('cuenta')).toBeNull();
+      k.set('cuenta', 'clave muy secreta 123');
+      expect(k.get('cuenta')).toBe('clave muy secreta 123');
+      expect(readFileSync(argsLog, 'utf8')).not.toContain('secreta');
+      const home = join(dir, 'home');
+      const acct = vaultAccount(join(home, 'boveda', 'boveda.json'));
+      expect(acct).toMatch(/^boveda-[0-9a-f]{16}$/);
+      // Without the env var, the passphrase comes from the keyring instead of a prompt.
+      const fromKeyring = await vaultPassphrase('x', { FORJA_HOME: home }, { id: 'falso', get: () => 'desde-llavero', set: () => {}, delete: () => true });
+      expect(fromKeyring).toBe('desde-llavero');
+      expect(await vaultPassphrase('x', { FORJA_HOME: home, FORJA_BOVEDA_CLAVE: 'env' }, { id: 'falso', get: () => 'desde-llavero', set: () => {}, delete: () => true })).toBe('env');
+      expect(k.delete('cuenta')).toBe(true);
+      expect(k.get('cuenta')).toBeNull();
+
+      const calls: { args: string[]; input: string | undefined }[] = [];
+      const mac = new MacKeychain((_cmd, args, input) => {
+        calls.push({ args, input });
+        return { status: 0, stdout: 'valor\n' };
+      });
+      mac.set('cuenta', 'clave "rara"');
+      expect(calls[0]!.args).toEqual(['-i']);
+      expect(calls[0]!.input).toContain('-w "clave \\"rara\\""');
+      expect(mac.get('cuenta')).toBe('valor');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('purgar copias viejas (MEJORAS 4.9)', () => {
+  it('conserva las N generaciones más recientes y borra el resto, incluidos valores ya borrados', async () => {
+    const { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { purgeBackups, Vault, vaultPaths } = await import('../../src/vault/vault.js');
+    const dir = mkdtempSync(join(tmpdir(), 'forja-purga-'));
+    try {
+      const paths = vaultPaths(dir);
+      const v = Vault.create(paths, 'una clave bastante larga', { logN: 14, r: 8, p: 1 });
+      v.set('TOKEN', 'valor-viejo-1');
+      v.set('TOKEN', 'valor-viejo-2');
+      v.remove('TOKEN');
+      v.set('OTRO', 'x');
+      v.close();
+      const before = readdirSync(paths.backups).sort();
+      expect(before.length).toBeGreaterThanOrEqual(4);
+      const r = purgeBackups(paths, 1);
+      expect(r.kept).toHaveLength(1);
+      expect(r.removed).toHaveLength(before.length - 1);
+      expect(readdirSync(paths.backups)).toEqual(r.kept);
+      expect(existsSync(paths.file)).toBe(true);
+      expect(() => purgeBackups(paths, -1)).toThrow(/entero/);
+      // The kept one is the newest generation.
+      const gen = (f: string) => Number(/gen(\d+)/.exec(f)![1]);
+      expect(gen(r.kept[0]!)).toBe(Math.max(...before.map(gen)));
+      expect(readFileSync(paths.file, 'utf8')).not.toContain('valor-viejo');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

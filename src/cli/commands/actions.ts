@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { ConnectionError, ConnectionStore } from '../../actions/connections.js';
-import { OperationError } from '../../actions/operations.js';
+import { defaultExecutorRunner } from '../../actions/executor-runner.js';
+import { OPERATIONS, OperationError } from '../../actions/operations.js';
 import { ActionError, type ActionRow, ActionService, type SecretResolver } from '../../actions/protocol.js';
 import { TEXTOS } from '../../i18n/textos.js';
 import { forjaHome } from '../../registry/home.js';
@@ -13,7 +14,7 @@ import { readSecret, vaultPassphrase } from '../secret-input.js';
 const STATE_TEXT: Record<string, string> = { ...TEXTOS.estadoAccion, desconocido: TEXTOS.estadoAccion.desconocido.toUpperCase() };
 
 export function actionService(ctx: EngineContext): ActionService {
-  return new ActionService(ctx.store, ConnectionStore.in(ctx.home));
+  return new ActionService(ctx.store, ConnectionStore.in(ctx.home), { executor: defaultExecutorRunner() });
 }
 
 function domain<T>(fn: () => T): T {
@@ -63,7 +64,8 @@ export function registerActionCommands(program: Command): void {
     .option('--idempotente', 'el servicio respeta Idempotency-Key (permite resolver resultados inciertos reenviando)')
     .option('--permitir-local', 'permite destinos locales/privados (sólo servicios de prueba)')
     .option('--prueba <ruta>', 'ruta GET de menor impacto para forja conexion probar')
-    .action((name: string, o: { url: string; secreto?: string; cabecera: string; esquema: string; idempotente?: boolean; permitirLocal?: boolean; prueba?: string }) => {
+    .option('--consulta <ruta>', 'GET que encuentra una acción por su clave, con {clave} (p. ej. /pedidos?clave={clave}): concilia sola los resultados inciertos')
+    .action((name: string, o: { url: string; secreto?: string; cabecera: string; esquema: string; idempotente?: boolean; permitirLocal?: boolean; prueba?: string; consulta?: string }) => {
       const c = domain(() =>
         ConnectionStore.in(forjaHome()).save({
           name,
@@ -75,6 +77,7 @@ export function registerActionCommands(program: Command): void {
           idempotent: Boolean(o.idempotente),
           allow_local: Boolean(o.permitirLocal),
           test_path: o.prueba ?? null,
+          lookup_path: o.consulta ?? null,
         }),
       );
       print(`✔ Conexión «${c.name}» versión ${c.version}. Vincúlala a un proyecto con: forja conexion vincular ${c.name} --operaciones http.json`);
@@ -327,6 +330,57 @@ export function registerActionCommands(program: Command): void {
       try {
         const a = domain(() => actionService(ctx).reconcile(id, o.efecto !== 'no', 'cli', o.nota));
         print(`✔ ${id}: ${STATE_TEXT[a.state]}`);
+      } finally {
+        ctx.close();
+      }
+    });
+
+  accion
+    .command('operaciones')
+    .description('operaciones tipadas disponibles (qué puede proponerse y si se puede deshacer)')
+    .action((_o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ops = Object.values(OPERATIONS).map((o) => ({ id: o.id, descripcion: o.description, reintento_ciego: o.retrySafe !== false, deshacer: Boolean(o.undo) }));
+      if (g.json) return printJson({ operaciones: ops });
+      for (const o of ops) print(`  ${o.id.padEnd(16)} ${o.descripcion}${o.reintento_ciego ? '' : ' · nunca se reenvía a ciegas'}`);
+      print("\nProponer: forja accion proponer-tipo <conexion> <operacion> --parametros '{…}' (o @archivo.json)");
+    });
+
+  accion
+    .command('proponer-tipo <conexion> <operacion>')
+    .description('propone cualquier operación tipada (correo.enviar, webhook.evento, dns.registro, http.json)')
+    .requiredOption('--parametros <json>', 'parámetros de la operación en JSON, o @archivo.json')
+    .action((name: string, type: string, o: { parametros: string }, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      let params: unknown;
+      try {
+        params = JSON.parse(o.parametros.startsWith('@') ? readFileSync(o.parametros.slice(1), 'utf8') : o.parametros) as unknown;
+      } catch {
+        throw new CliError('--parametros no es JSON válido');
+      }
+      const ctx = openEngine(g);
+      try {
+        const a = domain(() => actionService(ctx).propose({ type, connection: name, params, origin: 'cli' }));
+        if (g.json) return printJson({ accion: a });
+        showAction(a);
+        print(`\nRevísala y apruébala con: forja accion aprobar ${a.action_id}`);
+      } finally {
+        ctx.close();
+      }
+    });
+
+  accion
+    .command('deshacer <id>')
+    .description('propone la acción inversa de una confirmada (necesita su propia aprobación)')
+    .action((id: string, _o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const a = domain(() => actionService(ctx).undo(id, 'cli'));
+        if (g.json) return printJson({ accion: a });
+        print(`Propuesta para deshacer ${id} (nada se ejecutó todavía):`);
+        showAction(a);
+        print(`\nRevísala y apruébala con: forja accion aprobar ${a.action_id}`);
       } finally {
         ctx.close();
       }

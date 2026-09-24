@@ -2,13 +2,45 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { Redactor } from '../security/redact.js';
 import { FORJA_VERSION } from '../version.js';
 import { RpcClient } from './jsonrpc.js';
 import type { McpServerDef } from './registry.js';
 
-export type McpTool = { name: string; description?: string; inputSchema: Record<string, unknown> };
-export type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
+export type McpTool = { name: string; description?: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown> };
+export type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean; structuredContent?: unknown };
+
+type OutputCheck = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Validates `structuredContent` against the tool's declared `outputSchema`
+ * (MEJORAS 4.10). Nothing unvalidated reaches the agent as structured data:
+ * a missing or non-conforming answer becomes an error result.
+ */
+export function outputValidator(schema: Record<string, unknown> | undefined): (value: unknown) => OutputCheck {
+  if (!schema) return () => ({ ok: true });
+  let parser: z.ZodType;
+  try {
+    parser = z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]);
+  } catch (error) {
+    const reason = `el outputSchema declarado no se puede usar: ${(error as Error).message.slice(0, 200)}`;
+    return () => ({ ok: false, reason });
+  }
+  return (value) => {
+    if (value === undefined) return { ok: false, reason: 'la herramienta declara outputSchema pero no devolvió structuredContent' };
+    const r = parser.safeParse(value);
+    return r.success
+      ? { ok: true }
+      : {
+          ok: false,
+          reason: r.error.issues
+            .slice(0, 5)
+            .map((i) => `${i.path.join('.') || '(raíz)'}: ${i.message}`)
+            .join('; '),
+        };
+  };
+}
 
 export const MCP_PROTOCOL = '2025-06-18';
 
@@ -47,9 +79,20 @@ export class ExternalMcp {
     }
   }
 
+  private readonly validators = new Map<string, ReturnType<typeof outputValidator>>();
+
   async call(tool: string, args: unknown): Promise<ToolResult> {
-    if (!this.tools.some((t) => t.name === tool)) return { content: [{ type: 'text', text: `herramienta no autorizada: ${tool}` }], isError: true };
+    const def = this.tools.find((t) => t.name === tool);
+    if (!def) return { content: [{ type: 'text', text: `herramienta no autorizada: ${tool}` }], isError: true };
     const r = (await this.client.request('tools/call', { name: tool, arguments: args ?? {} })) as ToolResult;
+    let structured: unknown;
+    if (def.outputSchema && !r?.isError) {
+      if (!this.validators.has(tool)) this.validators.set(tool, outputValidator(def.outputSchema));
+      const check = this.validators.get(tool)!(r?.structuredContent);
+      if (!check.ok) return { content: [{ type: 'text', text: `la respuesta de ${this.def.name}__${tool} no cumple su outputSchema: ${check.reason}` }], isError: true };
+      const json = this.redactor.redact(JSON.stringify(r.structuredContent));
+      if (Buffer.byteLength(json) <= this.def.max_response_bytes) structured = JSON.parse(json) as unknown;
+    }
     let text = JSON.stringify(r?.content ?? []);
     let truncated = false;
     if (Buffer.byteLength(text) > this.def.max_response_bytes) {
@@ -64,7 +107,11 @@ export class ExternalMcp {
             .map((c) => c.text)
             .join('\n'),
     );
-    return { content: [{ type: 'text', text: truncated ? `${safe}\n… [respuesta recortada a ${this.def.max_response_bytes} bytes]` : safe }], ...(r?.isError ? { isError: true } : {}) };
+    return {
+      content: [{ type: 'text', text: truncated ? `${safe}\n… [respuesta recortada a ${this.def.max_response_bytes} bytes]` : safe }],
+      ...(r?.isError ? { isError: true } : {}),
+      ...(structured !== undefined ? { structuredContent: structured } : {}),
+    };
   }
 
   close(): void {

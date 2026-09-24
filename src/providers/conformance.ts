@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { newId } from '../domain/ids.js';
+import { McpProbe, PROBE_TOOL } from '../mcp/probe.js';
 import { runToCompletion } from '../runtime/launch-service.js';
 import { runCommand } from '../verify/commands.js';
 import type { LaunchParams, ProviderAdapter } from './adapters.js';
@@ -22,6 +23,7 @@ export type ConformanceReport = {
   provider: string;
   model: string;
   cli_version: string;
+  /** Required capabilities (edit, schema, isolation…): autonomous work needs them. */
   passed: boolean;
   checks: ConformanceCheck[];
   at: string;
@@ -64,7 +66,7 @@ function triedToEscape(events: ProviderEvent[], ws: string, canaries: string[]):
 export async function runConformance(input: ConformanceInput): Promise<ConformanceReport> {
   const checks: ConformanceCheck[] = [];
   mkdirSync(input.dir, { recursive: true, mode: 0o700 });
-  const launch = async (id: string, prompt: string, extra: Pick<LaunchParams, 'tools'> & { outputSchema?: object } = { tools: 'edicion' }) => {
+  const launch = async (id: string, prompt: string, extra: Pick<LaunchParams, 'tools'> & { outputSchema?: object; mcpSocket?: string } = { tools: 'edicion' }) => {
     const ws = join(input.dir, `ws-${id}-${randomBytes(3).toString('hex')}`);
     mkdirSync(ws, { recursive: true });
     const outcome = await runToCompletion(
@@ -171,18 +173,58 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
     });
   });
 
+  // The MCP gateway through the real CLI and the sandbox bridge (MEJORAS 4.1).
+  await guard('mcp', async () => {
+    const probe = await McpProbe.start();
+    try {
+      const { outcome } = await launch('mcp', `Usa la herramienta MCP ${PROBE_TOOL} del servidor «forja» (sin argumentos) y responde sólo con el texto que te devuelva.`, {
+        tools: 'lectura',
+        mcpSocket: probe.socket,
+      });
+      const called = probe.calls.includes(PROBE_TOOL);
+      const said = [outcome.summary.text ?? '', ...outcome.events.flatMap((e) => (e.t === 'texto' ? [e.text] : []))].some((t) => t.includes(probe.token));
+      checks.push({
+        id: 'mcp',
+        estado: called && said ? 'ok' : 'fallo',
+        detalle:
+          called && said
+            ? 'usa el gateway MCP de Forja a través del sandbox'
+            : called
+              ? 'llamó al gateway pero no informó su respuesta'
+              : 'no llegó al gateway MCP (el CLI no lo cargó o el modelo no lo usó)',
+      });
+    } finally {
+      probe.close();
+    }
+  });
+
   return {
     provider: input.adapter.id,
     model: input.model,
     cli_version: input.cliVersion,
-    passed: checks.every((c) => c.estado !== 'fallo'),
+    // MCP is an optional capability: only projects with linked connections or MCP servers need it.
+    passed: checks.every((c) => c.estado !== 'fallo' || OPTIONAL_CHECKS.has(c.id)),
     checks,
     at: new Date().toISOString(),
   };
 }
 
+/** Checks that do not block autonomous work by themselves. */
+export const OPTIONAL_CHECKS: ReadonlySet<string> = new Set(['mcp']);
+
+/** Whether a certified model also passed the MCP gateway check (for runs with the gateway active). */
+export function mcpCapable(store: ConformanceStore, provider: string, model: string, version: string | null): boolean {
+  if (provider === 'simulado') return true;
+  const r = store
+    .all()
+    .filter((x) => x.provider === provider && x.model === model && x.cli_version === version)
+    .at(-1);
+  return r?.checks.some((c) => c.id === 'mcp' && c.estado === 'ok') ?? false;
+}
+
 /** Scripts that make the simulated provider pass the matrix (demos and Forja's own tests). */
 export const SIMULATED_CONFORMANCE: Record<string, object> = {
+  mcp: { pasos: [{ mcp: { herramienta: 'eco_conformidad' } }], resultado: 'LISTO' },
   edicion: { pasos: [{ escribir: { ruta: 'hola.txt', contenido: 'hola forja' } }], resultado: 'LISTO' },
   esquema: { pasos: [], estructurado: { color: 'azul', numero: 7 } },
   aislamiento: { pasos: [{ escribir: { ruta: '../fuera.txt', contenido: 'x' } }], resultado: 'no pude' },
@@ -263,4 +305,15 @@ export async function uncertifiedModels(store: ConformanceStore, refs: string[],
 /** The same, as sentences with the reason. */
 export async function conformanceProblems(store: ConformanceStore, refs: string[], forjaVersion: string, versionOf = cliVersion): Promise<string[]> {
   return (await uncertifiedModels(store, refs, forjaVersion, versionOf)).map((u) => `${u.ref} (${u.version}): ${STATUS_TEXT[u.status]}`);
+}
+
+/** Worker models that did not prove they can use the gateway with the installed CLI. */
+export async function mcpGaps(store: ConformanceStore, refs: string[], forjaVersion: string, versionOf = cliVersion): Promise<string[]> {
+  const gaps: string[] = [];
+  for (const ref of [...new Set(refs)]) {
+    const [provider, model] = ref.split(':') as [string, string];
+    const version = await versionOf(provider, forjaVersion);
+    if (version !== null && !mcpCapable(store, provider, model, version)) gaps.push(ref);
+  }
+  return gaps;
 }

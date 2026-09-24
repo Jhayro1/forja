@@ -20,10 +20,18 @@
   (las variables con forma de credencial y las `FORJA_*` se rechazan), ni montados.
 - **Acciones externas**: el agente sólo *propone*. Tú apruebas la vista previa exacta (hash) antes de
   que venza; la ejecuta un proceso aparte con entorno vacío, que bloquea destinos internos y no sigue
-  redirecciones. Un resultado incierto nunca se reintenta a ciegas.
+  redirecciones. Con bubblewrap, ese proceso corre además en un sandbox sin tu HOME y **sin red**:
+  su única salida es un túnel que Forja abre sólo al host y puerto de esa acción, con la dirección ya
+  resuelta y comprobada (un cambio de DNS no lo desvía). Un resultado incierto nunca se reintenta a
+  ciegas; si el servicio permite buscar por clave (`--consulta`), Forja lo comprueba antes de
+  pedirte una decisión. «Deshacer» es siempre una propuesta nueva con su propia aprobación.
+- **Clave de la bóveda**: guárdala en el llavero del sistema (`forja boveda llavero guardar`) en
+  vez de usar `FORJA_BOVEDA_CLAVE`. `forja boveda purgar-copias` borra copias viejas que todavía
+  guardan (cifrados) valores rotados o borrados.
 - **MCP**: el único servidor MCP del agente es el gateway de Forja; los servidores externos se
   registran con ruta y versión fijas (sin `npx -y`), sólo exponen las herramientas que autorizas y
-  corren sin tu HOME y con sólo sus secretos.
+  corren sin tu HOME y con sólo sus secretos. Si una herramienta declara `outputSchema`, su salida
+  estructurada se valida antes de llegar al agente; si no cumple, el agente recibe un error.
 - **Conexiones**: nombrarlas en `forja.yaml` no las concede; cada proyecto las vincula explícitamente
   y cualquier edición invalida vínculos y aprobaciones.
 
@@ -35,6 +43,9 @@
 - Cookie `HttpOnly; SameSite=Strict`, token CSRF en cada acción, validación de `Host` (contra DNS
   rebinding) y de `Origin`, sin CORS, CSP estricta y el DOM se construye sin `innerHTML`: un texto
   de un agente no puede inyectar HTML.
+- Sólo con `forja ui --boveda` el panel puede ejecutar acciones aprobadas: la bóveda queda abierta
+  en ese proceso y se cierra sola tras `--boveda-minutos` sin uso (15 por defecto). Ejecutar exige
+  el mismo hash que viste y aprobaste.
 
 ## Riesgos que aceptas (D2-21)
 

@@ -26,6 +26,11 @@ export const Connection = z
     allow_local: z.boolean().default(false),
     /** Lowest-impact check for `forja conexion probar` (a GET path). */
     test_path: z.string().startsWith('/').nullable().default(null),
+    /**
+     * GET path that finds an action by its key, with `{clave}` (e.g. /pedidos?clave={clave}).
+     * For services without Idempotency-Key: an uncertain result is checked here before asking a human.
+     */
+    lookup_path: z.string().startsWith('/').includes('{clave}').nullable().default(null),
     version: z.number().int().positive(),
     updated_at: z.string(),
   })
@@ -53,7 +58,7 @@ export class ConnectionStore {
   }
 
   /** Creates or edits; an edit is a new version. */
-  save(input: Omit<Connection, 'version' | 'updated_at'>): Connection {
+  save(input: Omit<Connection, 'version' | 'updated_at' | 'lookup_path'> & { lookup_path?: string | null }): Connection {
     const url = new URL(input.base_url);
     if (url.username || url.password) throw new ConnectionError('la URL no puede llevar credenciales: guárdalas en la bóveda');
     if (url.protocol !== 'https:' && !input.allow_local) throw new ConnectionError('sólo https (http sólo para servicios locales de prueba con --permitir-local)');

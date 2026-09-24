@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConnectionStore } from '../../src/actions/connections.js';
+import { type ExecutorRunner, ProcessExecutorRunner, SandboxedExecutorRunner } from '../../src/actions/executor-runner.js';
 import { urlUnder } from '../../src/actions/operations.js';
 import { ActionService, classify } from '../../src/actions/protocol.js';
+import { openTunnel, PinnedTunnelProxy } from '../../src/actions/tunnel.js';
 import { EventStore } from '../../src/store/event-store.js';
-import { ensureBuilt, ROOT } from '../helpers/engine.js';
+import { ensureBuilt, HAS_BWRAP, ROOT } from '../helpers/engine.js';
 
 const TOKEN = 'tok-servicio-muy-secreto';
 const EXECUTOR = join(ROOT, 'dist/actions/executor-main.js');
@@ -20,9 +22,9 @@ class FakeService {
   version = 1;
   estado = 'abierto';
   applied: { key: string; body: unknown; auth: string | undefined }[] = [];
-  mode: 'normal' | 'lento' | 'error500' | 'cambiar_tras_get' = 'normal';
+  mode: 'normal' | 'lento' | 'colgado' | 'error500' | 'cambiar_tras_get' = 'normal';
   idempotent = true;
-  private readonly responses = new Map<string, { status: number; body: string }>();
+  private readonly responses = new Map<string, { status: number; body: string; location?: string }>();
 
   async start(): Promise<void> {
     this.server = createServer((req, res) => {
@@ -30,6 +32,12 @@ class FakeService {
       req.on('data', (c) => (body += c));
       req.on('end', () => {
         const etag = `"v${this.version}"`;
+        if (req.method === 'GET' && req.url?.startsWith('/buscar?clave=')) {
+          const key = decodeURIComponent(req.url.slice('/buscar?clave='.length));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(this.applied.filter((a) => a.key === key)));
+          return;
+        }
         if (req.method === 'GET' && req.url === '/recurso') {
           res.writeHead(200, { 'Content-Type': 'application/json', ETag: etag });
           res.end(JSON.stringify({ estado: this.estado, version: this.version }));
@@ -44,13 +52,14 @@ class FakeService {
             return res.writeHead(prev.status, { 'Content-Type': 'application/json' }).end(prev.body);
           }
           if (req.headers['if-match'] && req.headers['if-match'] !== `"v${this.version}"`) return res.writeHead(412).end();
+          if (this.mode === 'colgado') return setTimeout(() => res.writeHead(503).end(), 1500);
           this.applied.push({ key, body: JSON.parse(body || 'null'), auth: req.headers.authorization });
           this.version++;
-          const out = { status: 201, body: JSON.stringify({ id: this.applied.length, token_eco: TOKEN }) };
+          const out = { status: 201, body: JSON.stringify({ id: this.applied.length, token_eco: TOKEN }), location: `/pedidos/${this.applied.length}` };
           this.responses.set(key, out);
           if (this.mode === 'lento') return setTimeout(() => res.writeHead(out.status).end(out.body), 1500);
           if (this.mode === 'error500') return res.writeHead(500).end();
-          return res.writeHead(out.status, { 'Content-Type': 'application/json' }).end(out.body);
+          return res.writeHead(out.status, { 'Content-Type': 'application/json', Location: out.location }).end(out.body);
         }
         res.writeHead(404).end();
       });
@@ -103,7 +112,16 @@ afterEach(async () => {
 const propose = (params: Record<string, unknown> = { ruta: '/pedidos', cuerpo: { producto: 'arroz', cantidad: 2 } }) =>
   actions.propose({ type: 'http.json', connection: 'pedidos', params, origin: 'cli' });
 
-describe('acciones externas (V2-051)', () => {
+const RUNNERS: [string, () => ExecutorRunner][] = [
+  ['proceso aparte', () => new ProcessExecutorRunner(EXECUTOR)],
+  ...(HAS_BWRAP ? ([['bwrap con túnel (MEJORAS 4.2)', () => new SandboxedExecutorRunner(EXECUTOR)]] as [string, () => ExecutorRunner][]) : []),
+];
+
+describe.each(RUNNERS)('acciones externas (V2-051) · ejecutor en %s', (_name, makeRunner) => {
+  beforeEach(() => {
+    actions = new ActionService(store, conns, { now: () => now, executor: makeRunner(), timeoutMs: 700 });
+  });
+
   it('propuesta → vista previa → aprobación por hash → ejecución confirmada, sin el secreto en ningún registro', async () => {
     const a = propose();
     expect(a.state).toBe('propuesta');
@@ -249,5 +267,145 @@ describe('acciones externas (V2-051)', () => {
   it('clasifica respuestas según la tabla de v2/06', () => {
     const r = (status: number) => classify({ phase: 'respuesta', status, etag: null, location: null, body: '' }).state;
     expect([r(200), r(201), r(303), r(404), r(409), r(412), r(500), r(503)]).toEqual(['confirmada', 'confirmada', 'desconocido', 'rechazada', 'rechazada', 'rechazada', 'desconocido', 'desconocido']);
+  });
+});
+
+describe.skipIf(!HAS_BWRAP)('aislamiento del ejecutor en bwrap (MEJORAS 4.2)', () => {
+  it('el túnel sólo abre los destinos fijados por el proceso padre', async () => {
+    const sock = join(dir, 't.sock');
+    const proxy = new PinnedTunnelProxy(sock, new Map([[`127.0.0.1:${svc.port}`, '127.0.0.1']]));
+    await proxy.start();
+    try {
+      const ok = await openTunnel(sock, '127.0.0.1', svc.port);
+      ok.destroy();
+      await expect(openTunnel(sock, 'evil.example', 443)).rejects.toMatchObject({ code: 'EBLOQUEADO' });
+      await expect(openTunnel(sock, '127.0.0.1', 22)).rejects.toMatchObject({ code: 'EBLOQUEADO' });
+      expect(proxy.decisions.map((d) => d.allowed)).toEqual([true, false, false]);
+    } finally {
+      await proxy.stop();
+    }
+  });
+
+  it('dentro del sandbox el ejecutor no ve el HOME ni tiene red propia', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const { homedir } = await import('node:os');
+    const probeDir = join(dir, 'sonda');
+    mkdirSync(probeDir);
+    // A fake «executor» that reports what it can reach, in the result format.
+    writeFileSync(
+      join(probeDir, 'sonda.mjs'),
+      `import { readdirSync } from 'node:fs';\nimport net from 'node:net';\nlet home = 'oculto';\ntry { home = String(readdirSync(${JSON.stringify(homedir())}).length); } catch { home = 'error'; }\nconst s = net.connect(${svc.port}, '127.0.0.1');\ns.on('connect', () => { console.log(JSON.stringify({ phase: 'no_enviado', detail: 'home=' + home + ' red=si' })); process.exit(0); });\ns.on('error', () => { console.log(JSON.stringify({ phase: 'no_enviado', detail: 'home=' + home + ' red=no' })); process.exit(0); });\n`,
+    );
+    const r = await new SandboxedExecutorRunner(join(probeDir, 'sonda.mjs')).run({
+      request: { method: 'GET', url: `http://127.0.0.1:${svc.port}/recurso`, body: null, precondition: null },
+      idempotencyKey: 'k',
+      auth: null,
+      allowLocal: true,
+      timeoutMs: 5_000,
+    });
+    // The real HOME is an empty tmpfs inside the sandbox, and there is no direct network.
+    expect(r).toEqual({ phase: 'no_enviado', detail: 'home=0 red=no' });
+  });
+});
+
+describe('ejecutar desde el panel con la bóveda abierta (MEJORAS 4.4)', () => {
+  it('exige el hash visto, la bóveda del panel y que siga abierta', async () => {
+    const { EngineConnectionsBackend } = await import('../../src/cli/engine-backend.js');
+    const { Vault, vaultPaths } = await import('../../src/vault/vault.js');
+    let clock = Date.now();
+    Vault.create(vaultPaths(dir), 'clave de prueba larga').close();
+    const vault = Vault.open(vaultPaths(dir), 'clave de prueba larga', { idleMs: 60_000, now: () => clock });
+    vault.set('SERVICIO_TOKEN', TOKEN);
+    const ctx = { store, home: dir } as never;
+    const a = propose();
+    actions.approve(a.action_id, a.hash, 'yo');
+    const make = () => new ActionService(store, conns, { executorScript: EXECUTOR, timeoutMs: 5_000 });
+    await expect(new EngineConnectionsBackend(ctx, null, make).execute(a.action_id, a.hash)).rejects.toThrow(/sin la bóveda/);
+    const backend = new EngineConnectionsBackend(ctx, vault, make);
+    expect(backend.vaultState()).toBe('abierta');
+    await expect(backend.execute(a.action_id, 'otro')).rejects.toThrow(/cambió desde que la viste/);
+    const done = (await backend.execute(a.action_id, a.hash)) as { state: string; result: unknown };
+    expect(done.state, JSON.stringify(done.result)).toBe('confirmada');
+    expect(svc.applied).toHaveLength(1);
+    clock += 61_000;
+    expect(backend.vaultState()).toBe('cerrada');
+    const b = propose();
+    actions.approve(b.action_id, b.hash, 'yo');
+    await expect(backend.execute(b.action_id, b.hash)).rejects.toThrow(/se cerró por inactividad/);
+  });
+});
+
+describe('más operaciones tipadas y deshacer (MEJORAS 4.5)', () => {
+  it('una creación confirmada se deshace con un DELETE propuesto aparte, que también necesita aprobación', async () => {
+    const a = propose();
+    actions.approve(a.action_id, a.hash, 'yo');
+    const done = await actions.execute(a.action_id, secret);
+    expect(done.state).toBe('confirmada');
+    const inverse = actions.undo(a.action_id, 'cli');
+    expect(inverse.state).toBe('propuesta');
+    expect(inverse.params).toEqual({ ruta: '/pedidos/1', metodo: 'DELETE' });
+    expect(inverse.origin).toBe(`deshacer ${a.action_id} · cli`);
+    await expect(actions.execute(inverse.action_id, secret)).rejects.toThrow(/sólo se ejecuta una acción aprobada/);
+    expect(() => actions.undo(inverse.action_id, 'cli')).toThrow(/sólo se deshace una acción confirmada/);
+  });
+
+  it('correo: vista previa legible y nunca se reenvía a ciegas aunque el servicio sea idempotente', async () => {
+    actions.link('pedidos', ['http.json', 'correo.enviar', 'webhook.evento', 'dns.registro']);
+    expect(() => actions.propose({ type: 'correo.enviar', connection: 'pedidos', params: { para: ['no-es-correo'], asunto: 'x', texto: 'y' }, origin: 'cli' })).toThrow(/dirección de correo inválida/);
+    const mail = actions.propose({ type: 'correo.enviar', connection: 'pedidos', params: { para: ['ana@bodega.pe'], asunto: 'Pedido listo', texto: 'Hola', ruta: '/pedidos' }, origin: 'cli' });
+    expect(mail.preview).toMatchObject({ para: 'ana@bodega.pe', asunto: 'Pedido listo', reintento_seguro: expect.stringContaining('no') });
+    actions.approve(mail.action_id, mail.hash, 'yo');
+    svc.mode = 'lento';
+    expect((await actions.execute(mail.action_id, secret)).state).toBe('desconocido');
+    svc.mode = 'normal';
+    await expect(actions.execute(mail.action_id, secret)).rejects.toThrow(/concílialo a mano/);
+    expect(() => actions.undo(mail.action_id, 'cli')).toThrow(/sólo se deshace una acción confirmada/);
+  });
+
+  it('DNS: comprueba el valor anterior y deshacer propone restaurarlo; webhook y rutas validadas', () => {
+    actions.link('pedidos', ['dns.registro', 'webhook.evento']);
+    const dns = actions.propose({ type: 'dns.registro', connection: 'pedidos', params: { zona: 'bodega.pe', nombre: 'www', tipo: 'A', valor: '203.0.113.7', anterior: '203.0.113.5' }, origin: 'cli' });
+    expect(dns.preview).toMatchObject({ registro: 'www.bodega.pe A', cambio: '203.0.113.5 → 203.0.113.7 · ttl 300', precondicion: 'el valor actual debe ser 203.0.113.5' });
+    expect(() =>
+      actions.propose({ type: 'dns.registro', connection: 'pedidos', params: { zona: 'bodega.pe/../x', nombre: 'www', tipo: 'A', valor: '1.1.1.1', anterior: null }, origin: 'cli' }),
+    ).toThrow(/nombre DNS inválido/);
+    const hook = actions.propose({ type: 'webhook.evento', connection: 'pedidos', params: { evento: 'pedido.listo', datos: { id: 1 } }, origin: 'cli' });
+    expect(hook.preview).toMatchObject({ evento: 'pedido.listo', datos: { id: 1 } });
+  });
+});
+
+describe('conciliación automática por consulta (MEJORAS 4.8)', () => {
+  it('sin idempotencia pero consultable: si la consulta encuentra la acción queda confirmada; si no, sigue para un humano', async () => {
+    conns.save({
+      name: 'pedidos',
+      type: 'http',
+      base_url: `http://127.0.0.1:${svc.port}/`,
+      secret: 'SERVICIO_TOKEN',
+      auth_header: 'Authorization',
+      auth_scheme: 'Bearer',
+      idempotent: false,
+      allow_local: true,
+      test_path: null,
+      lookup_path: '/buscar?clave={clave}',
+    });
+    actions.link('pedidos', ['http.json']);
+    svc.idempotent = false;
+    svc.mode = 'lento';
+    const a = propose();
+    actions.approve(a.action_id, a.hash, 'yo');
+    const r = await actions.execute(a.action_id, secret);
+    // The request reached the service (applied) but the answer came too late: the query finds it.
+    expect(r.state).toBe('confirmada');
+    expect(r.result).toMatchObject({ conciliada: true });
+    const trail = JSON.stringify(store.events(0, 1000));
+    expect(trail).toContain('consulta automática');
+
+    // Uncertain and NOT found: absence proves nothing, a human decides.
+    svc.mode = 'colgado';
+    const b = propose();
+    actions.approve(b.action_id, b.hash, 'yo');
+    const rb = await actions.execute(b.action_id, secret);
+    expect(rb.state).toBe('desconocido');
+    await expect(actions.execute(b.action_id, secret)).rejects.toThrow(/concílialo a mano/);
   });
 });

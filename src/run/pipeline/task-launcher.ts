@@ -13,6 +13,9 @@ import { GraphContext } from './graph-context.js';
 import type { RunContext } from './run-context.js';
 import { levelFor } from './scheduler.js';
 
+/** Who is calling through a launch's socket: the socket, not the agent, decides it. */
+export const gatewayOrigin = (taskId: string, runId: string) => `agente ${taskId} · ${runId}`;
+
 const EXTERNAL_TOOLS_NOTE =
   '<herramientas_externas>\nSi la tarea necesita un efecto fuera del repositorio (un servicio, una API), usa la herramienta MCP «forja» proponer_accion: queda pendiente de aprobación humana y NO se ejecuta. No intentes llegar al servicio de otra forma.\n</herramientas_externas>';
 
@@ -82,7 +85,7 @@ export class TaskLauncher {
       const dir = launchDir(engine.dataDir, launchId);
       // Intent before effect: the launch id is durable before the runner exists.
       ctx.exec(taskId, { launch_id: launchId, launch_dir: dir });
-      const mcpSocket = this.gateway ? await this.gateway.socketFor(`agente ${taskId} · ${run.run_id}`) : undefined;
+      const mcpSocket = this.gateway ? await this.gateway.socketFor(gatewayOrigin(taskId, run.run_id), launchId) : undefined;
       startLaunch(
         engine.dataDir,
         engine.adapters[candidate.provider],

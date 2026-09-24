@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { canonicalJson } from '../domain/hash.js';
 
@@ -332,4 +332,22 @@ export function restoreVault(paths: VaultPaths, from: string, passphrase: string
   atomicWrite(paths.file, readFileSync(from, 'utf8'));
   new GenerationWatermark(paths.watermark).write(info.generation);
   return { generation: info.generation, previous };
+}
+
+/**
+ * Deletes old encrypted backups (MEJORAS 4.9). Backups keep values that were
+ * later rotated or deleted: purging is how a deleted secret really disappears
+ * from this machine. The newest `keep` generations stay.
+ */
+export function purgeBackups(paths: VaultPaths, keep: number): { removed: string[]; kept: string[] } {
+  if (!Number.isInteger(keep) || keep < 0) throw new VaultError('«conservar» debe ser un entero mayor o igual a 0');
+  if (!existsSync(paths.backups)) return { removed: [], kept: [] };
+  const gens = readdirSync(paths.backups)
+    .map((f) => ({ f, g: /^boveda-gen(\d+)\.json$/.exec(f)?.[1] }))
+    .filter((x): x is { f: string; g: string } => x.g !== undefined)
+    .sort((a, b) => Number(b.g) - Number(a.g));
+  const kept = gens.slice(0, keep).map((x) => x.f);
+  const removed = gens.slice(keep).map((x) => x.f);
+  for (const f of removed) rmSync(join(paths.backups, f), { force: true });
+  return { removed, kept };
 }

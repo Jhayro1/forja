@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds, type Mount } from '../runtime/sandbox.js';
@@ -38,18 +38,24 @@ export type LaunchParams = {
   mcpSocket?: string;
 };
 
-/** Where the gateway socket and its stdio bridge appear inside the sandbox. */
-export const MCP_SOCKET_IN_SANDBOX = '/run/forja-mcp.sock';
+/**
+ * Where the gateway socket and its stdio bridge appear inside the sandbox. The
+ * socket's FOLDER is mounted (not the socket file), so a gateway recreated at
+ * the same path after `forja run` restarts is visible to a running agent.
+ */
+const MCP_DIR_IN_SANDBOX = '/run/forja-mcp';
+export const MCP_SOCKET_NAME = 'p.sock';
+export const MCP_SOCKET_IN_SANDBOX = `${MCP_DIR_IN_SANDBOX}/${MCP_SOCKET_NAME}`;
 const MCP_BIN_IN_SANDBOX = '/run/forja-mcp-bin';
 const MCP_BIN_DIR = fileURLToPath(new URL('../mcp/', import.meta.url));
 
+function mcpSocketMount(socket: string): Mount {
+  if (basename(socket) !== MCP_SOCKET_NAME) throw new AdapterError(`el socket del gateway debe llamarse ${MCP_SOCKET_NAME}`);
+  return { src: dirname(socket), dest: MCP_DIR_IN_SANDBOX, rw: true };
+}
+
 function gatewayMounts(p: LaunchParams): Mount[] {
-  return p.mcpSocket
-    ? [
-        { src: p.mcpSocket, dest: MCP_SOCKET_IN_SANDBOX, rw: true },
-        { src: MCP_BIN_DIR, dest: MCP_BIN_IN_SANDBOX, rw: false },
-      ]
-    : [];
+  return p.mcpSocket ? [mcpSocketMount(p.mcpSocket), { src: MCP_BIN_DIR, dest: MCP_BIN_IN_SANDBOX, rw: false }] : [];
 }
 
 /** stdio MCP server definition that reaches the gateway through the mounted socket. */
@@ -260,7 +266,7 @@ export class SimulatedAdapter implements ProviderAdapter {
             mounts: [
               { src: p.inputsDir, dest: INPUTS_IN_SANDBOX, rw: false },
               { src: helperDir, dest: '/run/forja-sim', rw: false },
-              ...(p.mcpSocket ? [{ src: p.mcpSocket, dest: MCP_SOCKET_IN_SANDBOX, rw: true }] : []),
+              ...(p.mcpSocket ? [mcpSocketMount(p.mcpSocket)] : []),
               ...(p.extraMounts ?? []),
             ],
             read_only: binaryBinds([process.execPath]),

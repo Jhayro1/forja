@@ -435,6 +435,18 @@ function actionCard(a) {
     ),
     a.result ? h('p', {}, a.result.detail || '') : null,
   );
+  if (a.view_state === 'aprobada' && state.boveda === 'abierta') {
+    card.append(
+      h(
+        'button',
+        {
+          class: 'act',
+          onclick: () => confirm(`¿Ejecutar AHORA esta acción aprobada?\n\n${a.preview.peticion || ''}`) && mutate('POST', `/v1/acciones/${a.action_id}/ejecutar`, { hash: a.hash }),
+        },
+        'Ejecutar',
+      ),
+    );
+  }
   if (pending) {
     card.append(
       h(
@@ -459,8 +471,18 @@ function actionCard(a) {
 
 function renderAcciones(list) {
   const waiting = list.filter((a) => a.view_state === 'propuesta');
+  const boveda = state.boveda;
   return [
     h('h1', {}, 'Acciones externas'),
+    h(
+      'p',
+      { class: boveda === 'abierta' ? '' : 'muted' },
+      boveda === 'abierta'
+        ? 'Bóveda abierta: puedes ejecutar aquí las acciones aprobadas.'
+        : boveda === 'cerrada'
+          ? 'La bóveda se cerró por inactividad: vuelve a abrir forja ui --boveda para ejecutar desde aquí.'
+          : 'Para ejecutar desde el panel ábrelo con forja ui --boveda; si no, ejecuta en la terminal.',
+    ),
     h('p', { class: 'muted' }, 'Los agentes sólo proponen. Cada acción se aprueba sobre su vista previa exacta (hash) y vence si no se ejecuta.'),
     waiting.length ? h('h2', {}, `Esperan tu aprobación (${waiting.length})`) : null,
     h('div', { class: 'grid' }, waiting.map(actionCard)),
@@ -764,6 +786,10 @@ async function refresh(force) {
   state.lastFetch = Date.now();
   const view = VIEWS.find((v) => v.id === state.view) || VIEWS[0];
   try {
+    if (view.id === 'acciones') {
+      const b = await api('GET', '/v1/boveda');
+      if (!b.sinCambios) state.boveda = b.boveda;
+    }
     const data = await api('GET', view.path);
     if (data.sinCambios && !force) return;
     if (data.sinCambios) etags.delete(view.path);

@@ -3,6 +3,7 @@ import { Command, CommanderError } from 'commander';
 import { overall, runChecks, type Level } from '../doctor/checks.js';
 import { ConfigError } from '../registry/config.js';
 import { ProjectError } from '../registry/projects.js';
+import { registerActionCommands } from './commands/actions.js';
 import { registerConformanceCommands } from './commands/conformance.js';
 import { registerOpsCommands } from './commands/ops.js';
 import { registerPilotCommands } from './commands/pilot.js';
@@ -62,6 +63,7 @@ registerUiCommands(program);
 registerConformanceCommands(program);
 registerPilotCommands(program);
 registerVaultCommands(program);
+registerActionCommands(program);
 
 try {
   await program.parseAsync();

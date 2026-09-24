@@ -197,6 +197,35 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (run_id, task_id)
   );
   `,
+  `
+  -- M5: connections linked to this checkout and external actions (v2/06).
+  CREATE TABLE connection_links (
+    connection  TEXT PRIMARY KEY,
+    version     INTEGER NOT NULL,
+    operations  TEXT NOT NULL,
+    active      INTEGER NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+
+  CREATE TABLE actions (
+    action_id          TEXT PRIMARY KEY,
+    type               TEXT NOT NULL,
+    connection         TEXT NOT NULL,
+    connection_version INTEGER NOT NULL,
+    params             TEXT NOT NULL,
+    preview            TEXT NOT NULL,
+    hash               TEXT NOT NULL,
+    idempotency_key    TEXT NOT NULL,
+    origin             TEXT NOT NULL,
+    expires_at         TEXT NOT NULL,
+    state              TEXT NOT NULL,
+    approved_by        TEXT,
+    attempts           INTEGER NOT NULL DEFAULT 0,
+    result             TEXT,
+    created_seq        INTEGER NOT NULL,
+    updated_seq        INTEGER NOT NULL
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

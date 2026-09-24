@@ -1,6 +1,7 @@
 import type { StoredEvent } from '../domain/events.js';
 import { TASK_CREATED, TASK_STATE_CHANGED, TaskCreatedPayload, TaskStateChangedPayload } from '../domain/events.js';
 import { checkTransition, type TaskState, type TransitionReason } from '../domain/task-state.js';
+import { ACTION_TABLES, applyActionEvent } from './action-projections.js';
 import { PLANNING_TABLES, applyPlanningEvent } from './planning-projections.js';
 import type { Db } from './sqlite.js';
 
@@ -65,9 +66,11 @@ export function applyEvent(db: Db, event: StoredEvent): void {
       return;
     }
     default:
+      // Each feature projects its own events and ignores the rest.
       applyPlanningEvent(db, event);
+      applyActionEvent(db, event);
       return;
   }
 }
 
-export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES] as const;
+export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES, ...ACTION_TABLES] as const;

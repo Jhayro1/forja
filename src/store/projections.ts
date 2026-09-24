@@ -1,7 +1,10 @@
 import type { StoredEvent } from '../domain/events.js';
 import { TASK_CREATED, TASK_STATE_CHANGED, TaskCreatedPayload, TaskStateChangedPayload } from '../domain/events.js';
 import { checkTransition, type TaskState, type TransitionReason } from '../domain/task-state.js';
-import { PLANNING_TABLES, applyPlanningEvent } from './planning-projections.js';
+import { applyMemoryEvent, MEMORY_TABLES } from '../memory/lessons.js';
+import { applyProfileEvent, PROFILE_TABLES } from '../profile/baseline.js';
+import { ACTION_TABLES, applyActionEvent } from './action-projections.js';
+import { applyPlanningEvent, PLANNING_TABLES } from './planning-projections.js';
 import type { Db } from './sqlite.js';
 
 export type TaskRow = {
@@ -19,9 +22,7 @@ export class ProjectionError extends Error {}
 
 /** Current row as the store sees it, used by command handlers to validate before emitting. */
 export function getTask(db: Db, runId: string, taskId: string): TaskRow | undefined {
-  const row = db.prepare('SELECT * FROM tasks WHERE run_id = ? AND task_id = ?').get(runId, taskId) as
-    | (Omit<TaskRow, 'depends_on'> & { depends_on: string })
-    | undefined;
+  const row = db.prepare('SELECT * FROM tasks WHERE run_id = ? AND task_id = ?').get(runId, taskId) as (Omit<TaskRow, 'depends_on'> & { depends_on: string }) | undefined;
   return row ? { ...row, depends_on: JSON.parse(row.depends_on) as string[] } : undefined;
 }
 
@@ -42,9 +43,15 @@ export function applyEvent(db: Db, event: StoredEvent): void {
       const p = TaskCreatedPayload.parse(event.payload);
       if (!event.run_id || !event.task_id) throw new ProjectionError('tarea.creada sin run_id/task_id');
       if (getTask(db, event.run_id, event.task_id)) throw new ProjectionError(`la tarea ${event.task_id} ya existe`);
-      db.prepare(
-        'INSERT INTO tasks (run_id, task_id, title, state, depends_on, last_reason, revision, updated_seq) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)',
-      ).run(event.run_id, event.task_id, p.title, p.initial_state, JSON.stringify(p.depends_on), event.aggregate_revision, event.seq);
+      db.prepare('INSERT INTO tasks (run_id, task_id, title, state, depends_on, last_reason, revision, updated_seq) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)').run(
+        event.run_id,
+        event.task_id,
+        p.title,
+        p.initial_state,
+        JSON.stringify(p.depends_on),
+        event.aggregate_revision,
+        event.seq,
+      );
       return;
     }
     case TASK_STATE_CHANGED: {
@@ -55,19 +62,17 @@ export function applyEvent(db: Db, event: StoredEvent): void {
       if (task.state !== p.from) throw new ProjectionError(`la tarea ${event.task_id} está en ${task.state}, no en ${p.from}`);
       const check = checkTransition(p.from, p.to, p.reason as TransitionReason);
       if (!check.ok) throw new ProjectionError(check.error);
-      db.prepare('UPDATE tasks SET state = ?, last_reason = ?, updated_seq = ? WHERE run_id = ? AND task_id = ?').run(
-        p.to,
-        p.reason,
-        event.seq,
-        event.run_id,
-        event.task_id,
-      );
+      db.prepare('UPDATE tasks SET state = ?, last_reason = ?, updated_seq = ? WHERE run_id = ? AND task_id = ?').run(p.to, p.reason, event.seq, event.run_id, event.task_id);
       return;
     }
     default:
+      // Each feature projects its own events and ignores the rest.
       applyPlanningEvent(db, event);
+      applyActionEvent(db, event);
+      applyMemoryEvent(db, event);
+      applyProfileEvent(db, event);
       return;
   }
 }
 
-export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES] as const;
+export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES, ...ACTION_TABLES, ...MEMORY_TABLES, ...PROFILE_TABLES] as const;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectPlatform, overall, runChecks, type Exec } from '../../src/doctor/checks.js';
+import { detectPlatform, type Exec, overall, runChecks } from '../../src/doctor/checks.js';
 
 function fakeExec(answers: Record<string, { code: number; stdout?: string; stderr?: string }>): Exec {
   return async (file, args) => {
@@ -53,6 +53,8 @@ describe('doctor', () => {
 
   it('Node viejo es un error', async () => {
     expect(overall(await runChecks(fakeExec(ALL_OK), LINUX, '22.3.0'))).toBe('error');
+    expect(overall(await runChecks(fakeExec(ALL_OK), LINUX, '22.13.0'))).toBe('ok');
+    expect(overall(await runChecks(fakeExec(ALL_OK), LINUX, '20.19.0'))).toBe('error');
   });
 
   it('detecta WSL por /proc/version', () => {

@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { llmSchema } from '../../src/planner/session.js';
 import { renderDocs, writeDocs } from '../../src/spec/docs.js';
 import { SpecBody, validateSpec } from '../../src/spec/spec.js';
-import { llmSchema } from '../../src/planner/session.js';
 import { sampleSpec } from './fixture.js';
 
 describe('validación de la spec', () => {
@@ -19,7 +19,9 @@ describe('validación de la spec', () => {
     s.casos_uso[1]!.excepciones_no_aplican = null;
     s.criterios[1]!.id = 'CA-UC-001-02';
     s.reglas.push({ id: 'REQ-001', texto: 'dup', referencias: [] });
-    const messages = validateSpec(s).filter((i) => i.severity === 'error').map((i) => i.message);
+    const messages = validateSpec(s)
+      .filter((i) => i.severity === 'error')
+      .map((i) => i.message);
     expect(messages).toEqual(
       expect.arrayContaining([
         'actor A-009 no existe',

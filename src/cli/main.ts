@@ -1,22 +1,36 @@
-#!/usr/bin/env node
-import { readFileSync } from 'node:fs';
 import { Command, CommanderError } from 'commander';
-import { overall, runChecks, type Level } from '../doctor/checks.js';
+import { type Level, overall, runChecks } from '../doctor/checks.js';
 import { ConfigError } from '../registry/config.js';
 import { ProjectError } from '../registry/projects.js';
+import { FORJA_VERSION } from '../version.js';
+import { registerActionCommands } from './commands/actions.js';
+import { registerConformanceCommands } from './commands/conformance.js';
+import { registerMcpCommands } from './commands/mcp.js';
+import { registerMemoryCommands } from './commands/memory.js';
+import { registerNotificationCommands } from './commands/notify.js';
 import { registerOpsCommands } from './commands/ops.js';
+import { registerPilotCommands } from './commands/pilot.js';
 import { registerPlanCommands } from './commands/plan.js';
+import { registerProfileCommands } from './commands/profile.js';
 import { registerProjectCommands } from './commands/projects.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from './context.js';
+import { registerRunCommands } from './commands/run.js';
+import { registerTaskControlCommands } from './commands/task-control.js';
+import { registerUiCommands } from './commands/ui.js';
+import { registerVaultCommands } from './commands/vault.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from './context.js';
 
-const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+// `forja estado | head` closes the pipe early: that is a normal end, not a crash.
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EPIPE') process.exit(0);
+  throw error;
+});
 
 const ICON: Record<Level, string> = { ok: '✔', aviso: '!', error: '✘' };
 
 const program = new Command()
   .name('forja')
   .description('Planea con modelos caros, programa en paralelo con modelos baratos (Claude + Codex).')
-  .version(pkg.version, '-v, --version', 'muestra la versión')
+  .version(FORJA_VERSION, '-v, --version', 'muestra la versión')
   .helpOption('-h, --help', 'muestra la ayuda')
   .helpCommand('ayuda [comando]', 'muestra la ayuda de un comando')
   .option('-p, --proyecto <nombre|id>', 'proyecto sobre el que actuar')
@@ -46,7 +60,18 @@ program
 
 registerProjectCommands(program);
 registerOpsCommands(program);
+registerProfileCommands(program);
+registerNotificationCommands(program);
 registerPlanCommands(program);
+registerRunCommands(program);
+registerTaskControlCommands(program);
+registerUiCommands(program);
+registerConformanceCommands(program);
+registerPilotCommands(program);
+registerVaultCommands(program);
+registerActionCommands(program);
+registerMcpCommands(program);
+registerMemoryCommands(program);
 
 try {
   await program.parseAsync();

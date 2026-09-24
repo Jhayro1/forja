@@ -2,15 +2,24 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createEngine, type Engine } from '../core/engine.js';
 import { git } from '../git/git.js';
+import { loadPrices } from '../plan/estimate.js';
+import { loadSimulationFile } from '../providers/simulation-file.js';
 import { inspectRepo } from '../registry/inspect.js';
-import { openProject, type GlobalOptions, type ProjectContext } from './context.js';
+import { CliError, EXIT, type GlobalOptions, openProject, type ProjectContext } from './context.js';
 
 export type EngineContext = ProjectContext & { engine: Engine };
 
-export function openEngine(options: GlobalOptions): EngineContext {
+export function openEngine(options: GlobalOptions, env: NodeJS.ProcessEnv = process.env): EngineContext {
   const ctx = openProject(options);
-  const engine = createEngine({ store: ctx.store, dataDir: ctx.dataDir, config: ctx.config });
-  return { ...ctx, engine };
+  try {
+    // Demo/test mode: scripted agents for `simulado:*` models only (never real providers).
+    const simulation = env.FORJA_SIMULACION ? loadSimulationFile(env.FORJA_SIMULACION) : undefined;
+    const engine = createEngine({ store: ctx.store, dataDir: ctx.dataDir, config: ctx.config, prices: loadPrices(ctx.home), ...(simulation ? { simulation } : {}) });
+    return { ...ctx, engine };
+  } catch (error) {
+    ctx.close();
+    throw new CliError((error as Error).message, EXIT.input);
+  }
 }
 
 /** Static evidence for improvement planning: never runs anything from the repo. */

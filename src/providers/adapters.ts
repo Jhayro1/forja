@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildAgentEnv } from '../security/env.js';
 import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds, type Mount } from '../runtime/sandbox.js';
+import { buildAgentEnv } from '../security/env.js';
 import type { ProviderKind } from './stream.js';
 
 export type ToolProfile = 'lectura' | 'edicion';
@@ -34,7 +34,34 @@ export type LaunchParams = {
   extraMounts?: Mount[];
   /** Only for the simulated provider. */
   simulationScript?: object;
+  /** Host path of this launch's MCP gateway socket (M5): the agent's ONLY MCP server. */
+  mcpSocket?: string;
 };
+
+/**
+ * Where the gateway socket and its stdio bridge appear inside the sandbox. The
+ * socket's FOLDER is mounted (not the socket file), so a gateway recreated at
+ * the same path after `forja run` restarts is visible to a running agent.
+ */
+const MCP_DIR_IN_SANDBOX = '/run/forja-mcp';
+export const MCP_SOCKET_NAME = 'p.sock';
+export const MCP_SOCKET_IN_SANDBOX = `${MCP_DIR_IN_SANDBOX}/${MCP_SOCKET_NAME}`;
+const MCP_BIN_IN_SANDBOX = '/run/forja-mcp-bin';
+const MCP_BIN_DIR = fileURLToPath(new URL('../mcp/', import.meta.url));
+
+function mcpSocketMount(socket: string): Mount {
+  if (basename(socket) !== MCP_SOCKET_NAME) throw new AdapterError(`el socket del gateway debe llamarse ${MCP_SOCKET_NAME}`);
+  return { src: dirname(socket), dest: MCP_DIR_IN_SANDBOX, rw: true };
+}
+
+function gatewayMounts(p: LaunchParams): Mount[] {
+  return p.mcpSocket ? [mcpSocketMount(p.mcpSocket), { src: MCP_BIN_DIR, dest: MCP_BIN_IN_SANDBOX, rw: false }] : [];
+}
+
+/** stdio MCP server definition that reaches the gateway through the mounted socket. */
+export function gatewayServer(): { command: string; args: string[] } {
+  return { command: process.execPath, args: [join(MCP_BIN_IN_SANDBOX, 'bridge-main.js'), MCP_SOCKET_IN_SANDBOX] };
+}
 
 export interface ProviderAdapter {
   readonly id: 'claude' | 'codex' | 'simulado';
@@ -69,6 +96,7 @@ function commonMounts(p: LaunchParams, credentialFile: string, credentialName: s
     // Only the credential file of THIS provider is visible (D2-21); rw because the CLI refreshes it.
     { src: credentialFile, dest: join(STATE_IN_SANDBOX, credentialName), rw: true },
     { src: p.inputsDir, dest: INPUTS_IN_SANDBOX, rw: false },
+    ...gatewayMounts(p),
     ...(p.extraMounts ?? []),
   ];
 }
@@ -118,11 +146,11 @@ export class ClaudeAdapter implements ProviderAdapter {
       '--tools',
       tools.join(','),
       '--allowedTools',
-      tools.join(','),
-      // M0 finding 1: never inherit the user's MCP servers.
+      [...tools, ...(p.mcpSocket ? ['mcp__forja'] : [])].join(','),
+      // M0 finding 1: never inherit the user's MCP servers; the only one allowed is Forja's gateway.
       '--strict-mcp-config',
       '--mcp-config',
-      '{"mcpServers":{}}',
+      JSON.stringify({ mcpServers: p.mcpSocket ? { forja: gatewayServer() } : {} }),
       // M0 finding 2: no user settings, plugins or global memory.
       '--setting-sources',
       'project,local',
@@ -173,6 +201,10 @@ export class CodexAdapter implements ProviderAdapter {
     if (!existsSync(cred)) throw new AdapterError(`no se encontró la sesión de Codex (${cred}); ejecuta «codex login»`);
     const sandbox = p.tools === 'edicion' ? 'workspace-write' : 'read-only';
     const flags = ['--json', '--ignore-user-config', '--skip-git-repo-check', '-m', p.model];
+    if (p.mcpSocket) {
+      const gw = gatewayServer();
+      flags.push('-c', `mcp_servers.forja.command=${JSON.stringify(gw.command)}`, '-c', `mcp_servers.forja.args=${JSON.stringify(gw.args)}`);
+    }
     let argv: string[];
     if (p.resumeSessionId) {
       // `exec resume` does not accept -s: the policy is set through config (verified in M0).
@@ -226,7 +258,7 @@ export class SimulatedAdapter implements ProviderAdapter {
       ...common(p),
       provider: 'simulado',
       argv,
-      env: baseEnv({}),
+      env: baseEnv(p.mcpSocket ? { MCP_PASARELA: sandboxed ? MCP_SOCKET_IN_SANDBOX : p.mcpSocket } : {}),
       sandbox: sandboxed
         ? {
             mode: 'bwrap',
@@ -234,6 +266,7 @@ export class SimulatedAdapter implements ProviderAdapter {
             mounts: [
               { src: p.inputsDir, dest: INPUTS_IN_SANDBOX, rw: false },
               { src: helperDir, dest: '/run/forja-sim', rw: false },
+              ...(p.mcpSocket ? [mcpSocketMount(p.mcpSocket)] : []),
               ...(p.extraMounts ?? []),
             ],
             read_only: binaryBinds([process.execPath]),

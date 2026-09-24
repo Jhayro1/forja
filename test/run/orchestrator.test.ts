@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
-import { Orchestrator, answerTaskQuestion, getExec, getRun, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { getChange } from '../../src/planner/session.js';
+import { answerTaskQuestion, getExec, getRun, Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { listTasks } from '../../src/store/projections.js';
 import { HAS_BWRAP, testEngine } from '../helpers/engine.js';
 import { FILES, seedApprovedPlan, sh } from './fixture.js';
@@ -26,9 +26,7 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
   it('ejecuta en paralelo, verifica, reintenta un fallo de calidad, integra y entrega sin tocar main', async () => {
     const t = testEngine(
       agents((taskId, attempt) =>
-        taskId === 'T-005' && attempt === 1
-          ? { pasos: [{ escribir: { ruta: 'src/uc-002.mjs', contenido: 'export function saldo() { return 999; }\n' } }], resultado: 'Listo.' }
-          : null,
+        taskId === 'T-005' && attempt === 1 ? { pasos: [{ escribir: { ruta: 'src/uc-002.mjs', contenido: 'export function saldo() { return 999; }\n' } }], resultado: 'Listo.' } : null,
       ),
     );
     cleanup = t.cleanup;
@@ -52,6 +50,26 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     expect(readFileSync(join(repo, '.forja/cambios', changeId, 'informe.md'), 'utf8')).toContain('| T-005 Consultar saldo | integrada | 2 |');
     const usage = t.engine.store.db.prepare('SELECT COUNT(*) n FROM usage WHERE run_id = ?').get(runId) as { n: number };
     expect(usage.n).toBeGreaterThanOrEqual(8);
+  }, 300_000);
+
+  it('con integración por lotes el resultado es el mismo: todo integrado, una fusión por tarea', async () => {
+    const t = testEngine(agents());
+    cleanup = t.cleanup;
+    t.engine.config.ejecucion.integracion = 'lotes';
+    const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
+    const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
+    const log: string[] = [];
+    const summary = await new Orchestrator(t.engine, repo, runId, { parallel: 3, sandbox: HAS_BWRAP, pollMs: 100, onLog: (l) => log.push(l) }).loop();
+    expect(summary.state, log.join('\n')).toBe('completado');
+    expect(summary.counts).toEqual({ integrada: 5 });
+    const merges = sh(repo, 'log', '--merges', '--format=%s', summary.deliveryBranch!).split('\n');
+    for (const id of ['T-001', 'T-002', 'T-003', 'T-004', 'T-005']) expect(merges.some((m) => m.startsWith(`forja: integrar ${id}`))).toBe(true);
+    // T-002 and T-004 (and later T-003 and T-005) are verified together: they wait for each other.
+    expect(
+      log.some((l) => l.startsWith('⇪ lote ') && l.includes('una sola verificación')),
+      log.join('\n'),
+    ).toBe(true);
+    expect(sh(repo, 'show', `${summary.deliveryBranch!}:src/uc-002.mjs`)).toContain('reduce');
   }, 300_000);
 
   it('rechaza cambios fuera de lo permitido y no deja tocar las pruebas protegidas', async () => {
@@ -111,7 +129,7 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
     const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
     const stop = new AbortController();
-    const first = new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 100, onLog: (l) => l.startsWith('⇪ T-001') && stop.abort() , signal: stop.signal }).loop();
+    const first = new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 100, onLog: (l) => l.startsWith('⇪ T-001') && stop.abort(), signal: stop.signal }).loop();
     const r1 = await first;
     expect(r1.state).toBe('pausado');
     expect(getRun(t.engine, runId)!.state).toBe('pausado');
@@ -123,4 +141,22 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     expect(failures.every((f) => f === 0)).toBe(true);
     expect(existsSync(join(repo, '.forja/cambios', changeId, 'informe.md'))).toBe(true);
   }, 300_000);
+
+  it('un agente que no se puede lanzar se bloquea tras 3 intentos en vez de reintentar sin fin', async () => {
+    const t = testEngine(agents());
+    cleanup = t.cleanup;
+    t.engine.adapters.simulado = {
+      id: 'simulado',
+      parser: 'claude',
+      buildOrder: () => {
+        throw new Error('CLI roto');
+      },
+    } as unknown as typeof t.engine.adapters.simulado;
+    const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
+    const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
+    const summary = await new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 20 }).loop();
+    expect(summary.state).toBe('bloqueado');
+    expect(summary.counts.bloqueada).toBe(1);
+    expect(getExec(t.engine, runId, 'T-001').last_error).toMatch(/CLI roto/);
+  }, 60_000);
 });

@@ -197,6 +197,88 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (run_id, task_id)
   );
   `,
+  `
+  -- M5: connections linked to this checkout and external actions (v2/06).
+  CREATE TABLE connection_links (
+    connection  TEXT PRIMARY KEY,
+    version     INTEGER NOT NULL,
+    operations  TEXT NOT NULL,
+    active      INTEGER NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+
+  CREATE TABLE actions (
+    action_id          TEXT PRIMARY KEY,
+    type               TEXT NOT NULL,
+    connection         TEXT NOT NULL,
+    connection_version INTEGER NOT NULL,
+    params             TEXT NOT NULL,
+    preview            TEXT NOT NULL,
+    hash               TEXT NOT NULL,
+    idempotency_key    TEXT NOT NULL,
+    origin             TEXT NOT NULL,
+    expires_at         TEXT NOT NULL,
+    state              TEXT NOT NULL,
+    approved_by        TEXT,
+    attempts           INTEGER NOT NULL DEFAULT 0,
+    result             TEXT,
+    created_seq        INTEGER NOT NULL,
+    updated_seq        INTEGER NOT NULL
+  );
+  `,
+  `
+  -- M6: lessons learned. Proposals with evidence; only a human approves them (v2/08).
+  CREATE TABLE lessons (
+    lesson_id   TEXT PRIMARY KEY,
+    text        TEXT NOT NULL,
+    scope       TEXT NOT NULL,
+    evidence    TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    reviewed_by TEXT,
+    note        TEXT,
+    created_at  TEXT NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  `,
+  `
+  -- Mejoras: control por tarea, fallos de entorno acotados y pausas de proveedor visibles
+  -- desde cualquier proceso (MEJORAS 1.5, 4.6, 2.2).
+  ALTER TABLE task_exec ADD COLUMN env_failures INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE task_exec ADD COLUMN control TEXT;
+  ALTER TABLE task_exec ADD COLUMN pinned_model TEXT;
+
+  CREATE TABLE provider_pauses (
+    pause_key   TEXT PRIMARY KEY,
+    until       TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  `,
+  `
+  -- Perfil aprobado y línea base del repositorio antes de tocarlo (MEJORAS 1.2, V2-030).
+  CREATE TABLE baselines (
+    baseline_id  TEXT PRIMARY KEY,
+    sha          TEXT NOT NULL,
+    profile_hash TEXT NOT NULL,
+    steps        TEXT NOT NULL,
+    recorded_at  TEXT NOT NULL,
+    created_seq  INTEGER NOT NULL
+  );
+  `,
+  `
+  -- Respuestas de la API por Idempotency-Key, persistidas (MEJORAS 3.7). No es un evento de dominio.
+  CREATE TABLE api_idempotency (
+    key          TEXT PRIMARY KEY,
+    status       INTEGER NOT NULL,
+    body         TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    created_at   INTEGER NOT NULL
+  );
+  `,
+  `
+  -- Lecciones: hashes del ámbito al aprobarlas (vencen cuando cambian sus archivos, MEJORAS 5.7).
+  ALTER TABLE lessons ADD COLUMN hashes TEXT;
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;
@@ -206,16 +288,12 @@ export function migrate(db: Db): void {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
   const current = row ? Number(row.value) : 0;
   if (current > CURRENT_SCHEMA) {
-    throw new Error(
-      `la base de datos es de una versión más nueva de Forja (esquema ${current}, esta versión conoce ${CURRENT_SCHEMA}); actualiza Forja`,
-    );
+    throw new Error(`la base de datos es de una versión más nueva de Forja (esquema ${current}, esta versión conoce ${CURRENT_SCHEMA}); actualiza Forja`);
   }
   for (let v = current; v < CURRENT_SCHEMA; v++) {
     transaction(db, () => {
       db.exec(MIGRATIONS[v]!);
-      db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
-        String(v + 1),
-      );
+      db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(v + 1));
     });
   }
 }

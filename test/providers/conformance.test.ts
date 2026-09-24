@@ -1,11 +1,12 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { newId } from '../../src/domain/ids.js';
-import { ClaudeAdapter, CodexAdapter, SimulatedAdapter, type ProviderAdapter } from '../../src/providers/adapters.js';
+import { ClaudeAdapter, CodexAdapter, type ProviderAdapter, SimulatedAdapter } from '../../src/providers/adapters.js';
 import { runToCompletion } from '../../src/runtime/launch-service.js';
+import { ensureBuilt } from '../helpers/engine.js';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const RUNNER = join(ROOT, 'dist/runtime/runner-main.js');
@@ -16,7 +17,7 @@ const REAL = process.env.FORJA_REAL === '1';
 
 let base: string;
 beforeAll(() => {
-  execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore' });
+  ensureBuilt();
   base = realpathSync(mkdtempSync(join(tmpdir(), 'forja-conf-')));
 });
 afterAll(() => rmSync(base, { recursive: true, force: true }));

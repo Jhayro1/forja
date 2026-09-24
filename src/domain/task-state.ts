@@ -41,6 +41,8 @@ export type TransitionReason =
   | 'reserva_liberada'
   | 'pregunta'
   | 'pausa_confirmada'
+  /** The user paused a task that had not started (nothing to stop). */
+  | 'pausa_usuario'
   | 'causa_resuelta'
   | 'bloqueo'
   | 'nueva_revision'
@@ -72,7 +74,13 @@ const RULES: readonly Rule[] = [
   { from: s('integrando'), to: 'lista', reasons: ['fallo_calidad', 'conflicto_integracion', 'fallo_entorno'] },
   { from: s('ejecutando'), to: 'esperando_respuesta', reasons: ['pregunta'] },
   { from: ACTIVE_STATES, to: 'pausada', reasons: ['pausa_confirmada'] },
+  { from: s('verificada'), to: 'pausada', reasons: ['pausa_confirmada'] },
+  { from: s('pendiente', 'lista'), to: 'pausada', reasons: ['pausa_usuario'] },
   { from: HELD_STATES, to: 'lista', reasons: ['causa_resuelta'] },
+  // Resuming returns a paused task to where it can continue: still waiting on
+  // dependencies, or with its verified candidate intact (re-verified on the new tip).
+  { from: s('pausada'), to: 'pendiente', reasons: ['causa_resuelta'] },
+  { from: s('pausada'), to: 'verificando', reasons: ['causa_resuelta'] },
   { from: 'no_terminal', to: 'bloqueada', reasons: ['bloqueo'] },
   {
     from: s('pendiente', 'lista', 'reservada', 'ejecutando', 'verificando', 'verificada', 'integrando', 'esperando_respuesta', 'pausada', 'bloqueada'),

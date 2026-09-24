@@ -8,11 +8,15 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - name: sandbox (bubblewrap; el runner de CI es desechable, se permiten user namespaces)
@@ -20,11 +24,10 @@ jobs:
           sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / true && echo "bwrap ok"
+      - name: lint y formato (Biome)
+        run: npm run lint
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - name: instalar el paquete y correr el CLI
-        run: |
-          npm pack --pack-destination "$RUNNER_TEMP"
-          npm install -g --prefix "$RUNNER_TEMP/prefix" "$RUNNER_TEMP"/forja-*.tgz
-          "$RUNNER_TEMP/prefix/bin/forja" --version
+      - name: instalación limpia del paquete (V2-043)
+        run: npm run probar:paquete

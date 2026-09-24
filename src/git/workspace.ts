@@ -4,6 +4,8 @@ import type { Redactor } from '../security/redact.js';
 import { FORJA_AUTHOR, git, gitOut } from './git.js';
 
 export const runBranch = (prefix: string, runId: string) => `${prefix}run/${runId}/integracion`;
+/** Where a completed change is delivered; main is never touched. */
+export const deliveryBranch = (prefix: string, changeId: string) => `${prefix}entrega/${changeId}`;
 export const taskBranch = (prefix: string, runId: string, taskId: string) => `${prefix}run/${runId}/tareas/${taskId}`;
 
 /** Creates the run's integration branch at the approved base if it does not exist. */
@@ -73,10 +75,7 @@ export function pathAllowed(path: string, allow: string[], protectedPaths: strin
  * Captures what the agent changed. MUST only be called when the runner has
  * finished (no writers): never `git add -A` under an active process (v2 · H08).
  */
-export async function captureTask(
-  worktree: string,
-  opts: { baseSha: string; allow: string[]; protectedPaths: string[]; message: string; redactor: Redactor },
-): Promise<Capture> {
+export async function captureTask(worktree: string, opts: { baseSha: string; allow: string[]; protectedPaths: string[]; message: string; redactor: Redactor }): Promise<Capture> {
   await git(worktree, ['add', '-A', '--', '.', ':(exclude)node_modules']);
   const nameStatus = (await git(worktree, ['diff', '--cached', '--name-status', '--no-renames', opts.baseSha])).stdout.trim();
   const changes: Change[] = nameStatus

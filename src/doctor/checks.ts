@@ -25,7 +25,8 @@ export function detectPlatform(readProcVersion: () => string = () => readFileSyn
   }
 }
 
-const MIN_NODE = [24, 11] as const;
+/** node:sqlite without a flag (22.13); CI runs Node 22 and 24 (MEJORAS 3.11). */
+const MIN_NODE = [22, 13] as const;
 
 export async function runChecks(exec: Exec = realExec, platform: Platform = detectPlatform(), nodeVersion = process.versions.node): Promise<Check[]> {
   const checks: Check[] = [];
@@ -56,11 +57,7 @@ export async function runChecks(exec: Exec = realExec, platform: Platform = dete
   });
 
   const git = await exec('git', ['--version']);
-  checks.push(
-    git.code === 0
-      ? { id: 'git', title: 'Git', level: 'ok', detail: git.stdout.trim() }
-      : { id: 'git', title: 'Git', level: 'error', detail: 'no instalado', fix: 'Instala git' },
-  );
+  checks.push(git.code === 0 ? { id: 'git', title: 'Git', level: 'ok', detail: git.stdout.trim() } : { id: 'git', title: 'Git', level: 'error', detail: 'no instalado', fix: 'Instala git' });
 
   checks.push(await checkClaude(exec));
   checks.push(await checkCodex(exec));

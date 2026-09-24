@@ -47,7 +47,7 @@ export class Redactor {
     let out = text;
     for (const { needle, label } of this.needles) out = out.split(needle).join(label);
     for (const { name, re } of PATTERNS) {
-      out = out.replace(re, (match, prefix: unknown) => (name === 'bearer' && typeof prefix === 'string' ? `${prefix}«secreto»` : `«secreto:${name}»`));
+      out = out.replace(re, (_match, prefix: unknown) => (name === 'bearer' && typeof prefix === 'string' ? `${prefix}«secreto»` : `«secreto:${name}»`));
     }
     return out;
   }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { Approval, type ApprovalTarget, checkApproval } from '../../src/domain/approval.js';
+import { countsAsQualityFailure } from '../../src/domain/errors.js';
 import { canonicalJson, hashJson } from '../../src/domain/hash.js';
 import { isId, newId } from '../../src/domain/ids.js';
 import { checkTransition } from '../../src/domain/task-state.js';
-import { Approval, checkApproval, type ApprovalTarget } from '../../src/domain/approval.js';
-import { countsAsQualityFailure } from '../../src/domain/errors.js';
 
 describe('ids', () => {
   it('genera ids con prefijo, ordenables por tiempo', () => {

@@ -2,10 +2,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { callRole, type Engine } from '../core/engine.js';
 import { hashJson } from '../domain/hash.js';
-import { getChange, getDiscovery, llmSchema, PlannerError } from '../planner/session.js';
 import { compose, loadPrompt } from '../planner/prompts.js';
+import { getChange, getDiscovery, llmSchema, PlannerError } from '../planner/session.js';
 import { EV } from '../store/planning-projections.js';
-import { SpecBody, validateSpec, type Spec, type SpecIssue } from './spec.js';
+import { type Spec, SpecBody, type SpecIssue, validateSpec } from './spec.js';
 
 export type SpecResult = { spec: Spec; issues: SpecIssue[]; revision: number; hash: string; attempts: number };
 
@@ -34,6 +34,24 @@ export function answerSpecQuestion(engine: Engine, changeId: string, questionId:
   return { question_id: questionId, question: q.texto, answer };
 }
 
+/** Prefix of user change requests stored with the spec answers (they survive replay the same way). */
+export const CHANGE_REQUEST = 'CAMBIO-';
+
+/**
+ * A change the user asks for after the spec exists (MEJORAS 2.4): recorded as an
+ * instruction for the next `forja especificar`, which may run in «aprobar» or
+ * mid-run in «ejecutar». The next run redoes only what the change touched.
+ */
+export function requestSpecChange(engine: Engine, changeId: string, text: string): string {
+  const n = (engine.store.db.prepare('SELECT COUNT(*) AS n FROM spec_answers WHERE change_id = ? AND question_id LIKE ?').get(changeId, `${CHANGE_REQUEST}%`) as { n: number }).n + 1;
+  const id = `${CHANGE_REQUEST}${String(n).padStart(3, '0')}`;
+  engine.store.execute({ request_id: `cambio:${changeId}:${id}`, type: 'pedir_cambio_spec', input: { changeId, text } }, () => ({
+    result: null,
+    events: [{ type: EV.specAnswer, aggregate_type: 'cambio', aggregate_id: changeId, payload: { question_id: id, question: 'cambio pedido por el usuario', answer: text } }],
+  }));
+  return id;
+}
+
 export function changeDir(repoPath: string, changeId: string): string {
   return join(repoPath, '.forja', 'cambios', changeId);
 }
@@ -44,7 +62,7 @@ export function changeDir(repoPath: string, changeId: string): string {
  */
 export async function generateSpec(engine: Engine, input: { changeId: string; workspace: string; repoPath: string; evidence?: object; projectId: string }): Promise<SpecResult> {
   const change = getChange(engine, input.changeId);
-  if (change.phase !== 'especificar' && change.phase !== 'dividir') throw new PlannerError(`el cambio está en la fase «${change.phase}»: primero aprueba el descubrimiento`);
+  if (!['especificar', 'dividir', 'aprobar', 'ejecutar'].includes(change.phase)) throw new PlannerError(`el cambio está en la fase «${change.phase}»: primero aprueba el descubrimiento`);
   const { state, approvedRevision } = getDiscovery(engine, input.changeId);
   if (approvedRevision === null) throw new PlannerError('el descubrimiento no está aprobado');
   const base = latestSpec(engine, input.changeId);
@@ -54,17 +72,33 @@ export async function generateSpec(engine: Engine, input: { changeId: string; wo
     modo: state.modo,
     resumen: state.resumen,
     alcance: state.alcance,
-    decisiones_aceptadas: Object.values(state.decisiones).filter((d) => d.estado === 'aceptada').map(({ id, contenido, motivo }) => ({ id, contenido, motivo })),
-    propuestas_aceptadas: Object.values(state.propuestas).filter((p) => p.estado === 'aceptada').map(({ id, recomendacion }) => ({ id, recomendacion })),
-    decisiones_sin_confirmar: Object.values(state.decisiones).filter((d) => d.estado !== 'aceptada').map(({ id, contenido }) => ({ id, contenido })),
+    decisiones_aceptadas: Object.values(state.decisiones)
+      .filter((d) => d.estado === 'aceptada')
+      .map(({ id, contenido, motivo }) => ({ id, contenido, motivo })),
+    propuestas_aceptadas: Object.values(state.propuestas)
+      .filter((p) => p.estado === 'aceptada')
+      .map(({ id, recomendacion }) => ({ id, recomendacion })),
+    decisiones_sin_confirmar: Object.values(state.decisiones)
+      .filter((d) => d.estado !== 'aceptada')
+      .map(({ id, contenido }) => ({ id, contenido })),
     observaciones: Object.values(state.observaciones),
     cobertura: state.cobertura,
   };
   const { prompt, manifest } = compose([loadPrompt('planeador/base'), loadPrompt('planeador/especificar')], {
     descubrimiento_aprobado: agreed,
     spec_base: base?.spec ?? null,
+    cambios_pedidos_por_el_usuario: (() => {
+      const changes = specAnswers(engine, input.changeId).filter((a) => a.question_id.startsWith(CHANGE_REQUEST));
+      return changes.length
+        ? {
+            instruccion:
+              'Aplica estos cambios a spec_base: ajusta requisitos, reglas, casos de uso y criterios afectados; conserva los ids y el texto de todo lo que no cambia (lo que no cambia no se rehace) y usa ids nuevos para lo nuevo.',
+            cambios: changes.map((c) => ({ id: c.question_id, texto: c.answer })),
+          }
+        : null;
+    })(),
     respuestas_del_usuario: (() => {
-      const answers = specAnswers(engine, input.changeId);
+      const answers = specAnswers(engine, input.changeId).filter((a) => !a.question_id.startsWith(CHANGE_REQUEST));
       return answers.length
         ? {
             instruccion:
@@ -95,7 +129,12 @@ export async function generateSpec(engine: Engine, input: { changeId: string; wo
     });
     const parsed = SpecBody.safeParse(call.outcome.summary.structured);
     if (!parsed.success) {
-      const why = call.outcome.summary.error?.message ?? parsed.error.issues.slice(0, 8).map((x) => `${x.path.join('.')}: ${x.message}`).join('; ');
+      const why =
+        call.outcome.summary.error?.message ??
+        parsed.error.issues
+          .slice(0, 8)
+          .map((x) => `${x.path.join('.')}: ${x.message}`)
+          .join('; ');
       feedback = `\n\n<correccion>La respuesta anterior no cumplía el esquema: ${why}. Devuelve la especificación completa y válida.</correccion>`;
       continue;
     }
@@ -118,9 +157,8 @@ export async function generateSpec(engine: Engine, input: { changeId: string; wo
     result: null,
     events: [
       { type: EV.specRevised, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { revision, hash, spec: spec as unknown as Record<string, unknown> } },
-      ...(valid && change.phase === 'especificar'
-        ? [{ type: EV.changePhase, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { from: 'especificar', to: 'dividir' } }]
-        : []),
+      // A valid new spec leaves the current plan stale: back to «dividir» (also mid-run).
+      ...(valid && change.phase !== 'dividir' ? [{ type: EV.changePhase, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { from: change.phase, to: 'dividir' } }] : []),
     ],
   }));
   // The repo is the source of truth for decisions (ADR-008).

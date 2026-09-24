@@ -138,7 +138,9 @@ describe.skipIf(!HAS_BWRAP)('runner con bwrap', () => {
     writeOrder(dir, o);
     spawnRunner(dir, RUNNER);
     await waitForLaunch(dir, 15_000);
-    const lines = readSpool(dir).filter((r) => r.stream === 'stdout').map((r) => r.line.trim());
+    const lines = readSpool(dir)
+      .filter((r) => r.stream === 'stdout')
+      .map((r) => r.line.trim());
     expect(lines).toEqual(['0', 'no_escribio', 'sin_red']);
     expect(existsSync(outside)).toBe(false);
   });
@@ -157,7 +159,10 @@ describe.skipIf(!HAS_BWRAP)('runner con bwrap', () => {
     const out = spool.filter((r) => r.stream === 'stdout').map((r) => r.line);
     // permitido.invalid no resuelve: el proxy lo acepta y responde 502; example.com se rechaza con 403.
     expect(out).toEqual(['HTTP/1.1 502 Bad Gateway', 'HTTP/1.1 403 Forbidden']);
-    const net = spool.filter((r) => r.stream === 'forja').map((r) => JSON.parse(r.line) as { tipo: string; host?: string; permitido?: boolean }).filter((e) => e.tipo === 'red');
+    const net = spool
+      .filter((r) => r.stream === 'forja')
+      .map((r) => JSON.parse(r.line) as { tipo: string; host?: string; permitido?: boolean })
+      .filter((e) => e.tipo === 'red');
     expect(net).toEqual([
       { tipo: 'red', host: 'permitido.invalid', puerto: 443, permitido: true },
       { tipo: 'red', host: 'example.com', puerto: 443, permitido: false },

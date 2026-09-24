@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { linkSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 
 /**
  * Process identity = pid + start time, so a recycled pid is not mistaken for
@@ -32,28 +32,39 @@ export class LockHeldError extends Error {
   }
 }
 
+/** Live owner of a lock file, or null when it is free or its owner died. */
+export function lockHolder(path: string): (ProcessIdentity & { purpose?: string }) | null {
+  try {
+    const holder = JSON.parse(readFileSync(path, 'utf8')) as ProcessIdentity & { purpose?: string };
+    return isAlive(holder) ? holder : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Exclusive lock file; a stale lock (owner dead) is taken over, a live one is refused. */
 export class LockFile {
   private constructor(private readonly path: string) {}
 
   static acquire(path: string, purpose: string): LockFile {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const fd = openSync(path, 'wx', 0o600);
-        writeSync(fd, JSON.stringify({ ...currentIdentity(), purpose }));
-        closeSync(fd);
-        return new LockFile(path);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        let holder: (ProcessIdentity & { purpose?: string }) | null = null;
+    // Written whole to a private file, then published with link(2), which fails if the
+    // lock exists: nobody can ever read a half-written lock and take it for a stale one.
+    const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ ...currentIdentity(), purpose }), { mode: 0o600 });
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          holder = JSON.parse(readFileSync(path, 'utf8')) as ProcessIdentity & { purpose?: string };
-        } catch {
-          holder = null;
+          linkSync(tmp, path);
+          return new LockFile(path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          const holder = lockHolder(path);
+          if (holder) throw new LockHeldError(holder);
+          unlinkSync(path);
         }
-        if (holder && isAlive(holder)) throw new LockHeldError(holder);
-        unlinkSync(path);
       }
+    } finally {
+      unlinkSync(tmp);
     }
     throw new Error(`no se pudo tomar el bloqueo ${path}`);
   }

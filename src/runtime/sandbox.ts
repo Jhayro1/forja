@@ -57,7 +57,7 @@ export function installRoot(executable: string): string | null {
     // Keep node_modules/<pkg> or node_modules/@scope/<pkg>.
     const rest = real.slice(nm + '/node_modules/'.length).split(sep);
     const depth = rest[0]?.startsWith('@') ? 2 : 1;
-    return real.slice(0, nm) + sep + 'node_modules' + sep + rest.slice(0, depth).join(sep);
+    return `${real.slice(0, nm) + sep}node_modules${sep}${rest.slice(0, depth).join(sep)}`;
   }
   if (!real.startsWith(home + sep)) return null;
   // Codex standalone: …/.codex/packages/standalone/current/bin/codex → bind …/.codex/packages

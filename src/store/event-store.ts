@@ -2,8 +2,8 @@ import { EVENT_SCHEMA_VERSION, EventInput, type StoredEvent } from '../domain/ev
 import { hashJson } from '../domain/hash.js';
 import { newId } from '../domain/ids.js';
 import { migrate } from './migrations.js';
-import { PROJECTION_TABLES, applyEvent } from './projections.js';
-import { openDatabase, transaction, type Db } from './sqlite.js';
+import { applyEvent, PROJECTION_TABLES } from './projections.js';
+import { type Db, openDatabase, transaction } from './sqlite.js';
 
 export type Command = {
   /** Idempotency key: the same request_id with the same input returns the first result. */
@@ -75,21 +75,11 @@ export class EventStore {
       for (const order of output.outbox ?? []) {
         const target = stored[order.event_index ?? stored.length - 1];
         if (!target) throw new Error('una orden del outbox necesita al menos un evento');
-        this.db
-          .prepare('INSERT INTO outbox (event_seq, kind, payload, available_at) VALUES (?, ?, ?, ?)')
-          .run(target.seq, order.kind, JSON.stringify(order.payload), this.now().toISOString());
+        this.db.prepare('INSERT INTO outbox (event_seq, kind, payload, available_at) VALUES (?, ?, ?, ?)').run(target.seq, order.kind, JSON.stringify(order.payload), this.now().toISOString());
       }
       this.db
         .prepare('INSERT INTO commands (request_id, command_type, input_hash, result, first_seq, last_seq, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(
-          command.request_id,
-          command.type,
-          inputHash,
-          JSON.stringify(output.result ?? null),
-          stored[0]?.seq ?? null,
-          stored.at(-1)?.seq ?? null,
-          this.now().toISOString(),
-        );
+        .run(command.request_id, command.type, inputHash, JSON.stringify(output.result ?? null), stored[0]?.seq ?? null, stored.at(-1)?.seq ?? null, this.now().toISOString());
       return { result: output.result, duplicated: false, events: stored };
     });
   }

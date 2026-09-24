@@ -40,6 +40,11 @@ export const ForjaConfig = z
         paralelo: z.number().int().min(1).max(16).default(3),
         timeout_min: z.number().int().min(1).max(240).default(30),
         intentos_calidad: z.number().int().min(1).max(6).default(3),
+        /** «lotes»: several verified tasks are merged and checked once; bisected only if that fails (MEJORAS 7). */
+        integracion: z.enum(['serie', 'lotes']).default('serie'),
+        lote_max: z.number().int().min(2).max(16).default(4),
+        /** Longest a verified task waits for others still in verification to join its batch. */
+        lote_espera_s: z.number().int().min(0).max(600).default(20),
       })
       .strict()
       .prefault({}),
@@ -59,11 +64,26 @@ export const ForjaConfig = z
       })
       .strict()
       .prefault({}),
+    contexto: z
+      .object({
+        /** «grafo» adds related files from the knowledge graph; enable it after `forja memoria evaluar` shows it helps. */
+        modo: z.enum(['simple', 'grafo']).default('simple'),
+        max_archivos: z.number().int().min(1).max(50).default(15),
+        /** Offer the MCP tool pedir_contexto to workers (it enables the gateway even without connections). */
+        bajo_pedido: z.boolean().default(false),
+        /** Local lexical locator of entry points (no network); embeddings are not offered until provider and privacy are decided. */
+        buscador: z.enum(['ninguno', 'lexico']).default('ninguno'),
+      })
+      .strict()
+      .prefault({}),
     conexiones: z.array(z.string()).default([]),
     git: z
       .object({
         rama_principal: z.string().default('main'),
-        prefijo: z.string().regex(/^[a-z0-9-]+\/$/).default('forja/'),
+        prefijo: z
+          .string()
+          .regex(/^[a-z0-9-]+\/$/)
+          .default('forja/'),
       })
       .strict()
       .prefault({}),

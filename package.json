@@ -1,29 +1,49 @@
 {
-  "name": "forja",
-  "version": "0.0.0",
+  "name": "@jhayro1/forja",
+  "version": "0.1.0",
   "description": "Orquestador open source de agentes de código: planea con modelos caros y programa en paralelo con modelos baratos (Claude + Codex).",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jhayro1/forja.git"
+  },
+  "homepage": "https://github.com/Jhayro1/forja#readme",
+  "keywords": [
+    "agentes",
+    "claude",
+    "codex",
+    "orquestador",
+    "cli"
+  ],
+  "os": [
+    "linux"
+  ],
   "type": "module",
-  "private": true,
   "engines": {
-    "node": ">=24.11"
+    "node": ">=22.13"
   },
   "bin": {
-    "forja": "./dist/cli/main.js"
+    "forja": "./dist/cli/bin.js"
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "panel",
     "prompts",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "README.md",
+    "docs/guias"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm test",
-    "prepare": "npm run build"
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "prepare": "npm run build",
+    "probar:paquete": "bash scripts/probar-paquete.sh"
   },
   "dependencies": {
     "commander": "^15.0.0",
@@ -31,8 +51,12 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.14",
     "@types/node": "^24.13.6",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

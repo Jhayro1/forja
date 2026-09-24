@@ -1,15 +1,15 @@
-import { Approval, checkApproval, type ApprovalTarget } from '../domain/approval.js';
+import type { Engine } from '../core/engine.js';
+import { Approval, type ApprovalTarget, checkApproval } from '../domain/approval.js';
 import { hashJson } from '../domain/hash.js';
 import { newId } from '../domain/ids.js';
-import type { Engine } from '../core/engine.js';
-import { PlannerError, getChange } from '../planner/session.js';
+import { getChange, PlannerError } from '../planner/session.js';
 import type { ForjaConfig } from '../registry/config.js';
 import type { RuntimePolicy } from '../security/policy.js';
 import { latestSpec } from '../spec/generate.js';
 import { blockingQuestions, validateSpec } from '../spec/spec.js';
 import { EV } from '../store/planning-projections.js';
 import { latestPlan } from './divide.js';
-import { validatePlan, type Plan } from './plan.js';
+import { type Plan, validatePlan } from './plan.js';
 
 /**
  * Base runtime policy for workers of this plan. Tasks with `red` get the approved

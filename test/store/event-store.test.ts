@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DomainError, changeTaskState, createTask, tasksReadyToUnblock } from '../../src/core/task-commands.js';
+import { changeTaskState, createTask, DomainError, tasksReadyToUnblock } from '../../src/core/task-commands.js';
 import { CommandConflictError, EventStore } from '../../src/store/event-store.js';
 import { listTasks } from '../../src/store/projections.js';
 import { openDatabase } from '../../src/store/sqlite.js';
@@ -53,9 +53,7 @@ describe('almacén de eventos', () => {
     changeTaskState(store, 'c', { run_id: RUN, task_id: 'T-001', to: 'verificando', reason: 'proceso_terminado' });
     changeTaskState(store, 'd', { run_id: RUN, task_id: 'T-001', to: 'verificada', reason: 'verificacion_aprobada' });
     expect(tasksReadyToUnblock(store, RUN)).toEqual([]);
-    expect(() =>
-      changeTaskState(store, 'e', { run_id: RUN, task_id: 'T-002', to: 'lista', reason: 'dependencias_integradas' }),
-    ).toThrow(/sin integrar: T-001/);
+    expect(() => changeTaskState(store, 'e', { run_id: RUN, task_id: 'T-002', to: 'lista', reason: 'dependencias_integradas' })).toThrow(/sin integrar: T-001/);
     changeTaskState(store, 'f', { run_id: RUN, task_id: 'T-001', to: 'integrando', reason: 'integracion_iniciada' });
     changeTaskState(store, 'g', { run_id: RUN, task_id: 'T-001', to: 'integrada', reason: 'integracion_confirmada' });
     expect(tasksReadyToUnblock(store, RUN)).toEqual(['T-002']);
@@ -63,12 +61,8 @@ describe('almacén de eventos', () => {
 
   it('una solicitud repetida no duplica eventos ni efectos', () => {
     createTask(store, 'r1', { run_id: RUN, task_id: 'T-001', title: 'Contratos' });
-    const first = changeTaskState(store, 'reservar', { run_id: RUN, task_id: 'T-001', to: 'reservada', reason: 'reservada' }, [
-      { kind: 'lanzar', payload: { task_id: 'T-001' } },
-    ]);
-    const again = changeTaskState(store, 'reservar', { run_id: RUN, task_id: 'T-001', to: 'reservada', reason: 'reservada' }, [
-      { kind: 'lanzar', payload: { task_id: 'T-001' } },
-    ]);
+    const first = changeTaskState(store, 'reservar', { run_id: RUN, task_id: 'T-001', to: 'reservada', reason: 'reservada' }, [{ kind: 'lanzar', payload: { task_id: 'T-001' } }]);
+    const again = changeTaskState(store, 'reservar', { run_id: RUN, task_id: 'T-001', to: 'reservada', reason: 'reservada' }, [{ kind: 'lanzar', payload: { task_id: 'T-001' } }]);
     expect(again.duplicated).toBe(true);
     expect(again.result).toEqual(first.result);
     expect(again.events.map((e) => e.seq)).toEqual(first.events.map((e) => e.seq));
@@ -83,9 +77,7 @@ describe('almacén de eventos', () => {
 
   it('un comando inválido no deja rastro (rollback completo)', () => {
     createTask(store, 'r1', { run_id: RUN, task_id: 'T-001', title: 'Contratos' });
-    expect(() => changeTaskState(store, 'mal', { run_id: RUN, task_id: 'T-001', to: 'integrada', reason: 'integracion_confirmada' })).toThrow(
-      DomainError,
-    );
+    expect(() => changeTaskState(store, 'mal', { run_id: RUN, task_id: 'T-001', to: 'integrada', reason: 'integracion_confirmada' })).toThrow(DomainError);
     expect(store.events()).toHaveLength(1);
     // The failed request_id was not recorded, so a corrected retry with a new id works.
     changeTaskState(store, 'bien', { run_id: RUN, task_id: 'T-001', to: 'reservada', reason: 'reservada' });
@@ -127,9 +119,7 @@ describe('almacén de eventos', () => {
 
   it('outbox: una orden tomada vuelve a estar disponible si vence su lease', () => {
     createTask(store, 'r1', { run_id: RUN, task_id: 'T-001', title: 'Contratos' });
-    changeTaskState(store, 'r2', { run_id: RUN, task_id: 'T-001', to: 'reservada', reason: 'reservada' }, [
-      { kind: 'lanzar', payload: { task_id: 'T-001' } },
-    ]);
+    changeTaskState(store, 'r2', { run_id: RUN, task_id: 'T-001', to: 'reservada', reason: 'reservada' }, [{ kind: 'lanzar', payload: { task_id: 'T-001' } }]);
     const [order] = store.claimOutbox(10_000);
     expect(order?.attempts).toBe(1);
     expect(store.claimOutbox(10_000)).toHaveLength(0);

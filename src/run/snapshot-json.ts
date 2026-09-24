@@ -1,0 +1,32 @@
+import type { RunSnapshot } from './snapshot.js';
+
+/**
+ * Stable JSON shape of a snapshot, shared by `--json` output and the local API
+ * (field names in Spanish are part of the public contract, v2/10).
+ */
+export function snapshotJson(s: RunSnapshot, runner: { pid: number } | null) {
+  return {
+    modo_demo: s.demo,
+    cambio: { id: s.change.change_id, titulo: s.change.title, fase: s.change.phase },
+    run: s.run ? { id: s.run.run_id, estado: s.run.state, detalle: s.run.detail, rama: s.run.branch, base: s.run.base_sha, activo: runner !== null } : null,
+    entrega: s.deliveryBranch,
+    progreso: { integradas: s.integrated, total: s.total, por_estado: s.counts, minutos_restantes: s.eta?.minutos ?? null, factor_medido: s.eta?.factor ?? null },
+    tareas: s.tasks.map((t) => ({
+      id: t.id,
+      titulo: t.title,
+      estado: t.state,
+      modelo: t.exec.provider ? `${t.exec.provider}:${t.exec.model}` : null,
+      intento: t.exec.attempt,
+      fallos_calidad: t.exec.quality_failures,
+      fallos_entorno: t.exec.env_failures,
+      modelo_fijado: t.exec.pinned_model,
+      actividad: t.activity,
+      error: t.exec.last_error,
+      pregunta: t.state === 'esperando_respuesta' ? t.exec.question : null,
+    })),
+    pendientes: s.pending,
+    proveedores_en_pausa: s.providerPauses.map((p) => ({ proveedor: p.key, hasta: new Date(p.until).toISOString(), motivo: p.reason })),
+    consumo: s.usage,
+    siguiente: s.nextStep,
+  };
+}

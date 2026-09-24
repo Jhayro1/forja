@@ -12,17 +12,44 @@ Orquestador **open source** de agentes de código. Separa el trabajo en dos:
 Funciona con las **suscripciones** de Claude y Codex: maneja sus CLI oficiales
 (`claude -p`, `codex exec`) y nunca toca tus credenciales de esos servicios.
 
-> Estado: **definición**. Aquí sólo hay documentación; todavía no hay código.
-> El propio proyecto se especifica con el método que va a automatizar.
+> Estado: **M0–M6 implementados, con las mejoras de [MEJORAS.md](MEJORAS.md)** (falta la prueba con Claude y Codex reales: ver [MEJORAS.md](MEJORAS.md#0-lo-que-necesita-tu-máquina-p1)). Bitácora en
+> [PROGRESO.md](PROGRESO.md); mejoras y pendientes en [MEJORAS.md](MEJORAS.md).
 
 ## Estado del código
 
-M1 en curso: dominio (ids, hash canónico, estados de tarea, aprobaciones), almacén de eventos en SQLite, parsers de Claude y Codex probados con salidas reales de [M0](m0/RESULTADOS.md), proveedor simulado y `forja doctor`.
+Funciona de punta a punta: planear → especificar → dividir → aprobar → ejecutar en paralelo →
+verificar → integrar → entregar en una rama `forja/entrega/<cambio>` (main nunca se toca).
+Falta la prueba de ejecución con Claude y Codex reales (hasta ahora con agentes simulados).
 
 ```bash
-npm install && npm run check   # typecheck + tests
-npm run build && node dist/cli/main.js doctor
+npm install -g @jhayro1/forja && forja doctor     # cuando esté publicado; guía: docs/guias/INSTALAR.md
+npm install && npm run check                      # desarrollo: typecheck + tests (Linux con bubblewrap)
 ```
+
+Guías: [instalar](docs/guias/INSTALAR.md) · [recuperación](docs/guias/RECUPERACION.md) · [seguridad](docs/guias/SEGURIDAD.md) · [limitaciones](docs/guias/LIMITACIONES.md) · [Forja sobre Forja](docs/guias/FORJA-SOBRE-FORJA.md).
+
+| Paso | Comandos |
+|---|---|
+| Proyecto | `forja nuevo`, `importar`, `proyectos`, `usar`, `proyecto archivar/desarchivar/vincular` |
+| Planear | `forja planear`, `cambios`, `aprobar descubrimiento` |
+| Especificar | `forja especificar`, `responder Q-001 …` |
+| Dividir y aprobar | `forja dividir`, `plan`, `run --estimar`, `aprobar plan` |
+| Ejecutar | `forja run [--paralelo N] [--sin-revisor] [--tablero] [--solo T-001]`, `detener` (Ctrl-C = detener ordenado); `ejecucion.integracion: lotes` en forja.yaml integra por lotes |
+| Controlar tareas | `forja pausar/reanudar/reasignar T-001`, `forja proveedores` |
+| Perfil | `forja perfil ver/aprobar/linea-base` |
+| Observar | `forja tablero`, `estado`, `preguntas`, `tarea T-001`, `logs T-001 -f`, `informe` (todos con `--json`) |
+| Decidir | `forja responder T-001 "…"`, `reintentar T-001 "nota"`; rehacer el plan a mitad: `detener` → `dividir` → `aprobar plan` → `run` |
+| Panel web | `forja ui` (sólo 127.0.0.1; entra con el enlace de un solo uso que imprime) |
+| Modelos | `forja conformidad [proveedor:modelo…]`, `forja conformidad --listar` |
+| Piloto | `forja piloto [--aplicar]`: mide los runs y recomienda N |
+| Secretos | `forja boveda iniciar/guardar/listar/cambiar-clave/verificar/restaurar` |
+| Servicios externos | `forja conexion nueva/vincular/probar`, `forja accion proponer/aprobar/ejecutar/conciliar`, `forja acciones`, `forja mcp registrar/vincular`, `forja auditoria` |
+| Memoria | `forja memoria construir/buscar/contexto/evaluar`, `forja memoria lecciones/aprobar/rechazar`; `contexto.modo: grafo` en forja.yaml |
+| Avisos | `forja notificaciones activar <conexion> [--con-texto]`, `ver`, `probar`, `desactivar` |
+| Operación | `forja backup crear/listar/verificar/restaurar`; copia estable: `bash scripts/forja-estable.sh` |
+
+Modo demo sin cuota: con los roles en `simulado:sim` y `FORJA_SIMULACION=guion.json`
+(ver `src/providers/simulation-file.ts`), `forja run` usa agentes con guion dentro del mismo sandbox.
 
 ## Cómo leer esta carpeta
 

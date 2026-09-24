@@ -8,3 +8,4 @@ Reglas:
 - Los requisitos no funcionales tienen métrica, unidad, umbral, escenario y método de medición; si no hay datos, no los inventes.
 - Las integraciones externas nombran un recurso lógico y operaciones; nunca credenciales.
 - Mantén el alcance aprobado: lo sugerido y no aceptado no entra.
+- Si recibes `cambios_pedidos_por_el_usuario`, aplícalos sobre la revisión base: toca sólo lo que el cambio afecta y deja idéntico (mismo id y mismo texto) todo lo demás, porque lo que no cambia no se vuelve a construir.

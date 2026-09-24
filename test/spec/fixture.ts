@@ -62,7 +62,15 @@ export function sampleSpec(): Spec {
       },
     ],
     criterios: [
-      { id: 'CA-UC-001-01', caso_uso_id: 'UC-001', requisitos: ['REQ-001'], dado: 'un cliente con saldo 0', cuando: 'registro un fiado de 10', entonces: 'su saldo es 10', tipo_evidencia: 'automatica' },
+      {
+        id: 'CA-UC-001-01',
+        caso_uso_id: 'UC-001',
+        requisitos: ['REQ-001'],
+        dado: 'un cliente con saldo 0',
+        cuando: 'registro un fiado de 10',
+        entonces: 'su saldo es 10',
+        tipo_evidencia: 'automatica',
+      },
       { id: 'CA-UC-002-01', caso_uso_id: 'UC-002', requisitos: ['REQ-002'], dado: 'fiados de 10 y 15 y un abono de 20', cuando: 'consulto el saldo', entonces: 'es 5', tipo_evidencia: 'automatica' },
     ],
     contratos: [{ id: 'CT-001', tipo: 'endpoint', descripcion: 'POST /clientes/:id/fiados', detalle: '{monto, fecha?, nota?} → 201' }],

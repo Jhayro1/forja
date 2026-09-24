@@ -8,7 +8,10 @@ import type { Plan, PlanTask } from '../../src/plan/plan.js';
 import { EV } from '../../src/store/planning-projections.js';
 import { sampleSpec } from '../spec/fixture.js';
 
-export const sh = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, stdio: 'pipe' }).toString().trim();
+export const sh = (cwd: string, ...args: string[]) =>
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, stdio: 'pipe' })
+    .toString()
+    .trim();
 
 const t = (id: string, p: Partial<PlanTask>): PlanTask => ({
   id,
@@ -39,20 +42,29 @@ export const TASKS: PlanTask[] = [
 export const FILES: Record<string, Record<string, string>> = {
   'T-001': { 'src/contratos.mjs': 'export const MONEDA = "PEN";\n' },
   'T-002': {
-    'test/uc-001.test.mjs': "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { registrarFiado } from '../src/uc-001.mjs';\ntest('CA-UC-001-01', () => { assert.equal(registrarFiado(0, 10), 10); });\n",
+    'test/uc-001.test.mjs':
+      "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { registrarFiado } from '../src/uc-001.mjs';\ntest('CA-UC-001-01', () => { assert.equal(registrarFiado(0, 10), 10); });\n",
   },
   'T-003': { 'src/uc-001.mjs': 'export function registrarFiado(saldo, monto) { return saldo + monto; }\n' },
   'T-004': {
-    'test/uc-002.test.mjs': "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { saldo } from '../src/uc-002.mjs';\ntest('CA-UC-002-01', () => { assert.equal(saldo([10, 15], [20]), 5); });\n",
+    'test/uc-002.test.mjs':
+      "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { saldo } from '../src/uc-002.mjs';\ntest('CA-UC-002-01', () => { assert.equal(saldo([10, 15], [20]), 5); });\n",
   },
   'T-005': { 'src/uc-002.mjs': 'export function saldo(f, a) { return f.reduce((x, y) => x + y, 0) - a.reduce((x, y) => x + y, 0); }\n' },
 };
 
 /** Creates a repo, a change with spec + plan in phase «aprobar», and approves it. */
-export async function seedApprovedPlan(engine: Engine, dir: string, tasks: PlanTask[] = TASKS): Promise<{ repo: string; changeId: string; plan: Plan }> {
+export type SeedOptions = { comandos?: Partial<Plan['perfil']['comandos']> };
+
+export async function seedApprovedPlan(engine: Engine, dir: string, tasks: PlanTask[] = TASKS, opts: SeedOptions = {}): Promise<{ repo: string; changeId: string; plan: Plan }> {
   const repo = join(dir, 'repo');
   mkdirSync(repo, { recursive: true });
   sh(repo, 'init', '-q', '-b', 'main');
+  return seedApprovedPlanIn(engine, repo, tasks, opts);
+}
+
+/** Same as seedApprovedPlan, on an existing Git repo (e.g. one created by `forja nuevo`). */
+export async function seedApprovedPlanIn(engine: Engine, repo: string, tasks: PlanTask[] = TASKS, opts: SeedOptions = {}): Promise<{ repo: string; changeId: string; plan: Plan }> {
   writeFileSync(join(repo, 'README.md'), '# demo\n');
   writeFileSync(join(repo, 'package.json'), '{ "type": "module" }\n');
   sh(repo, 'add', '-A');
@@ -69,7 +81,12 @@ export async function seedApprovedPlan(engine: Engine, dir: string, tasks: PlanT
     spec_revision: 1,
     spec_hash: specHash,
     base_sha: sh(repo, 'rev-parse', 'HEAD'),
-    perfil: { stack: ['node'], gestor: 'npm', comandos: { instalar: null, build: null, typecheck: null, lint: null, test: { executable: 'node', args: ['--test'] } }, red_instalar: [] },
+    perfil: {
+      stack: ['node'],
+      gestor: 'npm',
+      comandos: { instalar: null, build: null, typecheck: null, lint: null, test: { executable: 'node', args: ['--test'] }, ...opts.comandos },
+      red_instalar: [],
+    },
     tareas: tasks,
     supuestos: [],
     recursos_implicitos: {},

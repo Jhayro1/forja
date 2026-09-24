@@ -1,10 +1,9 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
 import { createBackup, listBackups, restoreBackup, verifyBackup } from '../../ops/backup.js';
-import { LockFile, LockHeldError } from '../../registry/lock.js';
-import { CliError, EXIT, openProject, print, printJson, type GlobalOptions } from '../context.js';
-
-export const PROJECT_LOCK = 'orquestador.lock';
+import { type LockFile, LockHeldError } from '../../registry/lock.js';
+import { acquireOrchestratorLock } from '../../run/process.js';
+import { CliError, EXIT, type GlobalOptions, openProject, print, printJson } from '../context.js';
 
 export function registerOpsCommands(program: Command): void {
   const backup = program.command('backup').description('copias de seguridad del estado del proyecto');
@@ -77,7 +76,7 @@ export function registerOpsCommands(program: Command): void {
       const ctx = openProject(g);
       let lock: LockFile | null = null;
       try {
-        lock = LockFile.acquire(join(ctx.dataDir, PROJECT_LOCK), 'restaurar una copia');
+        lock = acquireOrchestratorLock(ctx.dataDir, 'restaurar una copia');
         ctx.store.close();
         const { previousStateDir, refs } = await restoreBackup({ dataDir: ctx.dataDir, repoPath: ctx.checkout.path, backupId: id });
         print(`✔ Restaurada la copia ${id} (${refs} ramas de Forja)`);

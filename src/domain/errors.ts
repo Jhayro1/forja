@@ -1,16 +1,5 @@
 /** Normalized error categories from v2/07-proveedores-y-costos.md. */
-export const ERROR_CATEGORIES = [
-  'auth',
-  'quota',
-  'network',
-  'timeout',
-  'environment',
-  'schema',
-  'policy',
-  'quality',
-  'protocol',
-  'unknown',
-] as const;
+export const ERROR_CATEGORIES = ['auth', 'quota', 'network', 'timeout', 'environment', 'schema', 'policy', 'quality', 'protocol', 'unknown'] as const;
 export type ErrorCategory = (typeof ERROR_CATEGORIES)[number];
 
 export type NormalizedError = {

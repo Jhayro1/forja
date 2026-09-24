@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
 import type { PlannerTurnOutput } from '../../src/planner/discovery.js';
-import { approveDiscovery, createChange, getChange, getDiscovery, llmSchema, plannerScratch, runPlannerTurn, transcript } from '../../src/planner/session.js';
 import { PlannerTurnOutput as Schema } from '../../src/planner/discovery.js';
+import { approveDiscovery, createChange, getChange, getDiscovery, llmSchema, plannerScratch, runPlannerTurn, transcript } from '../../src/planner/session.js';
 import { testEngine } from '../helpers/engine.js';
 
 function turn(partial: Partial<PlannerTurnOutput>): PlannerTurnOutput {

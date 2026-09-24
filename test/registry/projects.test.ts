@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigError, readConfig } from '../../src/registry/config.js';
 import { inspectRepo } from '../../src/registry/inspect.js';
 import { LockFile, LockHeldError } from '../../src/registry/lock.js';
-import { ProjectError, createProject, importProject, resolveCheckout } from '../../src/registry/projects.js';
+import { createProject, importProject, ProjectError, resolveCheckout } from '../../src/registry/projects.js';
 import { Registry } from '../../src/registry/registry.js';
 
 let dir: string;

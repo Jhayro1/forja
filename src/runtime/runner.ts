@@ -89,6 +89,15 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
   const resultPath = join(dir, FILES.result);
   if (existsSync(resultPath)) return JSON.parse(readFileSync(resultPath, 'utf8')) as LaunchResult;
 
+  // Signals are handled before the runner is announced: a cancel that arrives
+  // while starting must still produce a durable "cancelado" result.
+  let cancelRequested = false;
+  let onCancel: () => void = () => {
+    cancelRequested = true;
+  };
+  process.on('SIGTERM', () => onCancel());
+  process.on('SIGINT', () => onCancel());
+
   // A duplicated order never starts a second writer on the same launch (I06).
   const lock = LockFile.acquire(join(dir, FILES.lock), `lanzamiento ${order.launch_id}`);
   writeAtomic(join(dir, FILES.runner), JSON.stringify({ ...currentIdentity(), launch_id: order.launch_id, fencing_token: order.fencing_token }));
@@ -170,8 +179,8 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
     setTimeout(() => child.kill('SIGKILL'), order.kill_grace_ms).unref();
   };
   const timer = setTimeout(() => stop('tiempo_agotado'), order.timeout_ms);
-  process.on('SIGTERM', () => stop('cancelado'));
-  process.on('SIGINT', () => stop('cancelado'));
+  onCancel = () => stop('cancelado');
+  if (cancelRequested) stop('cancelado');
 
   const [code, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) => {
     child.on('error', (error) => {

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -10,6 +10,7 @@ import { EventStore } from '../../src/store/event-store.js';
 
 export const ROOT = resolve(import.meta.dirname, '../..');
 export const RUNNER = join(ROOT, 'dist/runtime/runner-main.js');
+export const HAS_BWRAP = spawnSync('bwrap', ['--ro-bind', '/', '/', 'true']).status === 0;
 
 let built = false;
 export function ensureBuilt(): void {
@@ -35,7 +36,7 @@ export function testEngine(simulation: Simulation, roles: Partial<ForjaConfig['r
     config,
     runnerScript: RUNNER,
     simulation,
-    adapters: { simulado: new SimulatedAdapter({ agentDir: join(ROOT, 'dist/providers') }) },
+    adapters: { simulado: new SimulatedAdapter({ agentDir: join(ROOT, 'dist/providers'), sandbox: HAS_BWRAP }) },
   });
   return { engine, dir, cleanup: () => { store.close(); rmSync(dir, { recursive: true, force: true }); } };
 }

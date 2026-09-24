@@ -1,5 +1,6 @@
 import type { Plan, PlanTask } from '../plan/plan.js';
 import type { GraphStore } from './graph-store.js';
+import type { EntryPointFinder } from './locator.js';
 import { graphSelection, simpleSelection } from './selector.js';
 
 /**
@@ -35,10 +36,10 @@ function score(selected: string[][], needed: string[][]): SelectorScore {
   };
 }
 
-export function evaluateSelectors(graph: GraphStore, plan: Plan, tree: string[], cases: EvalCase[]): EvalReport {
+export function evaluateSelectors(graph: GraphStore, plan: Plan, tree: string[], cases: EvalCase[], opts: { finder?: EntryPointFinder } = {}): EvalReport {
   const useful = cases.filter((c) => c.needed.length > 0);
   const simple = useful.map((c) => simpleSelection(c.task, plan, tree).map((f) => f.path));
-  const grafo = useful.map((c) => graphSelection(graph, c.task, plan, tree).map((f) => f.path));
+  const grafo = useful.map((c) => graphSelection(graph, c.task, plan, tree, opts).map((f) => f.path));
   const needed = useful.map((c) => c.needed);
   const s = score(simple, needed);
   const g = score(grafo, needed);

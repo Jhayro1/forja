@@ -558,7 +558,9 @@ function renderMemoria(d) {
       h(
         'p',
         { class: 'muted' },
-        d.construido ? `Índice construido ${d.construido.slice(0, 16).replace('T', ' ')} UTC · se reconstruye con forja memoria construir` : 'Todavía no hay índice: forja memoria construir',
+        d.construido
+          ? `Índice construido ${d.construido.slice(0, 16).replace('T', ' ')} UTC${d.fuente ? ` desde ${d.fuente}` : ''} · se reconstruye con forja memoria construir`
+          : 'Todavía no hay índice: forja memoria construir',
       ),
       h(
         'dl',

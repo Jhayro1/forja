@@ -9,7 +9,7 @@ import type { EventFeed } from '../api/server.js';
 import { resumeProvider } from '../core/engine.js';
 import { McpRegistry } from '../mcp/registry.js';
 import { GraphStore } from '../memory/graph-store.js';
-import { LessonService } from '../memory/lessons.js';
+import { hashFilesIn, LessonService } from '../memory/lessons.js';
 import { approvePlan, currentApproval, gateProblems } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import { estimatePlan } from '../plan/estimate.js';
@@ -193,7 +193,7 @@ export class EngineMemoryBackend implements MemoryBackend {
 
   overview(): object {
     const lessons = new LessonService(this.ctx.store).list();
-    return this.withGraph((g) => ({ grafo: g.stats(), construido: g.meta('construido'), modo: this.ctx.config.contexto.modo, lecciones: lessons }));
+    return this.withGraph((g) => ({ grafo: g.stats(), construido: g.meta('construido'), fuente: g.meta('fuente'), modo: this.ctx.config.contexto.modo, lecciones: lessons }));
   }
 
   search(text: string): object[] {
@@ -201,7 +201,7 @@ export class EngineMemoryBackend implements MemoryBackend {
   }
 
   review(id: string, approve: boolean, note: string): object {
-    return new LessonService(this.ctx.store).review(id, approve, 'panel', note);
+    return new LessonService(this.ctx.store).review(id, approve, 'panel', note, hashFilesIn(this.ctx.checkout.path));
   }
 }
 

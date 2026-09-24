@@ -1,15 +1,21 @@
 import { dirname, posix } from 'node:path';
-import { type Extraction, type LanguageExtractor, mentionsIn, type Resolution, type SymbolRef } from './types.js';
+import { matchPattern } from '../resolve-context.js';
+import { type Extraction, type ImportedName, type ImportRef, type LanguageExtractor, mentionsIn, type Resolution, type ResolveContext, type SymbolRef } from './types.js';
 
 /**
  * TS/JS extractor without dependencies: a small lexer (comments, strings,
  * templates and regex literals handled so their contents never look like
  * code) and pattern matching over the token stream.
  *
- * Known limits (reported, not hidden): path aliases from tsconfig are not
- * resolved (edge «posible» to the raw specifier), `import(expr)` with a
- * non-literal is only noted, re-exports through barrels are not followed to
- * the final symbol, and calls between functions are not extracted.
+ * It records which names each import binds and which of them the file really
+ * uses, and re-exports (`export { a } from`, `export * from`), so the graph can
+ * follow a symbol through barrels to the file that defines it (MEJORAS 5.2).
+ * Resolution understands tsconfig `paths`/`baseUrl`, package.json `imports`
+ * and workspace packages with their `exports` (MEJORAS 5.3).
+ *
+ * Known limits (reported, not hidden): `import(expr)` with a non-literal is
+ * only noted, and calls are tracked per file (who uses a symbol), not per
+ * function body.
  */
 
 type Tok = { t: 'id' | 'str' | 'p'; v: string; line: number };
@@ -156,11 +162,58 @@ export function tokenize(src: string): Tok[] {
   return out;
 }
 
+/** `{ a, b as c, type d }` → entries; `imported` is the name before `as`. */
+function braceList(clause: Tok[], start: number): { names: ImportedName[]; end: number } {
+  const names: ImportedName[] = [];
+  let k = start + 1;
+  while (k < clause.length && clause[k]!.v !== '}') {
+    if (clause[k]!.v === 'type' && clause[k + 1]?.t === 'id' && clause[k + 1]!.v !== 'as') k++;
+    const first = clause[k];
+    if (first?.t === 'id' || first?.t === 'str') {
+      let local = first.v;
+      if (clause[k + 1]?.v === 'as' && clause[k + 2]) {
+        local = clause[k + 2]!.v;
+        k += 2;
+      }
+      names.push({ imported: first.v, local });
+    }
+    k++;
+    if (clause[k]?.v === ',') k++;
+  }
+  return { names, end: k };
+}
+
+function importNames(clause: Tok[]): { names: ImportedName[]; all: boolean } {
+  const names: ImportedName[] = [];
+  let k = clause[0]?.v === 'type' ? 1 : 0;
+  if (clause[k]?.t === 'id' && clause[k]!.v !== 'as') {
+    names.push({ imported: 'default', local: clause[k]!.v });
+    k++;
+    if (clause[k]?.v === ',') k++;
+  }
+  if (clause[k]?.v === '*' && clause[k + 1]?.v === 'as' && clause[k + 2]?.t === 'id') names.push({ imported: '*', local: clause[k + 2]!.v });
+  else if (clause[k]?.v === '{') names.push(...braceList(clause, k).names);
+  return { names, all: false };
+}
+
+function exportNames(clause: Tok[]): { names: ImportedName[]; all: boolean } {
+  const k = clause[0]?.v === 'type' ? 1 : 0;
+  if (clause[k]?.v === '*') {
+    if (clause[k + 1]?.v === 'as' && clause[k + 2]) return { names: [{ imported: '*', local: clause[k + 2]!.v }], all: false };
+    return { names: [], all: true };
+  }
+  if (clause[k]?.v === '{') return { names: braceList(clause, k).names, all: false };
+  return { names: [], all: false };
+}
+
 export function extractTs(src: string): Extraction {
   const toks = tokenize(src);
   const imports: Extraction['imports'] = [];
   const symbols: SymbolRef[] = [];
   const notes: string[] = [];
+  /** Token ranges of import/export-from statements: names there are bindings, not uses. */
+  const skip: [number, number][] = [];
+  const exportedNames = new Set<string>();
   let depth = 0;
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i]!;
@@ -181,15 +234,17 @@ export function extractTs(src: string): Extraction {
       else if (t.v === 'import') notes.push(`línea ${t.line}: import() con expresión: el destino no se puede saber sin ejecutar`);
       continue;
     }
-    // import … from 'x' | import 'x' | export … from 'x'
+    // import … from 'x' | import 'x' | export … from 'x' | export { a, b }
     if ((t.v === 'import' || t.v === 'export') && next && next.v !== '(' && next.v !== '.') {
       if (t.v === 'import' && next.t === 'str') {
         imports.push({ specifier: next.v, confidence: 'seguro', line: t.line });
+        skip.push([i, i + 1]);
         continue;
       }
       // Scan to the end of the statement for `from 'x'`.
       let j = i + 1;
       let braces = 0;
+      let from = -1;
       for (; j < toks.length && j < i + 400; j++) {
         const u = toks[j]!;
         if (u.v === '{') braces++;
@@ -197,13 +252,31 @@ export function extractTs(src: string): Extraction {
         if (
           braces === 0 &&
           (u.v === ';' ||
-            (u.t === 'id' && ['function', 'class', 'const', 'let', 'var', 'interface', 'type', 'enum', 'async', 'default', 'abstract', 'declare', 'namespace'].includes(u.v) && t.v === 'export'))
+            // Without semicolons the next statement starts the next import/export.
+            (u.t === 'id' && (u.v === 'import' || u.v === 'export') && j > i + 1) ||
+            (u.t === 'id' &&
+              ['function', 'class', 'const', 'let', 'var', 'interface', 'type', 'enum', 'async', 'default', 'abstract', 'declare', 'namespace'].includes(u.v) &&
+              t.v === 'export' &&
+              j === i + 1))
         )
           break;
         if (u.t === 'id' && u.v === 'from' && toks[j + 1]?.t === 'str') {
-          imports.push({ specifier: toks[j + 1]!.v, confidence: 'seguro', line: t.line });
+          from = j;
           break;
         }
+      }
+      const clause = toks.slice(i + 1, from >= 0 ? from : j);
+      if (from >= 0) {
+        const ref: ImportRef = { specifier: toks[from + 1]!.v, confidence: 'seguro', line: t.line };
+        const parsed = t.v === 'import' ? importNames(clause) : exportNames(clause);
+        if (parsed.names.length) ref.names = parsed.names;
+        if (t.v === 'export') ref.reexport = parsed.all ? 'all' : 'names';
+        imports.push(ref);
+        skip.push([i, from + 1]);
+      } else if (t.v === 'export' && next.v === '{') {
+        // export { a, b as c }: local declarations become exported.
+        for (const n of exportNames(clause).names) exportedNames.add(n.imported);
+        skip.push([i, j]);
       }
     }
     // Top-level declarations (inside `export {…}` lists nothing is declared).
@@ -226,30 +299,83 @@ export function extractTs(src: string): Extraction {
   }
   const unique = new Map<string, SymbolRef>();
   for (const s of symbols) if (!unique.has(s.name) || s.exported) unique.set(s.name, s);
-  return { imports, symbols: [...unique.values()], mentions: mentionsIn(src), notes };
+  for (const name of exportedNames) {
+    const sym = unique.get(name);
+    if (sym) unique.set(name, { ...sym, exported: true });
+  }
+  // Which imported bindings are really used (a name after `.` is a property, not a use).
+  const locals = new Set(imports.filter((r) => !r.reexport).flatMap((r) => (r.names ?? []).map((n) => n.local)));
+  const used = new Set<string>();
+  let s = 0;
+  for (let k = 0; k < toks.length; k++) {
+    while (s < skip.length && skip[s]![1] < k) s++;
+    if (s < skip.length && k >= skip[s]![0] && k <= skip[s]![1]) continue;
+    const tok = toks[k]!;
+    if (tok.t === 'id' && locals.has(tok.v) && toks[k - 1]?.v !== '.') used.add(tok.v);
+  }
+  return { imports, symbols: [...unique.values()], mentions: mentionsIn(src), notes, used: [...used].sort() };
 }
 
 const EXTS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 
-export function resolveTs(specifier: string, fromPath: string, files: ReadonlySet<string>): Resolution {
-  if (specifier.startsWith('node:')) return { package: specifier };
-  if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
-    // Bare specifier: a package, unless it looks like a tsconfig alias (@/x, ~/x, #x).
-    if (/^(@\/|~\/|#)/.test(specifier)) return null;
-    const pkg = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]!;
-    return { package: pkg };
-  }
-  const base = posix.normalize(posix.join(dirname(fromPath), specifier));
-  // TS sources import './x.js' that exists as x.ts: try the stem with every extension.
+/** The file a module path points to: TS sources import './x.js' that exists as x.ts, or a folder's index. */
+function fileFor(base: string, files: ReadonlySet<string>): string | null {
   const stem = base.replace(/\.(m|c)?(j|t)sx?$/, '');
-  const candidates = [base, ...EXTS.map((e) => `${stem}${e}`), ...EXTS.map((e) => `${base}/index${e}`)];
-  const hit = candidates.find((c) => files.has(c));
-  return hit ? { path: hit, confidence: 'seguro' } : null;
+  const candidates = [base, ...EXTS.map((e) => `${stem}${e}`), ...EXTS.map((e) => `${base}/index${e}`), ...EXTS.map((e) => `${base}/src/index${e}`)];
+  return candidates.find((c) => files.has(c)) ?? null;
+}
+
+export function resolveTs(specifier: string, fromPath: string, files: ReadonlySet<string>, ctx?: ResolveContext): Resolution {
+  if (specifier.startsWith('node:')) return { package: specifier };
+  if (specifier.startsWith('.') || specifier.startsWith('/')) {
+    const hit = fileFor(posix.normalize(posix.join(dirname(fromPath), specifier)), files);
+    return hit ? { path: hit, confidence: 'seguro' } : null;
+  }
+  if (ctx) {
+    // package.json "imports" (#x) of the project.
+    for (const [key, t] of Object.entries(ctx.packageImports)) {
+      const m = matchPattern(key, specifier);
+      const hit = m !== null ? fileFor(t.replace('*', m), files) : null;
+      if (hit) return { path: hit, confidence: 'seguro' };
+    }
+    // tsconfig paths, longest pattern first (like tsc).
+    for (const a of [...ctx.aliases].sort((x, y) => y.pattern.length - x.pattern.length)) {
+      const m = matchPattern(a.pattern, specifier);
+      if (m === null) continue;
+      for (const t of a.targets) {
+        const hit = fileFor(t.replace('*', m), files);
+        if (hit) return { path: hit, confidence: 'seguro' };
+      }
+    }
+    // Workspace packages of a monorepo, through their "exports".
+    const pkgName = Object.keys(ctx.workspaces)
+      .filter((n) => specifier === n || specifier.startsWith(`${n}/`))
+      .sort((x, y) => y.length - x.length)[0];
+    if (pkgName) {
+      const ws = ctx.workspaces[pkgName]!;
+      const sub = specifier === pkgName ? '.' : `.${specifier.slice(pkgName.length)}`;
+      for (const [key, t] of Object.entries(ws.exports)) {
+        const m = matchPattern(key, sub);
+        const hit = m !== null ? fileFor(t.replace('*', m), files) : null;
+        if (hit) return { path: hit, confidence: 'seguro' };
+      }
+      const hit = fileFor(posix.join(ws.dir, sub === '.' ? 'index' : sub.slice(2)), files) ?? fileFor(posix.join(ws.dir, 'src', sub === '.' ? 'index' : sub.slice(2)), files);
+      if (hit) return { path: hit, confidence: 'posible' };
+    }
+    if (ctx.baseUrl !== null) {
+      const hit = fileFor(posix.normalize(posix.join(ctx.baseUrl, specifier)), files);
+      if (hit) return { path: hit, confidence: 'seguro' };
+    }
+  }
+  // Still an alias-looking specifier: unresolved (reported), never a fake package.
+  if (/^(@\/|~\/|#)/.test(specifier)) return null;
+  const pkg = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]!;
+  return { package: pkg };
 }
 
 export const typescriptExtractor: LanguageExtractor = {
   id: 'ts-js',
-  version: 'ts-lexer-1',
+  version: 'ts-lexer-2',
   extensions: EXTS,
   extract: extractTs,
   resolve: resolveTs,

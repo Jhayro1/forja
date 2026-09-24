@@ -64,6 +64,10 @@ export const ForjaConfig = z
         /** «grafo» adds related files from the knowledge graph; enable it after `forja memoria evaluar` shows it helps. */
         modo: z.enum(['simple', 'grafo']).default('simple'),
         max_archivos: z.number().int().min(1).max(50).default(15),
+        /** Offer the MCP tool pedir_contexto to workers (it enables the gateway even without connections). */
+        bajo_pedido: z.boolean().default(false),
+        /** Local lexical locator of entry points (no network); embeddings are not offered until provider and privacy are decided. */
+        buscador: z.enum(['ninguno', 'lexico']).default('ninguno'),
       })
       .strict()
       .prefault({}),

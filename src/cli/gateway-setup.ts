@@ -1,7 +1,9 @@
 import { ExternalMcp } from '../mcp/external.js';
 import { GatewayHost } from '../mcp/gateway.js';
 import { McpRegistry } from '../mcp/registry.js';
+import { EngineContextProvider } from '../memory/context-requests.js';
 import { forjaHome } from '../registry/home.js';
+import { currentChange } from '../run/snapshot.js';
 import { Vault, vaultPaths } from '../vault/vault.js';
 import { actionService } from './commands/actions.js';
 import type { EngineContext } from './engine-context.js';
@@ -9,14 +11,17 @@ import { vaultPassphrase } from './secret-input.js';
 
 /**
  * Gateway for a run, only when the project authorized something (connections
- * or MCP servers). External servers start with just their authorized tools and
+ * or MCP servers) or enabled context on request (contexto.bajo_pedido). External servers start with just their authorized tools and
  * declared secrets; a server whose registration changed since it was linked,
  * or whose secrets cannot be read, is left out with a visible warning.
  */
 export async function gatewayForProject(ctx: EngineContext, warn: (line: string) => void): Promise<GatewayHost | null> {
   const actions = actionService(ctx);
   const links = actions.links().filter((l) => l.active);
-  if (!links.length) return null;
+  const onRequest = ctx.config.contexto.bajo_pedido;
+  if (!links.length && !onRequest) return null;
+  const change = currentChange(ctx.engine);
+  const context = onRequest && change ? new EngineContextProvider(ctx.engine, change.change_id) : undefined;
   const registry = McpRegistry.in(ctx.home);
   const externals: ExternalMcp[] = [];
   let vault: Vault | undefined;
@@ -39,5 +44,5 @@ export async function gatewayForProject(ctx: EngineContext, warn: (line: string)
     }
   }
   vault?.close();
-  return new GatewayHost(actions, externals, GatewayHost.baseFor(ctx.dataDir));
+  return new GatewayHost(actions, externals, GatewayHost.baseFor(ctx.dataDir), context);
 }

@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS files (
   path TEXT PRIMARY KEY, hash TEXT NOT NULL, extractor TEXT NOT NULL, notes TEXT
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS terms (path TEXT NOT NULL, term TEXT NOT NULL, tf INTEGER NOT NULL, PRIMARY KEY (path, term));
+CREATE INDEX IF NOT EXISTS terms_term ON terms(term);
 `;
 
 export class GraphStore {
@@ -131,8 +133,16 @@ export class GraphStore {
     }));
   }
 
+  /** Term frequencies of a file for the local locator (replaces the previous ones). */
+  setTerms(path: string, tf: Map<string, number>): void {
+    this.db.prepare('DELETE FROM terms WHERE path = ?').run(path);
+    const ins = this.db.prepare('INSERT INTO terms (path, term, tf) VALUES (?, ?, ?)');
+    for (const [term, n] of tf) ins.run(path, term, n);
+  }
+
   removeFile(path: string): void {
     this.dropSource(`archivo:${path}`);
+    this.db.prepare('DELETE FROM terms WHERE path = ?').run(path);
     this.db.prepare('DELETE FROM files WHERE path = ?').run(path);
   }
 

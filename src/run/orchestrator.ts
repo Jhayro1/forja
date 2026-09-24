@@ -6,6 +6,7 @@ import { FILES } from '../runtime/order.js';
 import { EV, type RunState } from '../store/planning-projections.js';
 import { DirWatchSet, Waker } from '../util/waker.js';
 import { Delivery } from './pipeline/delivery.js';
+import { GraphContext } from './pipeline/graph-context.js';
 import { Integrator } from './pipeline/integrator.js';
 import { JobRunner } from './pipeline/jobs.js';
 import { OutcomeHandler } from './pipeline/outcome-handler.js';
@@ -74,10 +75,11 @@ export class Orchestrator {
     this.ctx = new RunContext(engine, repoPath, runId, { ...(opts.sandbox !== undefined ? { sandbox: opts.sandbox } : {}), ...(opts.onLog ? { onLog: opts.onLog } : {}) });
     this.parallel = opts.parallel ?? engine.config.ejecucion.paralelo;
     this.dependents = dependentCounts(this.ctx.plan);
-    this.launcher = new TaskLauncher(this.ctx, opts.gateway);
+    const graph = new GraphContext(this.ctx);
+    this.launcher = new TaskLauncher(this.ctx, opts.gateway, graph);
     this.outcomes = new OutcomeHandler(this.ctx);
     this.verifier = new TaskVerifier(this.ctx, opts.review ?? true);
-    this.integrator = new Integrator(this.ctx);
+    this.integrator = new Integrator(this.ctx, (worktree, sha) => graph.indexIntegration(worktree, sha));
     this.jobs = new JobRunner({
       onError: (key, message) => this.ctx.log(`⚠ ${key}: ${message}`),
       onGiveUp: (key, message) => {
@@ -169,7 +171,7 @@ export class Orchestrator {
     if (!gateway) return;
     for (const t of this.ctx.tasks().filter((x) => x.state === 'ejecutando')) {
       const exec = this.ctx.execOf(t.task_id);
-      if (exec.launch_id) await gateway.socketFor(gatewayOrigin(t.task_id, this.runId), exec.launch_id);
+      if (exec.launch_id) await gateway.socketFor(gatewayOrigin(t.task_id, this.runId), exec.launch_id, { runId: this.runId, taskId: t.task_id });
     }
   }
 

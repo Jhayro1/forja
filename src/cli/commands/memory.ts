@@ -2,9 +2,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { git } from '../../git/git.js';
 import { buildGraph } from '../../memory/build.js';
+import { contextRequests } from '../../memory/context-requests.js';
 import { type EvalCase, evaluateSelectors } from '../../memory/evaluate.js';
 import { GraphStore } from '../../memory/graph-store.js';
-import { LessonError, LessonService } from '../../memory/lessons.js';
+import { hashFilesIn, LessonError, LessonService } from '../../memory/lessons.js';
+import { LexicalFinder } from '../../memory/locator.js';
 import { graphSelection, simpleSelection } from '../../memory/selector.js';
 import { latestPlan } from '../../plan/divide.js';
 import type { Plan } from '../../plan/plan.js';
@@ -32,6 +34,9 @@ async function build(ctx: EngineContext, graph: GraphStore) {
   });
 }
 
+/** The local locator, when forja.yaml enables it (contexto.buscador: lexico). */
+const finderFor = (ctx: EngineContext, graph: GraphStore) => (ctx.config.contexto.buscador === 'lexico' ? { finder: new LexicalFinder(graph) } : {});
+
 const tree = async (path: string) => (await git(path, ['ls-files'])).stdout.split('\n').filter(Boolean);
 
 /** Real needs from history: files agents opened by themselves in each task's launches. */
@@ -48,6 +53,14 @@ function historyCases(ctx: EngineContext, plan: Plan, files: string[]): EvalCase
     const set = byTask.get(r.task_id) ?? new Set<string>();
     for (const f of filesReadBy(dir, r.provider, files)) set.add(f);
     byTask.set(r.task_id, set);
+  }
+  // Files the agents asked about with pedir_contexto are needs too (MEJORAS 5.4).
+  const tree = new Set(files);
+  for (const q of contextRequests(ctx.engine)) {
+    if (q.que !== 'archivo' || !q.task_id || !tree.has(q.objetivo)) continue;
+    const set = byTask.get(q.task_id) ?? new Set<string>();
+    set.add(q.objetivo);
+    byTask.set(q.task_id, set);
   }
   return plan.tareas.filter((t) => byTask.has(t.id)).map((t) => ({ task: t, needed: [...byTask.get(t.id)!].sort(), source: 'historial: archivos que el agente leyó por su cuenta' }));
 }
@@ -66,6 +79,7 @@ export function registerMemoryCommands(program: Command): void {
       const graph = GraphStore.open(ctx.dataDir);
       try {
         const r = await build(ctx, graph);
+        graph.setMeta('fuente', 'checkout del proyecto');
         const stats = graph.stats();
         if (g.json) return printJson({ construccion: r, grafo: stats });
         print(`✔ ${r.archivos} archivos: ${r.analizados} analizados, ${r.reutilizados} sin cambios, ${r.eliminados} eliminados del índice, ${r.excluidos} excluidos (secretos, binarios, generados)`);
@@ -101,11 +115,19 @@ export function registerMemoryCommands(program: Command): void {
   memoria
     .command('buscar <texto>')
     .description('busca nodos (ids, archivos, símbolos, casos de uso…) y muestra sus relaciones')
-    .action((text: string, _o: unknown, cmd: Command) => {
+    .option('--parecido', 'en vez de nombres exactos, archivos cuyo contenido se parece al texto (buscador léxico local)')
+    .action((text: string, o: { parecido?: boolean }, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
       const graph = GraphStore.open(ctx.dataDir);
       try {
+        if (o.parecido) {
+          const hits = new LexicalFinder(graph).find(text, 15);
+          if (g.json) return printJson({ archivos: hits });
+          if (!hits.length) return print('Sin resultados (¿construiste el índice? forja memoria construir)');
+          for (const h of hits) print(`${String(h.score).padStart(7)}  ${h.path}`);
+          return;
+        }
         const nodes = graph.search(text);
         if (g.json) return printJson({ nodos: nodes.map((n) => ({ ...n, salen: graph.out(n.id), entran: graph.in(n.id) })) });
         if (!nodes.length) return print('Sin resultados (¿construiste el índice? forja memoria construir)');
@@ -134,7 +156,7 @@ export function registerMemoryCommands(program: Command): void {
         await build(ctx, graph);
         const files = await tree(ctx.checkout.path);
         const simple = simpleSelection(task, plan, files);
-        const grafo = graphSelection(graph, task, plan, files, { maxFiles: ctx.config.contexto.max_archivos });
+        const grafo = graphSelection(graph, task, plan, files, { maxFiles: ctx.config.contexto.max_archivos, ...finderFor(ctx, graph) });
         if (g.json) return printJson({ tarea: task.id, modo: ctx.config.contexto.modo, simple, grafo });
         print(`${task.id} · ${task.titulo} (modo actual: ${ctx.config.contexto.modo})`);
         print('Siempre incluidos (no se recortan): criterios, reglas de sus casos de uso, decisiones aprobadas y lecciones aprobadas.');
@@ -170,7 +192,7 @@ export function registerMemoryCommands(program: Command): void {
             return { task, needed: c.necesarios, source: 'corpus etiquetado' };
           });
         } else cases = historyCases(ctx, plan, files);
-        const r = evaluateSelectors(graph, plan, files, cases);
+        const r = evaluateSelectors(graph, plan, files, cases, finderFor(ctx, graph));
         let applied = false;
         if (o.aplicar && r.recomendacion === 'grafo') {
           writeConfig(ctx.checkout.path, { ...ctx.config, contexto: { ...ctx.config.contexto, modo: 'grafo' } });
@@ -196,13 +218,22 @@ export function registerMemoryCommands(program: Command): void {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
       try {
-        const list = new LessonService(ctx.store).list(o.todas ? undefined : 'propuesta');
-        if (g.json) return printJson({ lecciones: list });
-        if (!list.length) return print(o.todas ? 'No hay lecciones.' : 'No hay lecciones por revisar.');
-        for (const l of list) {
-          print(`${l.lesson_id} · ${l.state}${l.reviewed_by ? ` por ${l.reviewed_by}` : ''}`);
+        const svc = new LessonService(ctx.store);
+        const hashOf = hashFilesIn(ctx.checkout.path);
+        const change = currentChange(ctx.engine);
+        const decisions = change ? (latestSpec(ctx.engine, change.change_id)?.spec.decisiones ?? []) : [];
+        const all = svc.list();
+        // Pending review: proposals, and approved lessons whose files changed (a revisar).
+        const list = o.todas ? all : all.filter((l) => l.state === 'propuesta' || (l.state === 'aprobada' && svc.staleFiles(l, hashOf).length > 0));
+        const view = list.map((l) => ({ ...l, a_revisar: l.state === 'aprobada' ? svc.staleFiles(l, hashOf) : [], posibles_conflictos: svc.conflicts(l, decisions) }));
+        if (g.json) return printJson({ lecciones: view });
+        if (!view.length) return print(o.todas ? 'No hay lecciones.' : 'No hay lecciones por revisar.');
+        for (const l of view) {
+          print(`${l.lesson_id} · ${l.state}${l.reviewed_by ? ` por ${l.reviewed_by}` : ''}${l.a_revisar.length ? ' · A REVISAR' : ''}`);
           print(`  ${l.text}`);
           print(`  evidencia: ${JSON.stringify(l.evidence)}`);
+          if (l.a_revisar.length) print(`  ! cambiaron sus archivos desde que se aprobó (${l.a_revisar.join(', ')}): no se usa hasta revalidarla (forja memoria revalidar ${l.lesson_id})`);
+          for (const c of l.posibles_conflictos) print(`  ? posible conflicto con ${c.id} «${c.texto}» (comparten: ${c.comunes.join(', ')})`);
         }
       } finally {
         ctx.close();
@@ -220,8 +251,8 @@ export function registerMemoryCommands(program: Command): void {
       .action((id: string, o: { nota: string }, cmd: Command) => {
         const ctx = openEngine(cmd.optsWithGlobals<GlobalOptions>());
         try {
-          const l = new LessonService(ctx.store).review(id, approve, 'cli', o.nota);
-          print(`✔ ${l.lesson_id} ${l.state}`);
+          const l = new LessonService(ctx.store).review(id, approve, 'cli', o.nota, hashFilesIn(ctx.checkout.path));
+          print(`✔ ${l.lesson_id} ${l.state}${approve && l.scope.archivos.length ? ` (vence si cambian: ${l.scope.archivos.join(', ')})` : ''}`);
         } catch (error) {
           if (error instanceof LessonError) throw new CliError(error.message, EXIT.precondition);
           throw error;
@@ -230,4 +261,38 @@ export function registerMemoryCommands(program: Command): void {
         }
       });
   }
+
+  memoria
+    .command('pedidos')
+    .description('lo que los agentes pidieron con pedir_contexto (qué, para qué y en qué tarea)')
+    .option('--run <id>', 'sólo los de un run')
+    .action((o: { run?: string }, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const list = contextRequests(ctx.engine, o.run);
+        if (g.json) return printJson({ pedidos: list });
+        if (!list.length) return print('Ningún agente pidió contexto todavía (se activa con contexto.bajo_pedido: true en forja.yaml).');
+        for (const q of list) print(`${q.recorded_at.slice(0, 16).replace('T', ' ')} ${q.task_id ?? '—'} · ${q.que} «${q.objetivo}» — ${q.motivo}`);
+      } finally {
+        ctx.close();
+      }
+    });
+
+  memoria
+    .command('revalidar <leccion>')
+    .description('vuelve a aplicar una lección aprobada cuyos archivos cambiaron (la revisaste y sigue valiendo)')
+    .option('--nota <texto>', 'por qué sigue valiendo', '')
+    .action((id: string, o: { nota: string }, cmd: Command) => {
+      const ctx = openEngine(cmd.optsWithGlobals<GlobalOptions>());
+      try {
+        const l = new LessonService(ctx.store).revalidate(id, 'cli', o.nota, hashFilesIn(ctx.checkout.path));
+        print(`✔ ${l.lesson_id} vuelve a aplicarse con los archivos actuales.`);
+      } catch (error) {
+        if (error instanceof LessonError) throw new CliError(error.message, EXIT.precondition);
+        throw error;
+      } finally {
+        ctx.close();
+      }
+    });
 }

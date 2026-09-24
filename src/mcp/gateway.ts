@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ActionService } from '../actions/protocol.js';
+import type { ContextProvider, RequestScope } from '../memory/context-requests.js';
 import { MCP_SOCKET_NAME } from '../providers/adapters.js';
 import { FORJA_VERSION } from '../version.js';
 import type { ExternalMcp, McpTool, ToolResult } from './external.js';
@@ -48,7 +49,31 @@ const OWN_TOOLS: McpTool[] = [
   },
 ];
 
-export type GatewayContext = { origin: string; actions: ActionService; externals: ExternalMcp[] };
+export type GatewayContext = {
+  origin: string;
+  actions: ActionService;
+  externals: ExternalMcp[];
+  /** Context on request (MEJORAS 5.4): only offered when the project enables it. */
+  context?: ContextProvider;
+  /** The run/task this socket belongs to (set by the host, never by the agent). */
+  scope?: RequestScope;
+};
+
+const CONTEXT_TOOL: McpTool = {
+  name: 'pedir_contexto',
+  description:
+    'Pide contexto con un motivo en vez de leer medio repositorio: «decision» busca decisiones, reglas y criterios aprobados; «relacionados» busca archivos y símbolos en el índice; «archivo» da qué define, importa y quién depende de un archivo. Queda registrado.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      que: { type: 'string', enum: ['decision', 'relacionados', 'archivo'] },
+      objetivo: { type: 'string', description: 'qué buscas: un tema, un identificador, un caso de uso (UC-001) o una ruta' },
+      motivo: { type: 'string', description: 'por qué lo necesitas para la tarea' },
+    },
+    required: ['que', 'objetivo', 'motivo'],
+    additionalProperties: false,
+  },
+};
 
 const text = (t: string, isError = false): ToolResult => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
 
@@ -70,6 +95,7 @@ export function gatewayHandler(ctx: GatewayContext): (method: string, params: un
         return {
           tools: [
             ...OWN_TOOLS,
+            ...(ctx.context ? [CONTEXT_TOOL] : []),
             ...ctx.externals.flatMap((e) => e.tools.map((t) => ({ ...t, name: `${e.def.name}__${t.name}`, description: `[${e.def.name} ${e.def.declared_version}] ${t.description ?? ''}`.trim() }))),
           ],
         };
@@ -99,6 +125,12 @@ export function gatewayHandler(ctx: GatewayContext): (method: string, params: un
               return text(
                 JSON.stringify({ id: a.action_id, estado: 'pendiente de aprobación humana', vista_previa: a.preview, nota: 'No se ejecutó nada. Sigue con tu tarea sin depender de su resultado.' }),
               );
+            }
+            case 'pedir_contexto': {
+              if (!ctx.context) return text('herramienta no disponible en este proyecto', true);
+              const que = String(args.que);
+              if (!['decision', 'relacionados', 'archivo'].includes(que)) return text('que debe ser decision, relacionados o archivo', true);
+              return text(ctx.context.answer(ctx.scope ?? null, { que: que as 'decision', objetivo: String(args.objetivo ?? '').slice(0, 300), motivo: String(args.motivo ?? '') }));
             }
             case 'estado_accion': {
               const a = ctx.actions.get(String(args.id));
@@ -139,6 +171,7 @@ export class GatewayHost {
     private readonly actions: ActionService,
     readonly externals: ExternalMcp[] = [],
     baseDir?: string,
+    private readonly context?: ContextProvider,
   ) {
     // Short path: unix socket paths are limited to ~107 bytes.
     this.dir = baseDir ?? mkdtempSync(join(tmpdir(), 'fmcp-'));
@@ -151,13 +184,19 @@ export class GatewayHost {
   }
 
   /** Socket for one launch (`key`: its launch id), recreated at the same path if it already existed. */
-  async socketFor(origin: string, key: string): Promise<string> {
+  get offersContext(): boolean {
+    return this.context !== undefined;
+  }
+
+  async socketFor(origin: string, key: string, scope: RequestScope = null): Promise<string> {
     const folder = join(this.dir, createHash('sha256').update(key).digest('hex').slice(0, 12));
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     const path = join(folder, MCP_SOCKET_NAME);
     this.servers.get(path)?.close();
     rmSync(path, { force: true });
-    const server = createServer((socket) => serveRpc(socket, socket, gatewayHandler({ origin, actions: this.actions, externals: this.externals })));
+    const server = createServer((socket) =>
+      serveRpc(socket, socket, gatewayHandler({ origin, actions: this.actions, externals: this.externals, scope, ...(this.context ? { context: this.context } : {}) })),
+    );
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(path, () => resolve());

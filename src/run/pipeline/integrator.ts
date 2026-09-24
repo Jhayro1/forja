@@ -15,7 +15,11 @@ import type { RunContext } from './run-context.js';
  * ref moved in between, retry on the new tip.
  */
 export class Integrator {
-  constructor(private readonly ctx: RunContext) {}
+  /** `onIntegrated`: called with the integration worktree at the new tip (e.g. to re-index it). */
+  constructor(
+    private readonly ctx: RunContext,
+    private readonly onIntegrated: (worktree: string, sha: string) => Promise<void> | void = () => {},
+  ) {}
 
   async integrate(taskId: string): Promise<void> {
     const { ctx } = this;
@@ -43,6 +47,7 @@ export class Integrator {
       if (await publishRef(ctx.repoPath, ctx.run.branch, merged.sha, target)) {
         this.confirm(taskId, merged.sha);
         this.proposeLesson(taskId, ctx.execOf(taskId), merged.sha);
+        await this.onIntegrated(wtPath, merged.sha);
         if (exec.worktree) await removeWorktree(ctx.repoPath, exec.worktree);
         ctx.log(`⇪ ${taskId} integrada (${merged.sha.slice(0, 8)})`);
         return;

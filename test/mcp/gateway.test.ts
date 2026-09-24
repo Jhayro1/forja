@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -248,4 +249,40 @@ describe('el agente conserva el gateway si forja run se reinicia (MEJORAS 4.7)',
     expect(byId(2).result ?? byId(2).error).toBeTruthy();
     expect((byId(3).result as { tools: unknown[] }).tools.length).toBeGreaterThan(0);
   }, 30_000);
+});
+
+describe('contexto bajo pedido (MEJORAS 5.4)', () => {
+  it('pedir_contexto responde desde la spec y el grafo, exige motivo, se registra y tiene límite', async () => {
+    const { EngineContextProvider, contextRequests } = await import('../../src/memory/context-requests.js');
+    const { buildGraph } = await import('../../src/memory/build.js');
+    const { GraphStore } = await import('../../src/memory/graph-store.js');
+    const t = testEngine(() => ({}));
+    closers.push(t.cleanup);
+    const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, 'src/saldo.mjs'), "import { MONEDA } from './contratos.mjs';\nexport function saldo() { return MONEDA; }\n");
+    writeFileSync(join(repo, 'src/contratos.mjs'), 'export const MONEDA = "PEN";\n');
+    // Track the new files so the graph (git ls-files) sees them.
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    const g = GraphStore.open(t.dir);
+    await buildGraph(g, { repoPath: repo });
+    g.close();
+    const provider = new EngineContextProvider(t.engine, changeId);
+    const store = t.engine.store;
+    const call = gatewayHandler({ origin: 'agente T-003 · run_1', actions: services(store), externals: [], context: provider, scope: { runId: 'run_1', taskId: 'T-003' } });
+    const list = (await call('tools/list', {})) as { tools: { name: string }[] };
+    expect(list.tools.map((x) => x.name)).toContain('pedir_contexto');
+    expect(((await gatewayHandler({ origin: 'x', actions: services(store), externals: [] })('tools/list', {})) as { tools: { name: string }[] }).tools.map((x) => x.name)).not.toContain(
+      'pedir_contexto',
+    );
+    const ask = async (args: object) => ((await call('tools/call', { name: 'pedir_contexto', arguments: args })) as { content: { text: string }[] }).content[0]!.text;
+    expect(await ask({ que: 'decision', objetivo: 'saldo con abono', motivo: '' })).toMatch(/Indica el motivo/);
+    expect(await ask({ que: 'decision', objetivo: 'saldo con abono', motivo: 'no sé si puede ser negativo' })).toContain('CA-UC-002-01 (criterio)');
+    expect(await ask({ que: 'archivo', objetivo: 'src/saldo.mjs', motivo: 'voy a cambiarlo' })).toContain('Importa: src/contratos.mjs');
+    expect(await ask({ que: 'relacionados', objetivo: 'MONEDA', motivo: 'dónde se define' })).toContain('simbolo:src/contratos.mjs#MONEDA');
+    const recorded = contextRequests(t.engine, 'run_1');
+    expect(recorded.map((r) => `${r.task_id}:${r.que}`)).toEqual(['T-003:decision', 'T-003:archivo', 'T-003:relacionados']);
+    for (let i = 0; i < 20; i++) await ask({ que: 'decision', objetivo: 'x', motivo: 'y' });
+    expect(await ask({ que: 'decision', objetivo: 'x', motivo: 'y' })).toMatch(/Límite de 20/);
+  });
 });

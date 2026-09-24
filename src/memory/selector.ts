@@ -3,6 +3,7 @@ import type { Plan, PlanTask } from '../plan/plan.js';
 import { acceptanceFilesFor } from '../verify/verify.js';
 import { fileId } from './build.js';
 import type { Confidence, GraphStore } from './graph-store.js';
+import type { EntryPointFinder } from './locator.js';
 
 /**
  * Context selectors (V2-061). The simple one is the MVP rule (files the task
@@ -23,7 +24,7 @@ export function simpleSelection(task: PlanTask, plan: Plan, tree: string[]): Sel
   return matching(tree, globs).map((path) => ({ path, reason: 'declarado por la tarea', score: 100, confidence: 'seguro' }));
 }
 
-export function graphSelection(graph: GraphStore, task: PlanTask, plan: Plan, tree: string[], opts: { maxFiles?: number } = {}): SelectedFile[] {
+export function graphSelection(graph: GraphStore, task: PlanTask, plan: Plan, tree: string[], opts: { maxFiles?: number; finder?: EntryPointFinder } = {}): SelectedFile[] {
   const inTree = new Set(tree);
   const picked = new Map<string, SelectedFile>();
   const offer = (path: string, score: number, reason: string, confidence: Confidence) => {
@@ -74,6 +75,11 @@ export function graphSelection(graph: GraphStore, task: PlanTask, plan: Plan, tr
       const p = pathOf(e.src);
       if (p) offer(p, 55, `importa ${f}, que la tarea cambia`, e.confidence);
     }
+  }
+  // Entry points that look like the task (local locator, MEJORAS 5.9): «posible», low weight.
+  if (opts.finder) {
+    const query = [task.titulo, task.objetivo, task.notas].join(' ');
+    for (const hit of opts.finder.find(query, 5)) offer(hit.path, 35, `se parece a la tarea (${hit.score})`, 'posible');
   }
   // Files that mention the task's use cases or rules.
   const ucs = new Set(task.criterios.map((c) => `caso_uso:${c.slice(3, 9)}`));

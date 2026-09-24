@@ -275,6 +275,10 @@ const MIGRATIONS: readonly string[] = [
     created_at   INTEGER NOT NULL
   );
   `,
+  `
+  -- Lecciones: hashes del ámbito al aprobarlas (vencen cuando cambian sus archivos, MEJORAS 5.7).
+  ALTER TABLE lessons ADD COLUMN hashes TEXT;
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

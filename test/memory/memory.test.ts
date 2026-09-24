@@ -230,6 +230,35 @@ describe('lecciones revisadas (V2-062)', () => {
   });
 });
 
+describe('lecciones que vencen y posibles conflictos (MEJORAS 5.7)', () => {
+  it('una lección aprobada deja de aplicarse si cambian sus archivos, hasta revalidarla; avisa si choca con una decisión', () => {
+    const store = EventStore.open(join(dir, 'e2.db'), 'chk');
+    closers.push(() => store.close());
+    const svc = new LessonService(store);
+    const files: Record<string, string | null> = { 'src/uc-001.ts': 'v1' };
+    const hashOf = (p: string) => files[p] ?? null;
+    const id = svc.propose('Los montos del fiado se redondean a dos decimales antes de guardar', { tipo: 'implementacion', archivos: ['src/uc-001.ts'] }, {}, 'k1');
+    svc.review(id, true, 'yo', '', hashOf);
+    const t = task('T-003', { escribe: ['src/uc-001.ts'] });
+    expect(svc.forTask(t, hashOf).map((l) => l.lesson_id)).toEqual([id]);
+    files['src/uc-001.ts'] = 'v2';
+    expect(svc.staleFiles(svc.get(id), hashOf)).toEqual(['src/uc-001.ts']);
+    expect(svc.forTask(t, hashOf)).toEqual([]);
+    // Without hashes (e.g. old lessons) nothing expires.
+    expect(svc.forTask(t)).toHaveLength(1);
+    svc.revalidate(id, 'yo', 'sigue valiendo', hashOf);
+    expect(svc.forTask(t, hashOf)).toHaveLength(1);
+    const decisions = [
+      { id: 'DEC-1', texto: 'Los montos se guardan sin decimales, en céntimos', estado: 'aprobada' },
+      { id: 'DEC-2', texto: 'Los montos del fiado no se redondean nunca', estado: 'sustituida' },
+      { id: 'DEC-3', texto: 'El saldo se muestra en soles', estado: 'aprobada' },
+    ];
+    expect(svc.conflicts(svc.get(id), decisions).map((c) => [c.id, c.comunes])).toEqual([['DEC-1', ['montos', 'decimales']]]);
+    store.rebuildProjections();
+    expect(svc.get(id).hashes).toEqual({ 'src/uc-001.ts': 'v2' });
+  });
+});
+
 describe.skipIf(!HAS_BWRAP)('run con contexto de grafo', () => {
   it('ejecuta con contexto.modo = grafo, construye el índice y propone la lección del reintento', async () => {
     const simulation: Simulation = ({ role, taskId, attempt }) => {
@@ -247,6 +276,11 @@ describe.skipIf(!HAS_BWRAP)('run con contexto de grafo', () => {
     expect(summary.state, log.join('\n')).toBe('completado');
     expect(log.some((l) => l.includes('sin contexto del grafo'))).toBe(false);
     expect(existsSync(join(t.dir, 'grafo.db'))).toBe(true);
+    // After the last integration the index reflects the integration tip (MEJORAS 5.5).
+    const idx = GraphStore.open(t.dir);
+    expect(idx.meta('fuente')).toMatch(new RegExp(`^integración de ${runId} @ [0-9a-f]{8}$`));
+    expect(idx.fileRecord('src/uc-002.mjs')).not.toBeNull();
+    idx.close();
     const lessons = new LessonService(t.engine.store).list('propuesta');
     expect(lessons).toHaveLength(1);
     expect(lessons[0]!.evidence).toMatchObject({ tarea: 'T-005', intentos: 2, fallos: 1 });

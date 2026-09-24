@@ -1,24 +1,30 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
 import { Command, CommanderError } from 'commander';
 import { overall, runChecks, type Level } from '../doctor/checks.js';
 import { ConfigError } from '../registry/config.js';
 import { ProjectError } from '../registry/projects.js';
+import { registerConformanceCommands } from './commands/conformance.js';
 import { registerOpsCommands } from './commands/ops.js';
 import { registerPlanCommands } from './commands/plan.js';
 import { registerProjectCommands } from './commands/projects.js';
 import { registerRunCommands } from './commands/run.js';
 import { registerUiCommands } from './commands/ui.js';
+import { FORJA_VERSION } from '../version.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from './context.js';
 
-const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+
+// `forja estado | head` closes the pipe early: that is a normal end, not a crash.
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EPIPE') process.exit(0);
+  throw error;
+});
 
 const ICON: Record<Level, string> = { ok: '✔', aviso: '!', error: '✘' };
 
 const program = new Command()
   .name('forja')
   .description('Planea con modelos caros, programa en paralelo con modelos baratos (Claude + Codex).')
-  .version(pkg.version, '-v, --version', 'muestra la versión')
+  .version(FORJA_VERSION, '-v, --version', 'muestra la versión')
   .helpOption('-h, --help', 'muestra la ayuda')
   .helpCommand('ayuda [comando]', 'muestra la ayuda de un comando')
   .option('-p, --proyecto <nombre|id>', 'proyecto sobre el que actuar')
@@ -51,6 +57,7 @@ registerOpsCommands(program);
 registerPlanCommands(program);
 registerRunCommands(program);
 registerUiCommands(program);
+registerConformanceCommands(program);
 
 try {
   await program.parseAsync();

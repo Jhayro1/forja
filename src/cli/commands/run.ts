@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Command } from 'commander';
 import { latestPlan } from '../../plan/divide.js';
+import { ConformanceStore, conformanceProblems } from '../../providers/conformance.js';
+import { FORJA_VERSION } from '../../version.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { activeChange, getChange } from '../../planner/session.js';
 import { LockHeldError, type LockFile } from '../../registry/lock.js';
@@ -93,7 +95,8 @@ export function registerRunCommands(program: Command): void {
     .option('--estimar', 'sólo muestra la estimación de tiempo y consumo; no ejecuta nada')
     .option('--sin-revisor', 'omite el revisor independiente (más barato, menos control)')
     .option('--tablero', 'muestra el tablero en vivo mientras ejecuta')
-    .action(async (opts: { paralelo?: number; estimar?: boolean; sinRevisor?: boolean; tablero?: boolean }, cmd: Command) => {
+    .option('--sin-conformidad', 'permite modelos sin conformidad aprobada con la versión instalada de su CLI (queda registrado)')
+    .action(async (opts: { paralelo?: number; estimar?: boolean; sinRevisor?: boolean; tablero?: boolean; sinConformidad?: boolean }, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       if (opts.paralelo !== undefined && (!Number.isInteger(opts.paralelo) || opts.paralelo < 1 || opts.paralelo > 16)) {
         throw new CliError('--paralelo debe ser un número entre 1 y 16');
@@ -111,6 +114,16 @@ export function registerRunCommands(program: Command): void {
           print(`Estimación para «${change.title}» (no se ejecutó nada):`);
           showPlan(current.plan, estimate);
           return;
+        }
+
+        // V2-040: autonomous work only with models certified for the installed CLI version.
+        const roles = ctx.config.roles;
+        const unverified = await conformanceProblems(ConformanceStore.in(ctx.home), [...roles.trabajador, ...roles.complejo, ...roles.revisor], FORJA_VERSION);
+        if (unverified.length && !opts.sinConformidad) {
+          throw new CliError(
+            `modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}\nPruébalos con: forja conformidad (o, bajo tu responsabilidad, forja run --sin-conformidad)`,
+            EXIT.precondition,
+          );
         }
 
         try {
@@ -138,6 +151,7 @@ export function registerRunCommands(program: Command): void {
           if (echo) print(entry);
         };
         say(started.resumed ? `↺ se retoma el run ${runId}` : `▶ run ${runId} iniciado sobre ${ctx.checkout.path}`);
+        if (unverified.length) say(`⚠ se ejecuta con modelos sin conformidad aprobada (--sin-conformidad): ${unverified.join('; ')}`);
         if (started.inherited.length) say(`  heredadas del run anterior (ya integradas y sin cambios): ${started.inherited.join(', ')}`);
 
         const controller = new AbortController();

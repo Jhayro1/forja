@@ -12,6 +12,7 @@ import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine, taskD
 import { answerTaskQuestion, getExec, Orchestrator, RunError, type RunSummary, startOrResumeRun, unblockTask } from '../../run/orchestrator.js';
 import { acquireOrchestratorLock, RUN_PURPOSE, requestStop, runningOrchestrator } from '../../run/process.js';
 import { RunLog } from '../../run/run-log.js';
+import { SELF_HOST_WARNING, supervisesItself } from '../../run/self-host.js';
 import { compactTokens, costLabel, currentChange, type RunSnapshot, runSnapshot } from '../../run/snapshot.js';
 import { snapshotJson } from '../../run/snapshot-json.js';
 import { readSpool } from '../../runtime/launcher.js';
@@ -27,6 +28,7 @@ import { showPlan } from '../plan-view.js';
 import { domainError, snapshotOrFail, taskOrFail } from '../run-selection.js';
 import { confirm } from '../secret-input.js';
 import { certifyModels } from './conformance.js';
+import { startRunNotifications } from './notify.js';
 
 function showPending(s: RunSnapshot): void {
   if (s.pending.length === 0) return;
@@ -219,6 +221,8 @@ export function registerRunCommands(program: Command): void {
           signal: controller.signal,
           onLog: say,
         });
+        if (supervisesItself(ctx.checkout.path)) say(SELF_HOST_WARNING);
+        const stopNotifications = startRunNotifications(ctx, say);
         let summary: RunSummary;
         try {
           let settled = false;
@@ -232,6 +236,7 @@ export function registerRunCommands(program: Command): void {
         } finally {
           process.off('SIGINT', onSignal);
           process.off('SIGTERM', onSignal);
+          await stopNotifications();
           gateway?.close();
         }
 

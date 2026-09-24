@@ -64,7 +64,24 @@ export function selectLaunches(input: { plan: Plan; tasks: TaskRow[]; parallel: 
   return out;
 }
 
-/** Next task for the (serial) integration queue. */
-export function nextToIntegrate(tasks: TaskRow[]): string | null {
-  return tasks.filter((t) => t.state === 'verificada' || t.state === 'integrando').sort((a, b) => a.task_id.localeCompare(b.task_id))[0]?.task_id ?? null;
+/** Next tasks for the integration queue, in a stable order: at most `max` (1 = serial). */
+export function nextToIntegrate(tasks: TaskRow[], max = 1): string[] {
+  return tasks
+    .filter((t) => t.state === 'verificada' || t.state === 'integrando')
+    .map((t) => t.task_id)
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, max);
+}
+
+/**
+ * Batch mode: whether to integrate the verified tasks now or wait a little for
+ * the ones still being verified to join the batch (a merge-queue window). Never
+ * waits with a full batch, with nothing else in verification, or past `maxWaitMs`.
+ */
+export function batchReady(tasks: TaskRow[], max: number, waitedMs: number, maxWaitMs: number): boolean {
+  const ready = nextToIntegrate(tasks, max);
+  if (ready.length === 0) return false;
+  if (ready.length >= max || tasks.some((t) => t.state === 'integrando')) return true;
+  const joining = tasks.some((t) => t.state === 'verificando');
+  return !joining || waitedMs >= maxWaitMs;
 }

@@ -7,6 +7,7 @@ import { registerActionCommands } from './commands/actions.js';
 import { registerConformanceCommands } from './commands/conformance.js';
 import { registerMcpCommands } from './commands/mcp.js';
 import { registerMemoryCommands } from './commands/memory.js';
+import { registerNotificationCommands } from './commands/notify.js';
 import { registerOpsCommands } from './commands/ops.js';
 import { registerPilotCommands } from './commands/pilot.js';
 import { registerPlanCommands } from './commands/plan.js';
@@ -60,6 +61,7 @@ program
 registerProjectCommands(program);
 registerOpsCommands(program);
 registerProfileCommands(program);
+registerNotificationCommands(program);
 registerPlanCommands(program);
 registerRunCommands(program);
 registerTaskControlCommands(program);

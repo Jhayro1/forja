@@ -35,6 +35,18 @@
 - **Conexiones**: nombrarlas en `forja.yaml` no las concede; cada proyecto las vincula explícitamente
   y cualquier edición invalida vínculos y aprobaciones.
 
+## Notificaciones (`forja notificaciones`)
+
+- Están desactivadas por defecto. Activarlas es una decisión explícita: `forja notificaciones activar <conexion>`
+  vincula esa conexión para `webhook.evento` y fija qué datos salen.
+- Cada aviso es una acción externa tipada como cualquier otra: vista previa, hash, ejecutor aislado y
+  auditoría. La aprueba la política que activaste (`politica:notificaciones` en la auditoría).
+- Por defecto sólo salen el nombre del proyecto, el tipo de pendiente y su id. Ni el texto de la pregunta ni
+  el código. `--con-texto` añade el texto, recortado a 280 caracteres.
+- Si la conexión cambia (URL, secreto o cualquier campo), los avisos se pausan hasta que los vuelvas a activar.
+- Durante `forja run` la bóveda nunca te pide la clave para avisar. Si la conexión usa un secreto, se abre con
+  la clave guardada en el llavero del sistema; si no la hay, el run lo dice y no avisa.
+
 ## Panel web (`forja ui`)
 
 - Escucha sólo en `127.0.0.1`. No hay acceso remoto ni túneles.

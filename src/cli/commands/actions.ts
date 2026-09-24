@@ -27,7 +27,7 @@ function domain<T>(fn: () => T): T {
 }
 
 /** Opens the vault only for the duration of `fn` (it holds the key in memory). */
-async function withSecrets<T>(needed: boolean, fn: (resolve: SecretResolver) => Promise<T>): Promise<T> {
+export async function withSecrets<T>(needed: boolean, fn: (resolve: SecretResolver) => Promise<T>): Promise<T> {
   if (!needed) return fn(() => null);
   let vault: Vault;
   try {

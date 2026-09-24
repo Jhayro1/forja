@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { activePauses, pauseProvider, pickCandidate, resumeProvider, type Simulation } from '../../src/core/engine.js';
 import type { Plan } from '../../src/plan/plan.js';
 import { getExec, getRun, Orchestrator, reassignTask, requestPause, resumeTask, startOrResumeRun } from '../../src/run/orchestrator.js';
-import { dependentCounts, levelFor, nextToIntegrate, selectLaunches } from '../../src/run/pipeline/scheduler.js';
+import { batchReady, dependentCounts, levelFor, nextToIntegrate, selectLaunches } from '../../src/run/pipeline/scheduler.js';
 import { applyTaskControls } from '../../src/run/task-control.js';
 import { getTask, listTasks, type TaskRow } from '../../src/store/projections.js';
 import { HAS_BWRAP, testEngine } from '../helpers/engine.js';
@@ -55,7 +55,16 @@ describe('política de lanzamiento (función pura)', () => {
     expect(levelFor(TASKS[2]!, 0)).toBe('trabajador');
     expect(levelFor(TASKS[2]!, 2)).toBe('complejo');
     expect(levelFor({ ...TASKS[2]!, complejidad: 'alta' }, 2)).toBe('planeador');
-    expect(nextToIntegrate([row('T-003', 'verificada'), row('T-002', 'integrando')])).toBe('T-002');
+    expect(nextToIntegrate([row('T-003', 'verificada'), row('T-002', 'integrando')])).toEqual(['T-002']);
+    expect(nextToIntegrate([row('T-003', 'verificada'), row('T-001', 'lista'), row('T-002', 'integrando')], 4)).toEqual(['T-002', 'T-003']);
+    // Batch window: wait while others are still being verified, never past the limit or with a full batch.
+    const joining = [row('T-001', 'verificada'), row('T-002', 'verificando')];
+    expect(batchReady(joining, 4, 1_000, 20_000)).toBe(false);
+    expect(batchReady(joining, 4, 20_000, 20_000)).toBe(true);
+    expect(batchReady(joining, 1, 0, 20_000)).toBe(true);
+    expect(batchReady([row('T-001', 'verificada'), row('T-002', 'ejecutando')], 4, 0, 20_000)).toBe(true);
+    expect(batchReady([row('T-001', 'integrando'), row('T-002', 'verificando')], 4, 0, 20_000)).toBe(true);
+    expect(batchReady([row('T-002', 'verificando')], 4, 99_999, 20_000)).toBe(false);
   });
 });
 

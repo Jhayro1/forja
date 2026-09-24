@@ -2,7 +2,7 @@
 
 Se publican para que decidas con información (v2/11 · M4). Se actualizan en cada versión.
 
-- **Sólo Linux.** El sandbox depende de bubblewrap. En macOS no hay aislamiento equivalente todavía.
+- **Sólo Linux.** El sandbox depende de bubblewrap. En macOS no hay aislamiento equivalente todavía: hay un prototipo con Seatbelt sin probar ni conectar ([ADR-010](../decisiones/ADR-010-aislamiento-macos.md)).
 - **Pensado para TypeScript/JavaScript.** Otros stacks funcionan si el perfil del plan define sus
   comandos, pero la detección y la verificación están probadas sobre TS/JS.
 - **Estimaciones sin calibrar** hasta correr `forja piloto` con runs reales en tu proyecto.

@@ -52,6 +52,26 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     expect(usage.n).toBeGreaterThanOrEqual(8);
   }, 300_000);
 
+  it('con integración por lotes el resultado es el mismo: todo integrado, una fusión por tarea', async () => {
+    const t = testEngine(agents());
+    cleanup = t.cleanup;
+    t.engine.config.ejecucion.integracion = 'lotes';
+    const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
+    const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
+    const log: string[] = [];
+    const summary = await new Orchestrator(t.engine, repo, runId, { parallel: 3, sandbox: HAS_BWRAP, pollMs: 100, onLog: (l) => log.push(l) }).loop();
+    expect(summary.state, log.join('\n')).toBe('completado');
+    expect(summary.counts).toEqual({ integrada: 5 });
+    const merges = sh(repo, 'log', '--merges', '--format=%s', summary.deliveryBranch!).split('\n');
+    for (const id of ['T-001', 'T-002', 'T-003', 'T-004', 'T-005']) expect(merges.some((m) => m.startsWith(`forja: integrar ${id}`))).toBe(true);
+    // T-002 and T-004 (and later T-003 and T-005) are verified together: they wait for each other.
+    expect(
+      log.some((l) => l.startsWith('⇪ lote ') && l.includes('una sola verificación')),
+      log.join('\n'),
+    ).toBe(true);
+    expect(sh(repo, 'show', `${summary.deliveryBranch!}:src/uc-002.mjs`)).toContain('reduce');
+  }, 300_000);
+
   it('rechaza cambios fuera de lo permitido y no deja tocar las pruebas protegidas', async () => {
     const t = testEngine(
       agents((taskId, attempt) =>

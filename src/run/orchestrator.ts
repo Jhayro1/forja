@@ -12,7 +12,7 @@ import { JobRunner } from './pipeline/jobs.js';
 import { OutcomeHandler } from './pipeline/outcome-handler.js';
 import { Reconciler } from './pipeline/reconciler.js';
 import { RunContext } from './pipeline/run-context.js';
-import { dependentCounts, HOLDING_STATES, nextToIntegrate, selectLaunches } from './pipeline/scheduler.js';
+import { batchReady, dependentCounts, HOLDING_STATES, nextToIntegrate, selectLaunches } from './pipeline/scheduler.js';
 import { gatewayOrigin, TaskLauncher } from './pipeline/task-launcher.js';
 import { TaskVerifier } from './pipeline/task-verifier.js';
 import { getRun, setRunState } from './records.js';
@@ -62,6 +62,8 @@ export class Orchestrator {
   private readonly parallel: number;
   private readonly dependents: Map<string, number>;
   private integrating: string | null = null;
+  /** Batch mode: when the oldest verified task started waiting for its batch. */
+  private verifiedSince: number | null = null;
   private readonly waker = new Waker();
   private readonly launchWatch: DirWatchSet;
   private readonly storeWatch: DirWatchSet;
@@ -183,10 +185,18 @@ export class Orchestrator {
       if (t.state === 'verificando') this.jobs.spawn(`verif:${t.task_id}`, () => this.verifier.verify(t.task_id));
     }
     if (!this.integrating) {
-      const next = nextToIntegrate(tasks);
-      if (next) {
-        this.integrating = next;
-        this.jobs.spawn(`integ:${next}`, () => this.integrator.integrate(next).finally(() => (this.integrating = null)));
+      const { integracion, lote_max, lote_espera_s } = this.engine.config.ejecucion;
+      const batching = integracion === 'lotes';
+      const next = nextToIntegrate(tasks, batching ? lote_max : 1);
+      if (next.length === 0) this.verifiedSince = null;
+      else this.verifiedSince ??= Date.now();
+      const waited = Date.now() - (this.verifiedSince ?? Date.now());
+      if (next.length && (!batching || batchReady(tasks, lote_max, waited, lote_espera_s * 1000))) {
+        this.verifiedSince = null;
+        const label = next.join('+');
+        this.integrating = label;
+        const integrate = () => (next.length > 1 ? this.integrator.integrateBatch(next) : this.integrator.integrate(next[0]!));
+        this.jobs.spawn(`integ:${label}`, () => integrate().finally(() => (this.integrating = null)));
       }
     }
     const run = getRun(this.engine, this.runId)!;

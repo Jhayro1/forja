@@ -44,7 +44,13 @@ export type TransitionReason =
   | 'causa_resuelta'
   | 'bloqueo'
   | 'nueva_revision'
-  | 'cancelacion';
+  | 'cancelacion'
+  /** Environment problem (install, sandbox, runner): not the agent's fault, no escalation. */
+  | 'fallo_entorno'
+  /** The candidate no longer merges on the integrated base: redo on the new base. */
+  | 'conflicto_integracion'
+  /** Provider quota/session: retry with another model of the same role. */
+  | 'proveedor_no_disponible';
 
 type Rule = { from: ReadonlySet<TaskState> | 'no_terminal'; to: TaskState; reasons: readonly TransitionReason[] };
 
@@ -61,6 +67,9 @@ const RULES: readonly Rule[] = [
   { from: s('verificada'), to: 'integrando', reasons: ['integracion_iniciada'] },
   { from: s('integrando'), to: 'integrada', reasons: ['integracion_confirmada'] },
   { from: s('integrando'), to: 'verificando', reasons: ['destino_avanzo'] },
+  { from: s('reservada', 'ejecutando', 'verificando'), to: 'lista', reasons: ['fallo_entorno', 'proveedor_no_disponible'] },
+  { from: s('ejecutando'), to: 'lista', reasons: ['fallo_calidad'] },
+  { from: s('integrando'), to: 'lista', reasons: ['fallo_calidad', 'conflicto_integracion', 'fallo_entorno'] },
   { from: s('ejecutando'), to: 'esperando_respuesta', reasons: ['pregunta'] },
   { from: ACTIVE_STATES, to: 'pausada', reasons: ['pausa_confirmada'] },
   { from: HELD_STATES, to: 'lista', reasons: ['causa_resuelta'] },

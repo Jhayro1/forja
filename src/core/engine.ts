@@ -72,6 +72,22 @@ export class NoProviderError extends Error {
   }
 }
 
+/** First configured model of a role whose provider is not paused. */
+export function pickCandidate(engine: Engine, role: Role): { ref: string; provider: 'claude' | 'codex' | 'simulado'; model: string } | null {
+  for (const ref of engine.config.roles[role]) {
+    const { provider, model } = parseRef(ref);
+    const pause = engine.paused.get(provider === 'simulado' ? ref : provider);
+    if (pause && pause.until > Date.now()) continue;
+    return { ref, provider, model };
+  }
+  return null;
+}
+
+export function pauseProvider(engine: Engine, ref: string, reason: string, ms = 15 * 60_000): void {
+  const { provider } = parseRef(ref);
+  engine.paused.set(provider === 'simulado' ? ref : provider, { until: Date.now() + ms, reason });
+}
+
 function parseRef(ref: string): { provider: 'claude' | 'codex' | 'simulado'; model: string } {
   const [provider, model] = ref.split(':') as ['claude' | 'codex' | 'simulado', string];
   return { provider, model };
@@ -139,7 +155,7 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
   throw new NoProviderError(skipped);
 }
 
-function recordUsage(engine: Engine, opts: CallOptions, launchId: string, provider: string, model: string, outcome: LaunchOutcome): void {
+export function recordUsage(engine: Engine, opts: Pick<CallOptions, 'role' | 'scope'>, launchId: string, provider: string, model: string, outcome: LaunchOutcome): void {
   // Session-accumulated counters: the last report is the total for this launch.
   const last = outcome.summary.usage.at(-1);
   const sum = (key: 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens'): number | null => {

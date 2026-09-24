@@ -49,7 +49,9 @@ export const TaskCreatedPayload = z
   .object({
     title: z.string().min(1),
     depends_on: z.array(z.string()).default([]),
-    initial_state: z.enum(['pendiente', 'lista']).default('pendiente'),
+    initial_state: z.enum(['pendiente', 'lista', 'integrada']).default('pendiente'),
+    /** Set when a task is carried over, already integrated, from a previous run. */
+    heredada_de: z.string().optional(),
   })
   .strict();
 

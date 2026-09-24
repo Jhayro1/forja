@@ -26,7 +26,7 @@ export function buildAgentEnv(source: NodeJS.ProcessEnv, options: EnvOptions): R
   env.HOME = options.home;
   env.TMPDIR = options.tmpdir;
   for (const [key, value] of Object.entries(options.extra ?? {})) {
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) throw new Error(`nombre de variable inválido: ${key}`);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`nombre de variable inválido: ${key}`);
     if (DENY.test(key)) throw new Error(`la variable ${key} parece una credencial y no se entrega a agentes`);
     env[key] = value;
   }

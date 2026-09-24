@@ -16,7 +16,48 @@ export const EV = {
   approvalState: 'aprobacion.estado_cambiado',
   usage: 'uso.observado',
   specAnswer: 'spec.pregunta_respondida',
+  runStarted: 'run.iniciado',
+  runState: 'run.estado_cambiado',
+  taskExec: 'tarea.ejecucion_actualizada',
 } as const;
+
+export const RUN_STATES = ['ejecutando', 'pausado', 'bloqueado', 'completado', 'cancelado'] as const;
+export type RunState = (typeof RUN_STATES)[number];
+
+export const RunStarted = z
+  .object({
+    change_id: z.string(),
+    plan_id: z.string(),
+    plan_revision: z.number().int(),
+    plan_hash: z.string(),
+    approval_id: z.string(),
+    base_sha: z.string(),
+    branch: z.string(),
+  })
+  .strict();
+export const RunStateChanged = z.object({ from: z.enum(RUN_STATES), to: z.enum(RUN_STATES), detail: z.string().nullable() }).strict();
+
+/** Patch of the execution row; only these columns can be set. */
+export const TASK_EXEC_FIELDS = [
+  'attempt',
+  'quality_failures',
+  'level',
+  'launch_id',
+  'launch_dir',
+  'worktree',
+  'provider',
+  'model',
+  'base_sha',
+  'candidate_sha',
+  'integrated_sha',
+  'files',
+  'feedback',
+  'last_error',
+  'question',
+  'answer',
+  'steps',
+] as const;
+export const TaskExecPatch = z.object(Object.fromEntries(TASK_EXEC_FIELDS.map((f) => [f, z.union([z.string(), z.number(), z.null()]).optional()]))).strict();
 
 export const ChangeCreated = z.object({ title: z.string().min(1), mode: z.enum(['idea', 'mejora']) }).strict();
 export const ChangePhaseChanged = z.object({ from: z.enum(CHANGE_PHASES), to: z.enum(CHANGE_PHASES) }).strict();
@@ -145,6 +186,36 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
       ).run(p.launch_id, e.aggregate_type === 'cambio' ? id : null, e.run_id, e.task_id, p.role, p.provider, p.model, p.input, p.output, p.cache_read, p.cache_write, p.cost_micro, e.occurred_at);
       return;
     }
+    case EV.runStarted: {
+      const p = RunStarted.parse(e.payload);
+      db.prepare(
+        "INSERT INTO runs (run_id, change_id, plan_id, plan_revision, plan_hash, approval_id, state, base_sha, branch, created_at, updated_seq) VALUES (?, ?, ?, ?, ?, ?, 'ejecutando', ?, ?, ?, ?)",
+      ).run(id, p.change_id, p.plan_id, p.plan_revision, p.plan_hash, p.approval_id, p.base_sha, p.branch, e.occurred_at, e.seq);
+      return;
+    }
+    case EV.runState: {
+      const p = RunStateChanged.parse(e.payload);
+      const row = db.prepare('SELECT state FROM runs WHERE run_id = ?').get(id) as { state: string } | undefined;
+      if (!row) throw new PlanningProjectionError(`el run ${id} no existe`);
+      if (row.state !== p.from) throw new PlanningProjectionError(`el run está ${row.state}, no ${p.from}`);
+      db.prepare('UPDATE runs SET state = ?, detail = ?, updated_seq = ? WHERE run_id = ?').run(p.to, p.detail, e.seq, id);
+      return;
+    }
+    case EV.taskExec: {
+      const patch = TaskExecPatch.parse(e.payload);
+      if (!e.run_id || !e.task_id) throw new PlanningProjectionError('tarea.ejecucion_actualizada sin run_id/task_id');
+      db.prepare('INSERT OR IGNORE INTO task_exec (run_id, task_id, updated_seq) VALUES (?, ?, ?)').run(e.run_id, e.task_id, e.seq);
+      const keys = Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] !== undefined);
+      if (keys.length) {
+        db.prepare(`UPDATE task_exec SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_seq = ? WHERE run_id = ? AND task_id = ?`).run(
+          ...keys.map((k) => (patch as Record<string, string | number | null>)[k]!),
+          e.seq,
+          e.run_id,
+          e.task_id,
+        );
+      }
+      return;
+    }
     case EV.specAnswer: {
       const p = SpecAnswer.parse(e.payload);
       db.prepare(
@@ -159,4 +230,4 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
 }
 
 /** Deletion order respects foreign keys. */
-export const PLANNING_TABLES = ['planner_turns', 'discovery', 'spec_answers', 'specs', 'plans', 'approvals', 'usage', 'changes'] as const;
+export const PLANNING_TABLES = ['task_exec', 'runs', 'planner_turns', 'discovery', 'spec_answers', 'specs', 'plans', 'approvals', 'usage', 'changes'] as const;

@@ -8,7 +8,7 @@ export class DomainError extends Error {}
 export function createTask(
   store: EventStore,
   requestId: string,
-  input: { run_id: string; task_id: string; title: string; depends_on?: string[]; revision?: number },
+  input: { run_id: string; task_id: string; title: string; depends_on?: string[]; revision?: number; inherited_from?: string },
 ): ExecuteResult<{ task_id: string }> {
   return store.execute({ request_id: requestId, type: 'crear_tarea', input }, () => {
     if (getTask(store.db, input.run_id, input.task_id)) throw new DomainError(`la tarea ${input.task_id} ya existe`);
@@ -26,7 +26,12 @@ export function createTask(
           aggregate_revision: input.revision ?? 1,
           run_id: input.run_id,
           task_id: input.task_id,
-          payload: { title: input.title, depends_on: deps, initial_state: deps.length === 0 ? 'lista' : 'pendiente' },
+          payload: {
+            title: input.title,
+            depends_on: deps,
+            initial_state: input.inherited_from ? 'integrada' : deps.length === 0 ? 'lista' : 'pendiente',
+            ...(input.inherited_from ? { heredada_de: input.inherited_from } : {}),
+          },
         },
       ],
     };

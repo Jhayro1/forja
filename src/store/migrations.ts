@@ -156,6 +156,47 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (change_id, question_id)
   );
   `,
+  `
+  -- M3: runs and per-task execution state.
+  CREATE TABLE runs (
+    run_id        TEXT PRIMARY KEY,
+    change_id     TEXT NOT NULL,
+    plan_id       TEXT NOT NULL,
+    plan_revision INTEGER NOT NULL,
+    plan_hash     TEXT NOT NULL,
+    approval_id   TEXT NOT NULL,
+    state         TEXT NOT NULL,
+    base_sha      TEXT NOT NULL,
+    branch        TEXT NOT NULL,
+    detail        TEXT,
+    created_at    TEXT NOT NULL,
+    updated_seq   INTEGER NOT NULL
+  );
+
+  CREATE TABLE task_exec (
+    run_id           TEXT NOT NULL,
+    task_id          TEXT NOT NULL,
+    attempt          INTEGER NOT NULL DEFAULT 0,
+    quality_failures INTEGER NOT NULL DEFAULT 0,
+    level            TEXT,
+    launch_id        TEXT,
+    launch_dir       TEXT,
+    worktree         TEXT,
+    provider         TEXT,
+    model            TEXT,
+    base_sha         TEXT,
+    candidate_sha    TEXT,
+    integrated_sha   TEXT,
+    files            TEXT,
+    feedback         TEXT,
+    last_error       TEXT,
+    question         TEXT,
+    answer           TEXT,
+    steps            TEXT,
+    updated_seq      INTEGER NOT NULL,
+    PRIMARY KEY (run_id, task_id)
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

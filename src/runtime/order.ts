@@ -13,7 +13,7 @@ export const LaunchOrder = z
     run_id: z.string(),
     task_id: z.string(),
     attempt: z.number().int().positive(),
-    provider: z.enum(['claude', 'codex', 'simulado']),
+    provider: z.enum(['claude', 'codex', 'simulado', 'comando']),
     /** Command executed inside the sandbox (or directly, only with sandbox.mode = "ninguno" in tests). */
     argv: z.array(z.string()).min(1),
     env: z.record(z.string(), z.string()),

@@ -148,6 +148,35 @@ export function readableLog(records: SpoolRecord[], provider: string | null): { 
   return out;
 }
 
+/**
+ * Files an agent opened by itself during a launch (Read tools, or shell
+ * commands naming a project file). Used to evaluate context selectors against
+ * what agents really needed, not against what a selector thinks they need.
+ */
+export function filesReadBy(dir: string, provider: string | null, tree: readonly string[]): string[] {
+  const known = new Set(tree);
+  const found = new Set<string>();
+  const match = (raw: string) => {
+    const clean = raw.replace(/^["']|["']$/g, '');
+    if (known.has(clean)) return found.add(clean);
+    // Absolute paths inside the worktree: keep the longest suffix that is a project file.
+    const parts = clean.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const tail = parts.slice(i).join('/');
+      if (known.has(tail)) return found.add(tail);
+    }
+    return undefined;
+  };
+  for (const { events } of eventsOf(readSpoolTail(dir, 4 * 1024 * 1024), provider)) {
+    for (const e of events) {
+      if (e.t !== 'herramienta') continue;
+      if (/^(Read|read_file|View)$/i.test(e.name)) match(e.summary);
+      else if (/^(shell|Bash)$/i.test(e.name) && /\b(cat|sed|head|tail|less|nl|grep|rg)\b/.test(e.summary)) for (const tok of e.summary.split(/\s+/)) match(tok);
+    }
+  }
+  return [...found].sort();
+}
+
 /** The exact instructions the agent received (the order holds no secret values). */
 export function launchPrompt(dir: string | null): string | null {
   if (!dir) return null;

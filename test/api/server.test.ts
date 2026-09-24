@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { memoryModule } from '../../src/api/modules/memory.js';
 import { runsModule, type RunsBackend } from '../../src/api/modules/runs.js';
 import { ApiServer, type EventFeed } from '../../src/api/server.js';
 import { SessionManager } from '../../src/api/session.js';
@@ -235,5 +236,33 @@ describe('API local · eventos (SSE)', () => {
     expect(await open()).toBe(200);
     expect(await open()).toBe(429);
     await small.close();
+  });
+});
+
+describe('API local · memoria', () => {
+  it('busca con validación y revisa lecciones con CSRF', async () => {
+    const reviews: [string, boolean][] = [];
+    const mem = new ApiServer({
+      modules: [memoryModule({ overview: () => ({ grafo: {} }), search: (q) => [{ id: `x:${q}` }], review: (id, ok) => (reviews.push([id, ok]), { id }) })],
+      feed,
+      sessions: server.sessions,
+    });
+    const { port: p } = await mem.listen();
+    const prev = port;
+    port = p;
+    try {
+      const { cookie, csrf } = await login();
+      expect((await call('GET', '/v1/memoria/buscar?q=a', { headers: { Cookie: cookie } })).status).toBe(422);
+      expect((await call('GET', '/v1/memoria/buscar?q=UC-001', { headers: { Cookie: cookie } })).body.nodos).toEqual([{ id: 'x:UC-001' }]);
+      const id = 'lec_01M3AAPTCH0WXKXT8DQVWD75D6';
+      const h = { Cookie: cookie, ...origin(), 'Content-Type': 'application/json' };
+      expect((await call('POST', `/v1/memoria/lecciones/${id}/aprobar`, { headers: h, body: {} })).status).toBe(403);
+      expect((await call('POST', `/v1/memoria/lecciones/${id}/aprobar`, { headers: { ...h, 'X-Forja-CSRF': csrf }, body: {} })).status).toBe(200);
+      expect((await call('POST', '/v1/memoria/lecciones/otra/aprobar', { headers: { ...h, 'X-Forja-CSRF': csrf }, body: {} })).status).toBe(404);
+      expect(reviews).toEqual([[id, true]]);
+    } finally {
+      port = prev;
+      await mem.close();
+    }
   });
 });

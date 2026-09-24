@@ -301,12 +301,51 @@ function renderAuditoria(rows) {
   ];
 }
 
+// ---------- M6: memoria ----------
+
+function renderMemoria(d) {
+  const list = h('div', {});
+  const input = h('input', { type: 'text', placeholder: 'Buscar: UC-001, saldo, src/api.ts…', 'aria-label': 'Buscar en el grafo' });
+  const search = async () => {
+    try {
+      const r = await api('GET', `/v1/memoria/buscar?q=${encodeURIComponent(input.value.trim())}`);
+      list.replaceChildren(...(r.nodos.length ? r.nodos.map((n) => h('div', { class: 'card' },
+        h('strong', { class: 'mono' }, n.id), ` (${n.kind}) `, n.label,
+        h('pre', {}, [...n.salen.map((e) => `→ ${e.kind} ${e.dst}${e.confidence === 'posible' ? ' (posible)' : ''}`), ...n.entran.map((e) => `← ${e.kind} ${e.src}${e.confidence === 'posible' ? ' (posible)' : ''}`)].join('\n') || '(sin relaciones)'),
+      )) : [h('p', { class: 'muted' }, 'Sin resultados.')]));
+    } catch (e) {
+      toast(`✘ ${e.message}`);
+    }
+  };
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && search());
+  const pending = d.lecciones.filter((l) => l.state === 'propuesta');
+  const stat = (o) => Object.entries(o).map(([k, v]) => `${k} ${v}`).join(' · ') || '—';
+  return [
+    h('h1', {}, 'Memoria del proyecto'),
+    h('div', { class: 'card' },
+      h('p', {}, `Contexto de los agentes: ${d.modo === 'grafo' ? 'grafo (archivos relacionados con motivo)' : 'simple (lo que declara cada tarea)'}`),
+      h('p', { class: 'muted' }, d.construido ? `Índice construido ${d.construido.slice(0, 16).replace('T', ' ')} UTC · se reconstruye con forja memoria construir` : 'Todavía no hay índice: forja memoria construir'),
+      h('dl', { class: 'kv' }, h('dt', {}, 'nodos'), h('dd', {}, stat(d.grafo.nodos)), h('dt', {}, 'aristas'), h('dd', {}, stat(d.grafo.aristas)), h('dt', {}, 'posibles'), h('dd', {}, `${d.grafo.posibles} (inferidas, no demostradas)`)),
+    ),
+    h('h2', {}, `Lecciones por revisar (${pending.length})`),
+    pending.length ? h('div', { class: 'grid' }, pending.map((l) => h('div', { class: 'card pending' },
+      h('strong', {}, l.lesson_id), h('p', {}, l.text), h('p', { class: 'muted mono' }, JSON.stringify(l.evidence)),
+      h('button', { class: 'act', onclick: () => mutate('POST', `/v1/memoria/lecciones/${l.lesson_id}/aprobar`, { nota: 'aprobada desde el panel' }) }, 'Aprobar'), ' ',
+      h('button', { class: 'sec', onclick: () => mutate('POST', `/v1/memoria/lecciones/${l.lesson_id}/rechazar`, { nota: 'rechazada desde el panel' }) }, 'Rechazar'),
+    ))) : h('p', { class: 'muted' }, 'Nada que revisar. Las lecciones aprobadas se muestran a las tareas de su ámbito, nunca como reglas.'),
+    h('h2', {}, 'Buscar en el grafo'),
+    h('div', { class: 'card' }, input, h('button', { class: 'act', onclick: search }, 'Buscar')),
+    list,
+  ];
+}
+
 // Módulos opcionales registran su vista aquí; el menú sólo muestra los que el servidor tiene.
 const VIEWS = [
   { id: 'resumen', title: 'Flujo', module: 'runs', path: '/v1/estado', key: 'estado', render: renderResumen },
   { id: 'acciones', title: 'Acciones', module: 'conexiones', path: '/v1/acciones', key: 'acciones', render: renderAcciones },
   { id: 'conexiones', title: 'Conexiones', module: 'conexiones', path: '/v1/conexiones', key: 'conexiones', render: renderConexiones },
   { id: 'auditoria', title: 'Auditoría', module: 'conexiones', path: '/v1/auditoria', key: 'auditoria', render: renderAuditoria },
+  { id: 'memoria', title: 'Memoria', module: 'memoria', path: '/v1/memoria', key: 'memoria', render: renderMemoria },
 ];
 window.forjaViews = VIEWS;
 

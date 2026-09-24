@@ -38,6 +38,10 @@ import { EV, type RunState } from '../store/planning-projections.js';
 import { runCommand, type CommandContext } from '../verify/commands.js';
 import { acceptanceFilesFor, verifyTask } from '../verify/verify.js';
 import type { GatewayHost } from '../mcp/gateway.js';
+import { buildGraph } from '../memory/build.js';
+import { GraphStore } from '../memory/graph-store.js';
+import { LessonService } from '../memory/lessons.js';
+import { graphSelection } from '../memory/selector.js';
 import { buildWorkerPrompt, extractQuestion } from './context.js';
 
 export class RunError extends Error {}
@@ -471,7 +475,9 @@ export class Orchestrator {
         if (!r.ok) throw new Error(`no se pudieron instalar dependencias: ${r.output.split('\n').slice(-3).join(' ')}`);
       }
       const fresh = getExec(this.engine, this.run.run_id, taskId);
-      const built = await buildWorkerPrompt({ plan: this.plan, spec: this.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer });
+      const related = await this.relatedFiles(task, path);
+      const lessons = new LessonService(this.engine.store).forTask(task).map((l) => ({ id: l.lesson_id, text: l.text }));
+      const built = await buildWorkerPrompt({ plan: this.plan, spec: this.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer, related, lessons });
       const prompt = this.opts.gateway
         ? `${built.prompt}\n\n<herramientas_externas>\nSi la tarea necesita un efecto fuera del repositorio (un servicio, una API), usa la herramienta MCP «forja» proponer_accion: queda pendiente de aprobación humana y NO se ejecuta. No intentes llegar al servicio de otra forma.\n</herramientas_externas>`
         : built.prompt;
@@ -523,6 +529,44 @@ export class Orchestrator {
   }
 
   private readonly launchErrors = new Map<string, number>();
+  private graphLock: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Graph-selected files for a task (contexto.modo = grafo). The graph is
+   * updated incrementally from THIS task's worktree and queried under the same
+   * lock, so the selection matches the code the agent will see.
+   */
+  private relatedFiles(task: PlanTask, worktree: string): Promise<{ path: string; reason: string }[]> {
+    if (this.engine.config.contexto.modo !== 'grafo') return Promise.resolve([]);
+    const work = this.graphLock.then(async () => {
+      const graph = GraphStore.open(this.engine.dataDir);
+      try {
+        await buildGraph(graph, { repoPath: worktree, spec: this.spec, plan: this.plan });
+        const tree = (await git(worktree, ['ls-files'])).stdout.split('\n').filter(Boolean);
+        return graphSelection(graph, task, this.plan, tree, { maxFiles: this.engine.config.contexto.max_archivos }).map((f) => ({ path: f.path, reason: `${f.reason}${f.confidence === 'posible' ? ' (posible)' : ''}` }));
+      } finally {
+        graph.close();
+      }
+    });
+    this.graphLock = work.catch(() => undefined);
+    return work.catch((error: Error) => {
+      this.log(`⚠ ${task.id}: sin contexto del grafo (${error.message}); se usa el selector simple`);
+      return [];
+    });
+  }
+
+  /** A task that passed after failing leaves a lesson PROPOSAL (a human decides if it is worth keeping). */
+  private proposeLesson(taskId: string, exec: ExecRow, sha: string): void {
+    if (exec.quality_failures === 0 || !exec.feedback) return;
+    const def = this.task(taskId);
+    const cause = exec.feedback.split('\n').find((l) => l.trim()) ?? '';
+    new LessonService(this.engine.store).propose(
+      `En tareas de tipo ${def.tipo} sobre ${def.escribe.join(', ') || 'este módulo'}: un intento falló por «${cause.slice(0, 300)}» y se resolvió en el intento ${exec.attempt}. Tenlo en cuenta desde el primer intento.`,
+      { tipo: def.tipo, archivos: JSON.parse(exec.files ?? '[]') as string[] },
+      { run: this.run.run_id, tarea: taskId, commit: sha, intentos: exec.attempt, fallos: exec.quality_failures },
+      `${this.run.run_id}:${taskId}`,
+    );
+  }
 
   private async pollLaunch(taskId: string): Promise<void> {
     const exec = getExec(this.engine, this.run.run_id, taskId);
@@ -676,6 +720,7 @@ export class Orchestrator {
       if (await publishRef(this.repoPath, this.run.branch, merged.sha, target)) {
         this.exec(taskId, { integrated_sha: merged.sha });
         this.move(taskId, 'integrada', 'integracion_confirmada');
+        this.proposeLesson(taskId, getExec(this.engine, this.run.run_id, taskId), merged.sha);
         if (exec.worktree) await removeWorktree(this.repoPath, exec.worktree);
         this.log(`⇪ ${taskId} integrada (${merged.sha.slice(0, 8)})`);
         return;

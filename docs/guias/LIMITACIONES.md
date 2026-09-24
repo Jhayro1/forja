@@ -16,3 +16,6 @@ Se publican para que decidas con información (v2/11 · M4). Se actualizan en ca
 - **Las acciones externas** se ejecutan desde la terminal (necesitan la bóveda); el panel sólo aprueba o descarta.
   Hay una operación de referencia (`http.json`); correo, DNS y otras llegarán como operaciones tipadas.
 - **El ejecutor de acciones** es un proceso separado con entorno vacío, pero todavía no corre dentro de bubblewrap.
+- **La memoria en grafo es sintáctica**: TS/JS y Python. No sigue llamadas entre funciones, imports dinámicos
+  ni alias de tsconfig (quedan listados como «sin resolver»). La ausencia de una relación no prueba ausencia de impacto.
+  El modo `grafo` es opcional hasta que `forja memoria evaluar` muestre mejora con tu historial.

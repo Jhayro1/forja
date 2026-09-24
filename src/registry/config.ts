@@ -59,6 +59,14 @@ export const ForjaConfig = z
       })
       .strict()
       .prefault({}),
+    contexto: z
+      .object({
+        /** «grafo» adds related files from the knowledge graph; enable it after `forja memoria evaluar` shows it helps. */
+        modo: z.enum(['simple', 'grafo']).default('simple'),
+        max_archivos: z.number().int().min(1).max(50).default(15),
+      })
+      .strict()
+      .prefault({}),
     conexiones: z.array(z.string()).default([]),
     git: z
       .object({

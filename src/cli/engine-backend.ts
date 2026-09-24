@@ -1,7 +1,10 @@
 import { auditTrail } from '../actions/audit.js';
 import { ConnectionStore } from '../actions/connections.js';
 import type { ConnectionsBackend } from '../api/modules/connections.js';
+import type { MemoryBackend } from '../api/modules/memory.js';
 import type { RunsBackend } from '../api/modules/runs.js';
+import { GraphStore } from '../memory/graph-store.js';
+import { LessonService } from '../memory/lessons.js';
 import { McpRegistry } from '../mcp/registry.js';
 import { actionService } from './commands/actions.js';
 import type { EventFeed } from '../api/server.js';
@@ -114,5 +117,31 @@ export class EngineConnectionsBackend implements ConnectionsBackend {
 
   discard(id: string, reason: string): object {
     return this.service().discard(id, 'panel', reason);
+  }
+}
+
+export class EngineMemoryBackend implements MemoryBackend {
+  constructor(private readonly ctx: EngineContext) {}
+
+  private withGraph<T>(fn: (g: GraphStore) => T): T {
+    const graph = GraphStore.open(this.ctx.dataDir);
+    try {
+      return fn(graph);
+    } finally {
+      graph.close();
+    }
+  }
+
+  overview(): object {
+    const lessons = new LessonService(this.ctx.store).list();
+    return this.withGraph((g) => ({ grafo: g.stats(), construido: g.meta('construido'), modo: this.ctx.config.contexto.modo, lecciones: lessons }));
+  }
+
+  search(text: string): object[] {
+    return this.withGraph((g) => g.search(text).map((n) => ({ ...n, salen: g.out(n.id).slice(0, 20), entran: g.in(n.id).slice(0, 20) })));
+  }
+
+  review(id: string, approve: boolean, note: string): object {
+    return new LessonService(this.ctx.store).review(id, approve, 'panel', note);
   }
 }

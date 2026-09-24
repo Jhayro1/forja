@@ -226,6 +226,20 @@ const MIGRATIONS: readonly string[] = [
     updated_seq        INTEGER NOT NULL
   );
   `,
+  `
+  -- M6: lessons learned. Proposals with evidence; only a human approves them (v2/08).
+  CREATE TABLE lessons (
+    lesson_id   TEXT PRIMARY KEY,
+    text        TEXT NOT NULL,
+    scope       TEXT NOT NULL,
+    evidence    TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    reviewed_by TEXT,
+    note        TEXT,
+    created_at  TEXT NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LockFile, currentIdentity } from '../registry/lock.js';
@@ -104,6 +105,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
   }, HEARTBEAT_MS);
 
   let proxy: AllowlistProxy | null = null;
+  let socketDir: string | null = null;
   let child: ChildProcess;
   try {
     let file: string;
@@ -112,7 +114,9 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
       const net = order.sandbox.network_hosts;
       let proxySocket: string | undefined;
       if (net !== null) {
-        proxySocket = join(dir, FILES.proxy);
+        // Unix socket paths are limited to ~107 bytes: keep it short and private (0700 dir).
+        socketDir = mkdtempSync(join(tmpdir(), 'forja-px-'));
+        proxySocket = join(socketDir, 'p.sock');
         proxy = new AllowlistProxy(proxySocket, hostMatcher(net), (d) => {
           spool.write('forja', JSON.stringify({ tipo: 'red', host: d.host, puerto: d.port, permitido: d.allowed }));
         });
@@ -183,6 +187,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
   async function finish(status: LaunchResult['status'], exitCode: number | null, sig: NodeJS.Signals | null, detail?: string): Promise<LaunchResult> {
     clearInterval(beat);
     await proxy?.stop();
+    if (socketDir) rmSync(socketDir, { recursive: true, force: true });
     const result: LaunchResult = {
       launch_id: order.launch_id,
       status,

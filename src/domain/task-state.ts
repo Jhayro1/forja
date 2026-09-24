@@ -63,7 +63,7 @@ const RULES: readonly Rule[] = [
   { from: s('reservada'), to: 'ejecutando', reasons: ['lanzamiento_iniciado'] },
   { from: s('ejecutando'), to: 'verificando', reasons: ['proceso_terminado'] },
   { from: s('verificando'), to: 'verificada', reasons: ['verificacion_aprobada'] },
-  { from: s('verificando'), to: 'lista', reasons: ['fallo_calidad'] },
+  { from: s('verificando'), to: 'lista', reasons: ['fallo_calidad', 'conflicto_integracion'] },
   { from: s('verificada'), to: 'integrando', reasons: ['integracion_iniciada'] },
   { from: s('integrando'), to: 'integrada', reasons: ['integracion_confirmada'] },
   { from: s('integrando'), to: 'verificando', reasons: ['destino_avanzo'] },

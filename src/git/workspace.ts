@@ -103,7 +103,9 @@ export async function captureTask(
   if (changes.length === 0 || violations.length > 0 || secretFindings.length > 0) {
     return { sha: null, changes, violations, secretFindings };
   }
-  await git(worktree, ['commit', '-q', '--no-verify', '-m', opts.message], { env: FORJA_AUTHOR });
+  // A retry can reproduce exactly the previous candidate: nothing new to commit, keep HEAD.
+  const staged = await git(worktree, ['diff', '--cached', '--quiet'], { allowFail: true });
+  if (staged.code !== 0) await git(worktree, ['commit', '-q', '--no-verify', '-m', opts.message], { env: FORJA_AUTHOR });
   return { sha: await gitOut(worktree, ['rev-parse', 'HEAD']), changes, violations, secretFindings };
 }
 

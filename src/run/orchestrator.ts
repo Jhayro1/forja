@@ -551,14 +551,24 @@ export class Orchestrator {
   private async verify(taskId: string): Promise<void> {
     const exec = getExec(this.engine, this.run.run_id, taskId);
     const task = this.task(taskId);
-    const wt = await detachedWorktree(this.repoPath, this.dir(`verif-${taskId}`), exec.candidate_sha!);
+    // Verify the candidate as it will really end up: merged onto the current integration tip.
+    const tip = await refSha(this.repoPath, this.run.branch);
+    const wt = await detachedWorktree(this.repoPath, this.dir(`verif-${taskId}`), tip);
+    const merged = await mergeCandidate(wt, tip, exec.candidate_sha!, `forja: verificar ${taskId}`);
+    if ('conflicts' in merged) {
+      if (exec.worktree) await removeWorktree(this.repoPath, exec.worktree);
+      this.exec(taskId, { worktree: null, feedback: `Tu cambio choca con lo ya integrado (${merged.conflicts.join(', ')}). Rehaz la tarea sobre la base nueva.` });
+      this.move(taskId, 'lista', 'conflicto_integracion', merged.conflicts.join(', '));
+      this.log(`⚡ ${taskId}: conflicto con lo integrado; se rehace sobre la base nueva`);
+      return;
+    }
     const v = await verifyTask(this.engine, {
       plan: this.plan,
       spec: this.spec,
       task,
       worktree: wt,
-      baseSha: exec.base_sha!,
-      candidateSha: exec.candidate_sha!,
+      baseSha: tip,
+      candidateSha: merged.sha,
       changedFiles: JSON.parse(exec.files ?? '[]') as string[],
       greenTests: this.greenTests(),
       cmd: this.cmd,

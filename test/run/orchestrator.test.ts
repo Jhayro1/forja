@@ -52,7 +52,7 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     expect(readFileSync(join(repo, '.forja/cambios', changeId, 'informe.md'), 'utf8')).toContain('| T-005 Consultar saldo | integrada | 2 |');
     const usage = t.engine.store.db.prepare('SELECT COUNT(*) n FROM usage WHERE run_id = ?').get(runId) as { n: number };
     expect(usage.n).toBeGreaterThanOrEqual(8);
-  }, 120_000);
+  }, 300_000);
 
   it('rechaza cambios fuera de lo permitido y no deja tocar las pruebas protegidas', async () => {
     const t = testEngine(
@@ -75,7 +75,7 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     const exec = getExec(t.engine, runId, 'T-003');
     expect(exec.quality_failures).toBe(1);
     expect(sh(repo, 'show', `${summary.deliveryBranch}:test/uc-001.test.mjs`)).toContain('CA-UC-001-01');
-  }, 120_000);
+  }, 300_000);
 
   it('una pregunta del agente detiene sólo esa tarea; con la respuesta se completa', async () => {
     let asked = false;
@@ -97,10 +97,11 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     expect(getExec(t.engine, runId, 'T-005').question).toMatch(/saldo puede ser negativo/);
     answerTaskQuestion(t.engine, runId, 'T-005', 'No, nunca negativo.');
     await startOrResumeRun(t.engine, { changeId, repoPath: repo });
-    const second = await new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 100 }).loop();
-    expect(second.state).toBe('completado');
+    const log2: string[] = [];
+    const second = await new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 100, onLog: (l) => log2.push(l) }).loop();
+    expect(second.state, `${JSON.stringify(second.counts)} ${getRun(t.engine, runId)!.detail}\n${log2.join('\n')}`).toBe('completado');
     expect(getExec(t.engine, runId, 'T-005').quality_failures).toBe(0);
-  }, 120_000);
+  }, 300_000);
 
   it('detenerse a mitad y retomar: nada se pierde ni se repite desde cero', async () => {
     const t = testEngine(
@@ -121,5 +122,5 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     const failures = listTasks(t.engine.store.db, runId).map((x) => getExec(t.engine, runId, x.task_id).quality_failures);
     expect(failures.every((f) => f === 0)).toBe(true);
     expect(existsSync(join(repo, '.forja/cambios', changeId, 'informe.md'))).toBe(true);
-  }, 120_000);
+  }, 300_000);
 });

@@ -158,7 +158,8 @@ export function validatePlan(output: PlanOutput, spec: Spec): { issues: PlanIssu
     if (t.depende_de.includes(t.id)) err(t.id, 'depende de sí misma');
     for (const c of t.criterios) if (!criteria.has(c)) err(t.id, `criterio ${c} no existe en la spec`);
     for (const r of t.requisitos) if (!reqs.has(r)) err(t.id, `requisito ${r} no existe en la spec`);
-    for (const g of t.escribe) if (g.startsWith('/') || g.split('/').includes('..') || g === '.git' || g.startsWith('.git/') || g === '.forja' || g.startsWith('.forja/')) err(t.id, `ruta de escritura no permitida: ${g}`);
+    for (const g of t.escribe)
+      if (g.startsWith('/') || g.split('/').includes('..') || g === '.git' || g.startsWith('.git/') || g === '.forja' || g.startsWith('.forja/')) err(t.id, `ruta de escritura no permitida: ${g}`);
   }
   const cycle = findCycle(output.tareas);
   if (cycle) err(null, `ciclo de dependencias: ${cycle.join(' → ')}`);

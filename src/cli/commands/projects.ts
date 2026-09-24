@@ -1,8 +1,10 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
-import { ProjectError, createProject, importProject, resolveCheckout } from '../../registry/projects.js';
-import { CliError, EXIT, print, printJson, withRegistry, type GlobalOptions } from '../context.js';
+import { detectProfile } from '../../profile/detect.js';
+import { createProject, importProject, ProjectError, resolveCheckout } from '../../registry/projects.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson, withRegistry } from '../context.js';
+import { showDetected } from './profile.js';
 
 export function registerProjectCommands(program: Command): void {
   program
@@ -33,13 +35,18 @@ export function registerProjectCommands(program: Command): void {
         const { checkout, inspection, createdConfig } = await importProject(registry, dir).catch((error: Error) => {
           throw new CliError(error.message, EXIT.input);
         });
-        if (g.json) return printJson({ proyecto: checkout, inspeccion: inspection, forja_yaml_creado: createdConfig });
+        const detected = detectProfile(checkout.path);
+        if (g.json) return printJson({ proyecto: checkout, inspeccion: inspection, forja_yaml_creado: createdConfig, perfil_detectado: detected });
         print(`✔ Proyecto «${checkout.name}» registrado (${checkout.path})`);
         print(`  Rama: ${inspection.branch ?? '(sin rama)'} · ${inspection.trackedFiles} archivos · ${inspection.languages.join(', ') || 'lenguaje no detectado'}`);
         if (createdConfig) print('  Se creó forja.yaml (revísalo y haz commit cuando quieras).');
         for (const w of inspection.warnings) print(`  ! ${w}`);
         for (const b of inspection.blockers) print(`  ✘ ${b}`);
-        if (inspection.blockers.length === 0) print(`  Siguiente paso: cd ${checkout.path} && forja planear`);
+        print('  Perfil detectado (propuesta; no se ejecutó nada del repositorio):');
+        showDetected(detected);
+        if (inspection.blockers.length === 0) {
+          print(detected ? `  Siguiente paso: cd ${checkout.path} && forja perfil aprobar && forja perfil linea-base` : `  Siguiente paso: cd ${checkout.path} && forja planear`);
+        }
       });
     });
 

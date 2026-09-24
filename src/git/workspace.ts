@@ -75,10 +75,7 @@ export function pathAllowed(path: string, allow: string[], protectedPaths: strin
  * Captures what the agent changed. MUST only be called when the runner has
  * finished (no writers): never `git add -A` under an active process (v2 · H08).
  */
-export async function captureTask(
-  worktree: string,
-  opts: { baseSha: string; allow: string[]; protectedPaths: string[]; message: string; redactor: Redactor },
-): Promise<Capture> {
+export async function captureTask(worktree: string, opts: { baseSha: string; allow: string[]; protectedPaths: string[]; message: string; redactor: Redactor }): Promise<Capture> {
   await git(worktree, ['add', '-A', '--', '.', ':(exclude)node_modules']);
   const nameStatus = (await git(worktree, ['diff', '--cached', '--name-status', '--no-renames', opts.baseSha])).stdout.trim();
   const changes: Change[] = nameStatus

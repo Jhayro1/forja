@@ -26,7 +26,10 @@ export class GraphContext {
       try {
         await buildGraph(graph, { repoPath: worktree, spec, plan });
         const tree = (await git(worktree, ['ls-files'])).stdout.split('\n').filter(Boolean);
-        return graphSelection(graph, task, plan, tree, { maxFiles: engine.config.contexto.max_archivos }).map((f) => ({ path: f.path, reason: `${f.reason}${f.confidence === 'posible' ? ' (posible)' : ''}` }));
+        return graphSelection(graph, task, plan, tree, { maxFiles: engine.config.contexto.max_archivos }).map((f) => ({
+          path: f.path,
+          reason: `${f.reason}${f.confidence === 'posible' ? ' (posible)' : ''}`,
+        }));
       } finally {
         graph.close();
       }

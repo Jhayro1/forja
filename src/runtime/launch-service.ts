@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import type { LaunchParams, ProviderAdapter } from '../providers/adapters.js';
-import { summarize, type LaunchSummary, type ProviderEvent } from '../providers/normalized.js';
-import { parseProviderStream, type ProviderKind } from '../providers/stream.js';
-import { DEFAULT_RUNNER_SCRIPT, launchDir, launchStatus, readSpool, spawnRunner, waitForLaunch, writeOrder, type LaunchStatus } from './launcher.js';
+import { type LaunchSummary, type ProviderEvent, summarize } from '../providers/normalized.js';
+import { type ProviderKind, parseProviderStream } from '../providers/stream.js';
+import { DEFAULT_RUNNER_SCRIPT, type LaunchStatus, launchDir, launchStatus, readSpool, spawnRunner, waitForLaunch, writeOrder } from './launcher.js';
 
 export type StartedLaunch = { dir: string; parser: ProviderKind };
 
@@ -28,9 +28,12 @@ export async function readOutcome(dir: string, parser: ProviderKind, expectStruc
   const records = readSpool(dir);
   const lines = records.filter((r) => r.stream === 'stdout').map((r) => `${r.line}\n`);
   const events: ProviderEvent[] = [];
-  for await (const e of parseProviderStream(parser, (async function* () {
-    yield* lines;
-  })())) {
+  for await (const e of parseProviderStream(
+    parser,
+    (async function* () {
+      yield* lines;
+    })(),
+  )) {
     events.push(e);
   }
   const summary = summarize(events);

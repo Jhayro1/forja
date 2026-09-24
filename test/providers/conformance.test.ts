@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { newId } from '../../src/domain/ids.js';
-import { ClaudeAdapter, CodexAdapter, SimulatedAdapter, type ProviderAdapter } from '../../src/providers/adapters.js';
+import { ClaudeAdapter, CodexAdapter, type ProviderAdapter, SimulatedAdapter } from '../../src/providers/adapters.js';
 import { runToCompletion } from '../../src/runtime/launch-service.js';
 
 const ROOT = resolve(import.meta.dirname, '../..');

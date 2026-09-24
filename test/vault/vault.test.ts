@@ -1,8 +1,8 @@
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Vault, VaultAuthError, VaultError, VaultRollbackError, restoreVault, vaultPaths, type VaultPaths } from '../../src/vault/vault.js';
+import { restoreVault, Vault, VaultAuthError, VaultError, type VaultPaths, VaultRollbackError, vaultPaths } from '../../src/vault/vault.js';
 
 const PASS = 'una clave larga de prueba';
 const FAST = { logN: 14, r: 8, p: 1 };
@@ -61,7 +61,12 @@ describe('bóveda (V2-050)', () => {
   it('parámetros de KDF inflados se rechazan ANTES de derivar (sin agotar memoria)', () => {
     Vault.create(paths, PASS, FAST).set('A', 'x');
     const good = readFileSync(paths.file, 'utf8');
-    for (const [k, v] of [['logN', 30], ['logN', 5], ['r', 64], ['p', 1000]] as const) {
+    for (const [k, v] of [
+      ['logN', 30],
+      ['logN', 5],
+      ['r', 64],
+      ['p', 1000],
+    ] as const) {
       writeFileSync(paths.file, good);
       tamper((e) => (e.kdf[k] = v));
       const started = Date.now();

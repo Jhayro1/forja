@@ -1,25 +1,37 @@
-import { checkApproval } from '../domain/approval.js';
-import { hashJson } from '../domain/hash.js';
-import { newId } from '../domain/ids.js';
-import { changeTaskState, createTask } from '../core/task-commands.js';
 import type { Engine } from '../core/engine.js';
+import { changeTaskState, createTask } from '../core/task-commands.js';
+import { checkApproval } from '../domain/approval.js';
+import { newId } from '../domain/ids.js';
 import { ensureIntegrationBranch, refSha, runBranch } from '../git/workspace.js';
 import { approvalTarget, currentApproval, gateProblems } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
-import type { Plan, PlanTask } from '../plan/plan.js';
+import type { Plan } from '../plan/plan.js';
 import { getChange } from '../planner/session.js';
-import { listTasks } from '../store/projections.js';
+import type { Spec } from '../spec/spec.js';
 import { EV } from '../store/planning-projections.js';
+import { listTasks } from '../store/projections.js';
+import { inheritance } from './invalidation.js';
 import { RunError, runsOf, setRunState } from './records.js';
 
-const taskDefHash = (t: PlanTask) => hashJson(t);
+function specAt(engine: Engine, changeId: string, revision: number): Spec | null {
+  const row = engine.store.db.prepare('SELECT spec FROM specs WHERE change_id = ? AND revision = ?').get(changeId, revision) as { spec: string } | undefined;
+  return row ? (JSON.parse(row.spec) as Spec) : null;
+}
+
+export type StartedRun = {
+  runId: string;
+  resumed: boolean;
+  inherited: string[];
+  /** Integrated tasks of the replaced run that are redone, and why (spec or definition changed, or a dependency is redone). */
+  redone: { task: string; reason: string }[];
+};
 
 /**
  * Starts a run for the approved plan, or resumes the open one. The approval must
  * match exactly what is about to run (I02). A new plan revision creates a new run
  * that inherits tasks already integrated with an identical definition (V2-037).
  */
-export async function startOrResumeRun(engine: Engine, input: { changeId: string; repoPath: string }): Promise<{ runId: string; resumed: boolean; inherited: string[] }> {
+export async function startOrResumeRun(engine: Engine, input: { changeId: string; repoPath: string }): Promise<StartedRun> {
   const change = getChange(engine, input.changeId);
   const problems = gateProblems(engine, input.changeId);
   if (problems.length) throw new RunError(`no se puede ejecutar:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
@@ -32,7 +44,7 @@ export async function startOrResumeRun(engine: Engine, input: { changeId: string
   const open = runsOf(engine, input.changeId).find((r) => r.state !== 'completado' && r.state !== 'cancelado');
   if (open && open.plan_hash === planRow.hash) {
     if (open.state !== 'ejecutando') setRunState(engine, open.run_id, 'ejecutando');
-    return { runId: open.run_id, resumed: true, inherited: [] };
+    return { runId: open.run_id, resumed: true, inherited: [], redone: [] };
   }
 
   const runId = newId('run');
@@ -40,15 +52,25 @@ export async function startOrResumeRun(engine: Engine, input: { changeId: string
   // A replaced run keeps its integrated work: the new one starts from its integration ref.
   let base = planRow.plan.base_sha;
   const inherited = new Map<string, string>();
+  const redone: StartedRun['redone'] = [];
   if (open) {
     base = await refSha(input.repoPath, open.branch);
-    const oldPlan = engine.store.db.prepare('SELECT plan FROM plans WHERE plan_id = ? AND revision = ?').get(open.plan_id, open.plan_revision) as { plan: string } | undefined;
-    const oldTasks = new Map(((oldPlan ? (JSON.parse(oldPlan.plan) as Plan) : null)?.tareas ?? []).map((t) => [t.id, taskDefHash(t)]));
-    for (const t of listTasks(engine.store.db, open.run_id)) {
-      if (t.state === 'integrada') {
-        const now = planRow.plan.tareas.find((x) => x.id === t.task_id);
-        if (now && oldTasks.get(t.task_id) === taskDefHash(now)) inherited.set(t.task_id, open.run_id);
-      } else if (t.state !== 'invalidada' && t.state !== 'cancelada') {
+    const oldRow = engine.store.db.prepare('SELECT plan FROM plans WHERE plan_id = ? AND revision = ?').get(open.plan_id, open.plan_revision) as { plan: string } | undefined;
+    const oldPlan = oldRow ? (JSON.parse(oldRow.plan) as Plan) : null;
+    const oldTasks = listTasks(engine.store.db, open.run_id);
+    const decisions = inheritance({
+      oldPlan,
+      newPlan: planRow.plan,
+      oldSpec: oldPlan ? specAt(engine, input.changeId, oldPlan.spec_revision) : null,
+      newSpec: specAt(engine, input.changeId, planRow.plan.spec_revision),
+      integrated: new Set(oldTasks.filter((t) => t.state === 'integrada').map((t) => t.task_id)),
+    });
+    for (const [id, d] of decisions) {
+      if (d.inherit) inherited.set(id, open.run_id);
+      else if (d.reason !== 'no estaba integrada' && d.reason !== 'tarea nueva') redone.push({ task: id, reason: d.reason });
+    }
+    for (const t of oldTasks) {
+      if (t.state !== 'integrada' && t.state !== 'invalidada' && t.state !== 'cancelada') {
         changeTaskState(engine.store, newId('req'), { run_id: open.run_id, task_id: t.task_id, to: 'invalidada', reason: 'nueva_revision' });
       }
     }
@@ -77,5 +99,5 @@ export async function startOrResumeRun(engine: Engine, input: { changeId: string
     createTask(engine.store, `${runId}:${t.id}`, { run_id: runId, task_id: t.id, title: t.titulo, depends_on: t.depende_de, ...(from ? { inherited_from: from } : {}) });
     created.add(t.id);
   }
-  return { runId, resumed: false, inherited: [...inherited.keys()] };
+  return { runId, resumed: false, inherited: [...inherited.keys()], redone };
 }

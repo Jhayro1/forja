@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildAgentEnv } from '../../src/security/env.js';
-import { RuntimePolicy, intersectPolicy } from '../../src/security/policy.js';
+import { intersectPolicy, RuntimePolicy } from '../../src/security/policy.js';
 import { Redactor } from '../../src/security/redact.js';
 
 const CANARY = 'canario-7731-super-secreto';
@@ -9,9 +9,7 @@ describe('redacción', () => {
   it('reemplaza valores conocidos y sus variantes base64 y url', () => {
     const r = new Redactor([{ name: 'cf.token', value: CANARY }]);
     const b64 = Buffer.from(CANARY).toString('base64');
-    expect(r.redact(`a ${CANARY} b ${b64} c ${encodeURIComponent(CANARY)}`)).toBe(
-      'a «secreto:cf.token» b «secreto:cf.token» c «secreto:cf.token»',
-    );
+    expect(r.redact(`a ${CANARY} b ${b64} c ${encodeURIComponent(CANARY)}`)).toBe('a «secreto:cf.token» b «secreto:cf.token» c «secreto:cf.token»');
   });
 
   it('reconoce formas típicas de credenciales aunque no las conozca', () => {
@@ -66,10 +64,7 @@ describe('entorno de agentes', () => {
 
   it('no deja pedir variables con forma de credencial', () => {
     expect(() => buildAgentEnv(parent, { home: '/h', tmpdir: '/t', extra: { NPM_TOKEN: 'x' } })).toThrow(/credencial/);
-    expect(buildAgentEnv(parent, { home: '/h', tmpdir: '/t', extra: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } })).toHaveProperty(
-      'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS',
-      '1',
-    );
+    expect(buildAgentEnv(parent, { home: '/h', tmpdir: '/t', extra: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } })).toHaveProperty('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS', '1');
   });
 });
 
@@ -102,10 +97,7 @@ describe('política', () => {
   });
 
   it('pedir red cuando lo aprobado es sin red da sin red', () => {
-    const effective = intersectPolicy(
-      { ...approved, network: { mode: 'lista', hosts: ['registry.npmjs.org'] } },
-      { ...approved, network: { mode: 'ninguna' } },
-    );
+    const effective = intersectPolicy({ ...approved, network: { mode: 'lista', hosts: ['registry.npmjs.org'] } }, { ...approved, network: { mode: 'ninguna' } });
     expect(effective.network).toEqual({ mode: 'ninguna' });
   });
 });

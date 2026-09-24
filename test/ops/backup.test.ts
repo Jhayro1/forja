@@ -10,7 +10,10 @@ import { EventStore } from '../../src/store/event-store.js';
 let dir: string;
 let dataDir: string;
 let repo: string;
-const sh = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, stdio: 'pipe' }).toString().trim();
+const sh = (cwd: string, ...args: string[]) =>
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, stdio: 'pipe' })
+    .toString()
+    .trim();
 
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), 'forja-bk-')));

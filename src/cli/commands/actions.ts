@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { ConnectionError, ConnectionStore } from '../../actions/connections.js';
-import { ActionError, ActionService, type ActionRow, type SecretResolver } from '../../actions/protocol.js';
 import { OperationError } from '../../actions/operations.js';
+import { ActionError, type ActionRow, ActionService, type SecretResolver } from '../../actions/protocol.js';
 import { forjaHome } from '../../registry/home.js';
 import { Vault, VaultError, vaultPaths } from '../../vault/vault.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
-import { openEngine, type EngineContext } from '../engine-context.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
+import { type EngineContext, openEngine } from '../engine-context.js';
 import { readSecret, vaultPassphrase } from '../secret-input.js';
 
 const STATE_TEXT: Record<string, string> = {
@@ -119,7 +119,15 @@ export function registerActionCommands(program: Command): void {
     .action((name: string, o: { operaciones: string }, cmd: Command) => {
       const ctx = openEngine(cmd.optsWithGlobals<GlobalOptions>());
       try {
-        const l = domain(() => actionService(ctx).link(name, o.operaciones.split(',').map((x) => x.trim()).filter(Boolean)));
+        const l = domain(() =>
+          actionService(ctx).link(
+            name,
+            o.operaciones
+              .split(',')
+              .map((x) => x.trim())
+              .filter(Boolean),
+          ),
+        );
         print(`✔ «${name}» v${l.version} vinculada a este proyecto: ${l.operations.join(', ')}`);
       } finally {
         ctx.close();
@@ -146,7 +154,15 @@ export function registerActionCommands(program: Command): void {
       const ctx = openEngine(cmd.optsWithGlobals<GlobalOptions>());
       try {
         const conn = domain(() => ConnectionStore.in(ctx.home).get(name));
-        const r = await withSecrets(Boolean(conn.secret), (resolve) => actionService(ctx).probe(name, resolve).catch((e: Error) => domain(() => { throw e; })));
+        const r = await withSecrets(Boolean(conn.secret), (resolve) =>
+          actionService(ctx)
+            .probe(name, resolve)
+            .catch((e: Error) =>
+              domain(() => {
+                throw e;
+              }),
+            ),
+        );
         print(`${r.ok ? '✔' : '✘'} ${name}: ${r.detail}`);
         if (!r.ok) process.exitCode = EXIT.environment;
       } finally {
@@ -185,33 +201,41 @@ export function registerActionCommands(program: Command): void {
     .option('--precondicion-puntero <puntero>', 'JSON pointer dentro de esa respuesta, p. ej. /estado', '')
     .option('--precondicion-valor <json>', 'valor esperado (JSON)')
     .option('--sin-if-match', 'no pedir al servicio que compruebe la precondición de forma atómica')
-    .action((name: string, o: { ruta: string; metodo: string; cuerpo?: string; cuerpoArchivo?: string; precondicionRuta?: string; precondicionPuntero: string; precondicionValor?: string; sinIfMatch?: boolean }, cmd: Command) => {
-      const g = cmd.optsWithGlobals<GlobalOptions>();
-      const parse = (text: string, what: string) => {
+    .action(
+      (
+        name: string,
+        o: { ruta: string; metodo: string; cuerpo?: string; cuerpoArchivo?: string; precondicionRuta?: string; precondicionPuntero: string; precondicionValor?: string; sinIfMatch?: boolean },
+        cmd: Command,
+      ) => {
+        const g = cmd.optsWithGlobals<GlobalOptions>();
+        const parse = (text: string, what: string) => {
+          try {
+            return JSON.parse(text) as unknown;
+          } catch {
+            throw new CliError(`${what} no es JSON válido`);
+          }
+        };
+        const body = o.cuerpoArchivo ? parse(readFileSync(o.cuerpoArchivo, 'utf8'), '--cuerpo-archivo') : o.cuerpo !== undefined ? parse(o.cuerpo, '--cuerpo') : undefined;
+        if (o.precondicionRuta && o.precondicionValor === undefined) throw new CliError('--precondicion-ruta necesita --precondicion-valor');
+        const params = {
+          ruta: o.ruta,
+          metodo: o.metodo.toUpperCase(),
+          ...(body !== undefined ? { cuerpo: body } : {}),
+          ...(o.precondicionRuta
+            ? { precondicion: { ruta: o.precondicionRuta, puntero: o.precondicionPuntero, valor: parse(o.precondicionValor!, '--precondicion-valor'), si_coincide: !o.sinIfMatch } }
+            : {}),
+        };
+        const ctx = openEngine(g);
         try {
-          return JSON.parse(text) as unknown;
-        } catch {
-          throw new CliError(`${what} no es JSON válido`);
+          const a = domain(() => actionService(ctx).propose({ type: 'http.json', connection: name, params, origin: 'cli' }));
+          if (g.json) return printJson({ accion: a });
+          showAction(a);
+          print(`\nRevísala y apruébala con: forja accion aprobar ${a.action_id}`);
+        } finally {
+          ctx.close();
         }
-      };
-      const body = o.cuerpoArchivo ? parse(readFileSync(o.cuerpoArchivo, 'utf8'), '--cuerpo-archivo') : o.cuerpo !== undefined ? parse(o.cuerpo, '--cuerpo') : undefined;
-      if (o.precondicionRuta && o.precondicionValor === undefined) throw new CliError('--precondicion-ruta necesita --precondicion-valor');
-      const params = {
-        ruta: o.ruta,
-        metodo: o.metodo.toUpperCase(),
-        ...(body !== undefined ? { cuerpo: body } : {}),
-        ...(o.precondicionRuta ? { precondicion: { ruta: o.precondicionRuta, puntero: o.precondicionPuntero, valor: parse(o.precondicionValor!, '--precondicion-valor'), si_coincide: !o.sinIfMatch } } : {}),
-      };
-      const ctx = openEngine(g);
-      try {
-        const a = domain(() => actionService(ctx).propose({ type: 'http.json', connection: name, params, origin: 'cli' }));
-        if (g.json) return printJson({ accion: a });
-        showAction(a);
-        print(`\nRevísala y apruébala con: forja accion aprobar ${a.action_id}`);
-      } finally {
-        ctx.close();
-      }
-    });
+      },
+    );
 
   accion
     .command('ver <id>')
@@ -289,7 +313,11 @@ export function registerActionCommands(program: Command): void {
         if (g.json) return printJson({ accion: done });
         showAction(done);
         if (done.state === 'desconocido') {
-          print(conn.idempotent ? '\nEl servicio es idempotente: vuelve a ejecutarla para confirmar sin duplicar.' : '\nComprueba en el servicio si se aplicó y concílialo: forja accion conciliar <id> --efecto si|no --nota "…"');
+          print(
+            conn.idempotent
+              ? '\nEl servicio es idempotente: vuelve a ejecutarla para confirmar sin duplicar.'
+              : '\nComprueba en el servicio si se aplicó y concílialo: forja accion conciliar <id> --efecto si|no --nota "…"',
+          );
           process.exitCode = EXIT.unknown;
         } else if (done.state !== 'confirmada') process.exitCode = EXIT.verification;
       } finally {

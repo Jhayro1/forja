@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Engine } from '../../core/engine.js';
+import { changeTaskState } from '../../core/task-commands.js';
 import { newId } from '../../domain/ids.js';
 import type { TaskState, TransitionReason } from '../../domain/task-state.js';
-import { changeTaskState } from '../../core/task-commands.js';
-import type { Engine } from '../../core/engine.js';
 import type { Plan, PlanTask } from '../../plan/plan.js';
+import { preexistingFailures } from '../../profile/baseline.js';
 import { ClaudeAdapter, CodexAdapter } from '../../providers/adapters.js';
 import { secretsFromFile } from '../../runtime/runner.js';
 import { Redactor } from '../../security/redact.js';
@@ -12,7 +13,7 @@ import { latestSpec } from '../../spec/generate.js';
 import type { Spec } from '../../spec/spec.js';
 import { listTasks, type TaskRow } from '../../store/projections.js';
 import type { CommandContext } from '../../verify/commands.js';
-import { RunError, getExec, getRun, patchExec, type ExecPatch, type ExecRow, type RunRow } from '../records.js';
+import { type ExecPatch, type ExecRow, getExec, getRun, patchExec, RunError, type RunRow } from '../records.js';
 
 /** How many environment failures in a row a task tolerates before it is blocked (MEJORAS 4.6). */
 export const MAX_ENV_FAILURES = 3;
@@ -28,6 +29,8 @@ export class RunContext {
   readonly spec: Spec;
   readonly cmd: CommandContext;
   readonly redactor = new Redactor();
+  /** Steps that already failed on the repository's baseline for this profile (V2-030). */
+  readonly preexisting: ReadonlySet<string>;
 
   constructor(
     readonly engine: Engine,
@@ -41,8 +44,14 @@ export class RunContext {
     const planRow = engine.store.db.prepare('SELECT plan FROM plans WHERE plan_id = ? AND revision = ?').get(run.plan_id, run.plan_revision) as { plan: string };
     this.plan = JSON.parse(planRow.plan) as Plan;
     this.spec = latestSpec(engine, run.change_id)!.spec;
-    this.cmd = { dataDir: engine.dataDir, sandbox: opts.sandbox ?? true, timeoutMs: engine.config.ejecucion.timeout_min * 60_000, ...(engine.runnerScript ? { runnerScript: engine.runnerScript } : {}) };
+    this.cmd = {
+      dataDir: engine.dataDir,
+      sandbox: opts.sandbox ?? true,
+      timeoutMs: engine.config.ejecucion.timeout_min * 60_000,
+      ...(engine.runnerScript ? { runnerScript: engine.runnerScript } : {}),
+    };
     this.onLog = opts.onLog;
+    this.preexisting = preexistingFailures(engine, this.plan.perfil);
     for (const f of [ClaudeAdapter.credentialFile(), CodexAdapter.credentialFile()]) {
       if (existsSync(f)) for (const v of secretsFromFile(f)) this.redactor.add({ name: 'credencial_proveedor', value: v });
     }

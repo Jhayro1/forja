@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
-import { openDatabase, transaction, type Db } from '../store/sqlite.js';
+import { type Db, openDatabase, transaction } from '../store/sqlite.js';
 
 export type CheckoutRow = {
   checkout_id: string;
@@ -69,9 +69,7 @@ export class Registry {
   }
 
   list(includeArchived = false): CheckoutRow[] {
-    return this.db
-      .prepare(`SELECT * FROM checkouts ${includeArchived ? '' : 'WHERE archived = 0'} ORDER BY last_used_at DESC`)
-      .all() as CheckoutRow[];
+    return this.db.prepare(`SELECT * FROM checkouts ${includeArchived ? '' : 'WHERE archived = 0'} ORDER BY last_used_at DESC`).all() as CheckoutRow[];
   }
 
   touch(checkoutId: string): void {

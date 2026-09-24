@@ -1,9 +1,9 @@
-import { launchPrompt, readSpoolTail, readableLog } from '../run/activity.js';
+import { launchPrompt, readableLog, readSpoolTail } from '../run/activity.js';
 import { taskDetailLines } from '../run/describe.js';
-import { answerTaskQuestion, applyTaskControls, reassignTask, requestPause, resumeTask, unblockTask } from '../run/task-control.js';
 import { requestStop, runningOrchestrator } from '../run/process.js';
 import { RunLog } from '../run/run-log.js';
-import { currentChange, runSnapshot, type RunSnapshot, type TaskView } from '../run/snapshot.js';
+import { currentChange, type RunSnapshot, runSnapshot, type TaskView } from '../run/snapshot.js';
+import { answerTaskQuestion, applyTaskControls, reassignTask, requestPause, resumeTask, unblockTask } from '../run/task-control.js';
 import { taskDiff } from '../run/task-diff.js';
 import type { BoardSource } from '../tui/app.js';
 import type { EngineContext } from './engine-context.js';
@@ -40,7 +40,10 @@ export class EngineBoardSource implements BoardSource {
 
   taskDetail(task: TaskView): string[] {
     const fresh = this.last?.tasks.find((t) => t.id === task.id) ?? task;
-    return taskDetailLines(fresh, this.last?.plan?.tareas.find((t) => t.id === task.id));
+    return taskDetailLines(
+      fresh,
+      this.last?.plan?.tareas.find((t) => t.id === task.id),
+    );
   }
 
   taskLog(task: TaskView): string[] {

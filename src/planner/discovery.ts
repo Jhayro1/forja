@@ -44,9 +44,7 @@ export const PlannerTurnOutput = z
         .strict(),
     ),
     preguntas_resueltas: z.array(z.string()).describe('ids de preguntas que el mensaje del usuario de este turno respondió'),
-    propuestas_respondidas: z.array(
-      z.object({ id: z.string(), estado: z.enum(['aceptada', 'rechazada', 'diferida']) }).strict(),
-    ),
+    propuestas_respondidas: z.array(z.object({ id: z.string(), estado: z.enum(['aceptada', 'rechazada', 'diferida']) }).strict()),
     decisiones_propuestas: z.array(
       z
         .object({
@@ -57,9 +55,7 @@ export const PlannerTurnOutput = z
         })
         .strict(),
     ),
-    cobertura: z.array(
-      z.object({ tema: z.string(), estado: z.enum(['pendiente', 'parcial', 'resuelto', 'no_aplica']), nota: z.string() }).strict(),
-    ),
+    cobertura: z.array(z.object({ tema: z.string(), estado: z.enum(['pendiente', 'parcial', 'resuelto', 'no_aplica']), nota: z.string() }).strict()),
     contradicciones: z.array(z.object({ id: z.string(), descripcion: z.string(), consecuencia: z.string() }).strict()),
     alcance: z.object({ incluye: z.array(z.string()), excluye: z.array(z.string()) }).strict(),
     resumen_actualizado: z.string(),

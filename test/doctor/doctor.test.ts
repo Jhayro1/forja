@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectPlatform, overall, runChecks, type Exec } from '../../src/doctor/checks.js';
+import { detectPlatform, type Exec, overall, runChecks } from '../../src/doctor/checks.js';
 
 function fakeExec(answers: Record<string, { code: number; stdout?: string; stderr?: string }>): Exec {
   return async (file, args) => {

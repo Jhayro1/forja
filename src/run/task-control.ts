@@ -1,10 +1,10 @@
-import { newId } from '../domain/ids.js';
-import { TERMINAL_STATES, type TaskState, type TransitionReason } from '../domain/task-state.js';
-import { changeTaskState } from '../core/task-commands.js';
 import { allowedModels, type Engine } from '../core/engine.js';
+import { changeTaskState } from '../core/task-commands.js';
+import { newId } from '../domain/ids.js';
+import { type TaskState, TERMINAL_STATES, type TransitionReason } from '../domain/task-state.js';
 import { cancelLaunch } from '../runtime/launcher.js';
 import { getTask, listTasks, type TaskRow } from '../store/projections.js';
-import { RunError, getExec, patchExec } from './records.js';
+import { getExec, patchExec, RunError } from './records.js';
 
 /**
  * User control over single tasks (v2/10): answer, unblock, pause, resume and
@@ -24,7 +24,7 @@ function taskOrFail(engine: Engine, runId: string, taskId: string): TaskRow {
 /** Answer to a worker's question: the task goes back to the queue with the answer in its context. */
 export function answerTaskQuestion(engine: Engine, runId: string, taskId: string, answer: string): void {
   const t = getTask(engine.store.db, runId, taskId);
-  if (!t || t.state !== 'esperando_respuesta') throw new RunError(`la tarea ${taskId} no está esperando una respuesta`);
+  if (t?.state !== 'esperando_respuesta') throw new RunError(`la tarea ${taskId} no está esperando una respuesta`);
   patchExec(engine, runId, taskId, { answer }, 'responder_tarea');
   move(engine, runId, taskId, 'lista', 'causa_resuelta');
 }
@@ -32,7 +32,7 @@ export function answerTaskQuestion(engine: Engine, runId: string, taskId: string
 /** Retry a blocked task from scratch counting (explicit user decision). */
 export function unblockTask(engine: Engine, runId: string, taskId: string, note: string | null): void {
   const t = getTask(engine.store.db, runId, taskId);
-  if (!t || t.state !== 'bloqueada') throw new RunError(`la tarea ${taskId} no está bloqueada`);
+  if (t?.state !== 'bloqueada') throw new RunError(`la tarea ${taskId} no está bloqueada`);
   patchExec(engine, runId, taskId, { quality_failures: 0, env_failures: 0, ...(note ? { feedback: note } : {}) }, 'desbloquear_tarea');
   move(engine, runId, taskId, 'lista', 'causa_resuelta');
 }
@@ -73,10 +73,16 @@ export function applyTaskControls(engine: Engine, runId: string, busy: ReadonlyS
     }
     if (t.state === 'ejecutando' && exec.launch_dir) cancelLaunch(exec.launch_dir);
     const reason: TransitionReason = t.state === 'pendiente' || t.state === 'lista' ? 'pausa_usuario' : 'pausa_confirmada';
-    patchExec(engine, runId, t.task_id, {
-      control: `pausada:${t.state}`,
-      ...(t.state === 'ejecutando' ? { feedback: 'La tarea se pausó mientras trabajabas. Tu trabajo parcial sigue en el directorio: revísalo y termínala.' } : {}),
-    }, 'pausar_tarea');
+    patchExec(
+      engine,
+      runId,
+      t.task_id,
+      {
+        control: `pausada:${t.state}`,
+        ...(t.state === 'ejecutando' ? { feedback: 'La tarea se pausó mientras trabajabas. Tu trabajo parcial sigue en el directorio: revísalo y termínala.' } : {}),
+      },
+      'pausar_tarea',
+    );
     move(engine, runId, t.task_id, 'pausada', reason, 'pausada por el usuario');
     paused.push(t.task_id);
   }

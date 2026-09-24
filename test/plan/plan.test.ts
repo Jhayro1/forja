@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { approvalTarget } from '../../src/plan/approve.js';
 import { draftTasks } from '../../src/plan/draft.js';
 import { estimatePlan } from '../../src/plan/estimate.js';
-import { findCycle, globsMayOverlap, taskResources, validatePlan, waves, type Plan, type PlanOutput, type PlanTask } from '../../src/plan/plan.js';
+import { findCycle, globsMayOverlap, type Plan, type PlanOutput, type PlanTask, taskResources, validatePlan, waves } from '../../src/plan/plan.js';
 import { ForjaConfig } from '../../src/registry/config.js';
 import { sampleSpec } from '../spec/fixture.js';
 
@@ -10,7 +10,22 @@ const config = ForjaConfig.parse({ schema_version: 1, project_id: 'prj_01M3A9EAC
 const perfil = { stack: ['typescript'], gestor: 'npm', comandos: { instalar: null, build: null, typecheck: null, lint: null, test: { executable: 'npx', args: ['vitest', 'run'] } }, red_instalar: [] };
 
 function task(id: string, partial: Partial<PlanTask> = {}): PlanTask {
-  return { id, titulo: id, objetivo: 'x', tipo: 'implementacion', criterios: [], requisitos: [], depende_de: [], escribe: [`src/${id}/**`], lee: [], recursos_exclusivos: [], complejidad: 'media', red: false, notas: '', ...partial };
+  return {
+    id,
+    titulo: id,
+    objetivo: 'x',
+    tipo: 'implementacion',
+    criterios: [],
+    requisitos: [],
+    depende_de: [],
+    escribe: [`src/${id}/**`],
+    lee: [],
+    recursos_exclusivos: [],
+    complejidad: 'media',
+    red: false,
+    notas: '',
+    ...partial,
+  };
 }
 
 describe('solapamiento de rutas (conservador)', () => {
@@ -41,10 +56,7 @@ describe('validación del plan', () => {
     const out: PlanOutput = {
       perfil,
       supuestos: [],
-      tareas: [
-        task('T-001', { depende_de: ['T-002'], criterios: ['CA-UC-001-01'] }),
-        task('T-002', { depende_de: ['T-001', 'T-009'], escribe: ['../fuera/**'] }),
-      ],
+      tareas: [task('T-001', { depende_de: ['T-002'], criterios: ['CA-UC-001-01'] }), task('T-002', { depende_de: ['T-001', 'T-009'], escribe: ['../fuera/**'] })],
     };
     const messages = validatePlan(out, spec).issues.map((i) => i.message);
     expect(messages).toEqual(
@@ -74,11 +86,7 @@ describe('validación del plan', () => {
     const out: PlanOutput = {
       perfil,
       supuestos: [],
-      tareas: [
-        task('T-001', { criterios: ['CA-UC-001-01', 'CA-UC-002-01'], escribe: ['src/app.ts'] }),
-        task('T-002', { escribe: ['src/**'] }),
-        task('T-003', { escribe: ['docs/**'] }),
-      ],
+      tareas: [task('T-001', { criterios: ['CA-UC-001-01', 'CA-UC-002-01'], escribe: ['src/app.ts'] }), task('T-002', { escribe: ['src/**'] }), task('T-003', { escribe: ['docs/**'] })],
     };
     const { implicitResources } = validatePlan(out, spec);
     expect(Object.values(implicitResources)).toEqual([['T-001', 'T-002']]);
@@ -98,7 +106,19 @@ describe('validación del plan', () => {
 
 describe('estimación y aprobación', () => {
   const tareas = [task('T-001'), task('T-002', { depende_de: ['T-001'] }), task('T-003', { depende_de: ['T-001'] }), task('T-004', { depende_de: ['T-001'] })];
-  const plan: Plan = { schema_version: 1, plan_id: 'plan_1', change_id: 'cam_1', revision: 1, spec_revision: 1, spec_hash: 'sha256:x', base_sha: 'abc', perfil, tareas, supuestos: [], recursos_implicitos: {} };
+  const plan: Plan = {
+    schema_version: 1,
+    plan_id: 'plan_1',
+    change_id: 'cam_1',
+    revision: 1,
+    spec_revision: 1,
+    spec_hash: 'sha256:x',
+    base_sha: 'abc',
+    perfil,
+    tareas,
+    supuestos: [],
+    recursos_implicitos: {},
+  };
 
   it('en paralelo tarda menos que en serie y dice que no está calibrada', () => {
     const e = estimatePlan(plan, config, null);

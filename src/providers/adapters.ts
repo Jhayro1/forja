@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildAgentEnv } from '../security/env.js';
 import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds, type Mount } from '../runtime/sandbox.js';
+import { buildAgentEnv } from '../security/env.js';
 import type { ProviderKind } from './stream.js';
 
 export type ToolProfile = 'lectura' | 'edicion';

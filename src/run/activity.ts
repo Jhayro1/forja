@@ -135,13 +135,19 @@ export function readableLog(records: SpoolRecord[], provider: string | null): { 
     }
     for (const e of events) {
       const text =
-        e.t === 'texto' ? `» ${oneLine(e.text, 400)}`
-        : e.t === 'herramienta' ? `⚙ ${oneLine(`${e.name} ${e.summary}`, 400)}${e.exitCode ? ` (salida ${e.exitCode})` : ''}`
-        : e.t === 'resultado' ? `✔ ${oneLine(e.text, 400) || 'resultado'}`
-        : e.t === 'error' ? `✘ ${e.error.message}`
-        : e.t === 'segundo_plano' ? `⚠ segundo plano: ${e.description}`
-        : e.t === 'inicio' ? `▶ sesión ${e.sessionId.slice(0, 8)}${e.model ? ` · ${e.model}` : ''}`
-        : null;
+        e.t === 'texto'
+          ? `» ${oneLine(e.text, 400)}`
+          : e.t === 'herramienta'
+            ? `⚙ ${oneLine(`${e.name} ${e.summary}`, 400)}${e.exitCode ? ` (salida ${e.exitCode})` : ''}`
+            : e.t === 'resultado'
+              ? `✔ ${oneLine(e.text, 400) || 'resultado'}`
+              : e.t === 'error'
+                ? `✘ ${e.error.message}`
+                : e.t === 'segundo_plano'
+                  ? `⚠ segundo plano: ${e.description}`
+                  : e.t === 'inicio'
+                    ? `▶ sesión ${e.sessionId.slice(0, 8)}${e.model ? ` · ${e.model}` : ''}`
+                    : null;
       if (text) out.push({ seq: record.seq, ts: record.ts, text });
     }
   }

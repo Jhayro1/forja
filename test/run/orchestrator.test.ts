@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
-import { Orchestrator, answerTaskQuestion, getExec, getRun, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { getChange } from '../../src/planner/session.js';
+import { answerTaskQuestion, getExec, getRun, Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { listTasks } from '../../src/store/projections.js';
 import { HAS_BWRAP, testEngine } from '../helpers/engine.js';
 import { FILES, seedApprovedPlan, sh } from './fixture.js';
@@ -26,9 +26,7 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
   it('ejecuta en paralelo, verifica, reintenta un fallo de calidad, integra y entrega sin tocar main', async () => {
     const t = testEngine(
       agents((taskId, attempt) =>
-        taskId === 'T-005' && attempt === 1
-          ? { pasos: [{ escribir: { ruta: 'src/uc-002.mjs', contenido: 'export function saldo() { return 999; }\n' } }], resultado: 'Listo.' }
-          : null,
+        taskId === 'T-005' && attempt === 1 ? { pasos: [{ escribir: { ruta: 'src/uc-002.mjs', contenido: 'export function saldo() { return 999; }\n' } }], resultado: 'Listo.' } : null,
       ),
     );
     cleanup = t.cleanup;
@@ -111,7 +109,7 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
     const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
     const stop = new AbortController();
-    const first = new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 100, onLog: (l) => l.startsWith('⇪ T-001') && stop.abort() , signal: stop.signal }).loop();
+    const first = new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 100, onLog: (l) => l.startsWith('⇪ T-001') && stop.abort(), signal: stop.signal }).loop();
     const r1 = await first;
     expect(r1.state).toBe('pausado');
     expect(getRun(t.engine, runId)!.state).toBe('pausado');
@@ -127,7 +125,13 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
   it('un agente que no se puede lanzar se bloquea tras 3 intentos en vez de reintentar sin fin', async () => {
     const t = testEngine(agents());
     cleanup = t.cleanup;
-    t.engine.adapters.simulado = { id: 'simulado', parser: 'claude', buildOrder: () => { throw new Error('CLI roto'); } } as unknown as typeof t.engine.adapters.simulado;
+    t.engine.adapters.simulado = {
+      id: 'simulado',
+      parser: 'claude',
+      buildOrder: () => {
+        throw new Error('CLI roto');
+      },
+    } as unknown as typeof t.engine.adapters.simulado;
     const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
     const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
     const summary = await new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 20 }).loop();

@@ -7,7 +7,7 @@ import { newId } from '../../src/domain/ids.js';
 import { createChange, plannerScratch, runPlannerTurn } from '../../src/planner/session.js';
 import { ForjaConfig } from '../../src/registry/config.js';
 import { EventStore } from '../../src/store/event-store.js';
-import { RUNNER, ensureBuilt } from '../helpers/engine.js';
+import { ensureBuilt, RUNNER } from '../helpers/engine.js';
 
 /**
  * Conversational evaluation (V2-026) against the REAL planner. Costs quota: only

@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createEngine, type Engine } from '../core/engine.js';
 import { git } from '../git/git.js';
-import { inspectRepo } from '../registry/inspect.js';
 import { loadSimulationFile } from '../providers/simulation-file.js';
-import { CliError, EXIT, openProject, type GlobalOptions, type ProjectContext } from './context.js';
+import { inspectRepo } from '../registry/inspect.js';
+import { CliError, EXIT, type GlobalOptions, openProject, type ProjectContext } from './context.js';
 
 export type EngineContext = ProjectContext & { engine: Engine };
 

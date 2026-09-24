@@ -38,6 +38,7 @@ export class TaskVerifier {
       runId: ctx.runId,
       review: this.review,
       noChanges: isNoChangeCandidate(exec),
+      preexisting: ctx.preexisting,
     });
     ctx.exec(taskId, { steps: JSON.stringify(v.steps) });
     if (v.ok) {

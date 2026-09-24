@@ -1,5 +1,5 @@
 import { dirname, posix } from 'node:path';
-import { mentionsIn, type Extraction, type LanguageExtractor, type Resolution, type SymbolRef } from './types.js';
+import { type Extraction, type LanguageExtractor, mentionsIn, type Resolution, type SymbolRef } from './types.js';
 
 /**
  * Python extractor (V2-062, second language). Line-based over code with
@@ -52,7 +52,11 @@ export function extractPython(src: string): Extraction {
       const mod = m[1]!;
       if (/^\.+$/.test(mod)) {
         // from . import a, b → each name is a module of the package
-        for (const name of m[2]!.replace(/[()]/g, '').split(',').map((x) => x.trim().split(/\s+as\s+/)[0]!).filter(Boolean)) {
+        for (const name of m[2]!
+          .replace(/[()]/g, '')
+          .split(',')
+          .map((x) => x.trim().split(/\s+as\s+/)[0]!)
+          .filter(Boolean)) {
           imports.push({ specifier: `${mod}${name}`, confidence: 'seguro', line });
         }
       } else imports.push({ specifier: mod, confidence: 'seguro', line });

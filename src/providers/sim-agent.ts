@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
 /**
  * Scripted fake agent. Reads a script (JSON) and the prompt from stdin, performs
  * the steps on the real filesystem (inside the sandbox) and prints Claude-style
@@ -8,9 +9,8 @@
  * Paso:   { escribir: { ruta, contenido } } | { borrar: ruta } | { texto: string } | { esperar_ms: number } | { segundo_plano: string }
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
+import { dirname, resolve } from 'node:path';
 
 type Step =
   | { escribir: { ruta: string; contenido: string } }
@@ -91,7 +91,17 @@ async function run() {
   }
   const usage = { input_tokens: 100 + Math.round(prompt.length / 4), output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   if (script.error) {
-    emit({ type: 'result', subtype: 'success', is_error: true, api_error_status: script.error.status, api_error_code: script.error.code, result: script.error.mensaje, session_id: sessionId, usage, total_cost_usd: 0 });
+    emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      api_error_status: script.error.status,
+      api_error_code: script.error.code,
+      result: script.error.mensaje,
+      session_id: sessionId,
+      usage,
+      total_cost_usd: 0,
+    });
   } else {
     emit({
       type: 'result',

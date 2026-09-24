@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { hashJson } from '../domain/hash.js';
 import { newId } from '../domain/ids.js';
 import { Redactor } from '../security/redact.js';
-import { AEV, type ActionState } from '../store/action-projections.js';
+import { type ActionState, AEV } from '../store/action-projections.js';
 import type { EventStore } from '../store/event-store.js';
-import { ConnectionStore, type Connection } from './connections.js';
+import type { Connection, ConnectionStore } from './connections.js';
 import type { ExecutorOrder, ExecutorResult } from './executor-main.js';
 import { operation, urlUnder } from './operations.js';
 
@@ -144,7 +144,17 @@ export class ActionService {
     const params = parsed.data as Record<string, unknown>;
     // Everything the approval covers: any change produces a different hash.
     const hash = hashJson({ id, type: op.id, connection: conn.name, connection_version: conn.version, operations: link.operations, params, expires_at: expiresAt, idempotency_key: idempotencyKey });
-    this.emit(AEV.proposed, id, { type: op.id, connection: conn.name, connection_version: conn.version, params, preview, hash, idempotency_key: idempotencyKey, origin: input.origin, expires_at: expiresAt });
+    this.emit(AEV.proposed, id, {
+      type: op.id,
+      connection: conn.name,
+      connection_version: conn.version,
+      params,
+      preview,
+      hash,
+      idempotency_key: idempotencyKey,
+      origin: input.origin,
+      expires_at: expiresAt,
+    });
     return this.get(id);
   }
 
@@ -268,9 +278,10 @@ export class ActionService {
    * Recorded as such, never assumed done or not done.
    */
   recoverInterrupted(olderThanMs = (this.opts.timeoutMs ?? 30_000) + 60_000): string[] {
-    const stale = this.store.db
-      .prepare("SELECT a.action_id, e.recorded_at FROM actions a JOIN events e ON e.seq = a.updated_seq WHERE a.state = 'ejecutando'")
-      .all() as { action_id: string; recorded_at: string }[];
+    const stale = this.store.db.prepare("SELECT a.action_id, e.recorded_at FROM actions a JOIN events e ON e.seq = a.updated_seq WHERE a.state = 'ejecutando'").all() as {
+      action_id: string;
+      recorded_at: string;
+    }[];
     const out: string[] = [];
     for (const s of stale) {
       if (this.now() - Date.parse(s.recorded_at) < olderThanMs) continue;

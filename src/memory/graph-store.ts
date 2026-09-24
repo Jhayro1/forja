@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { openDatabase, transaction, type Db } from '../store/sqlite.js';
+import { type Db, openDatabase, transaction } from '../store/sqlite.js';
 
 /**
  * Knowledge graph of a checkout (M6, v2/08 · Grafo). It is an INDEX: it lives
@@ -76,7 +76,9 @@ export class GraphStore {
 
   addNode(n: GraphNode): void {
     this.db
-      .prepare('INSERT INTO nodes (id, kind, label, source, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, label = excluded.label, source = excluded.source, data = excluded.data')
+      .prepare(
+        'INSERT INTO nodes (id, kind, label, source, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, label = excluded.label, source = excluded.source, data = excluded.data',
+      )
       .run(n.id, n.kind, n.label, n.source, n.data ? JSON.stringify(n.data) : null);
   }
 
@@ -107,7 +109,9 @@ export class GraphStore {
 
   search(text: string, limit = 30): GraphNode[] {
     const like = `%${text.replace(/[%_]/g, (c) => `\\${c}`)}%`;
-    return this.db.prepare("SELECT id, kind, label, source FROM nodes WHERE id LIKE ? ESCAPE '\\' OR label LIKE ? ESCAPE '\\' ORDER BY kind, id LIMIT ?").all(like, like, limit) as unknown as GraphNode[];
+    return this.db
+      .prepare("SELECT id, kind, label, source FROM nodes WHERE id LIKE ? ESCAPE '\\' OR label LIKE ? ESCAPE '\\' ORDER BY kind, id LIMIT ?")
+      .all(like, like, limit) as unknown as GraphNode[];
   }
 
   fileRecord(path: string): { hash: string; extractor: string } | null {
@@ -115,11 +119,16 @@ export class GraphStore {
   }
 
   setFile(path: string, hash: string, extractor: string, notes: string[]): void {
-    this.db.prepare('INSERT INTO files (path, hash, extractor, notes) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET hash = excluded.hash, extractor = excluded.extractor, notes = excluded.notes').run(path, hash, extractor, JSON.stringify(notes));
+    this.db
+      .prepare('INSERT INTO files (path, hash, extractor, notes) VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET hash = excluded.hash, extractor = excluded.extractor, notes = excluded.notes')
+      .run(path, hash, extractor, JSON.stringify(notes));
   }
 
   files(): { path: string; hash: string; extractor: string; notes: string[] }[] {
-    return (this.db.prepare('SELECT * FROM files ORDER BY path').all() as { path: string; hash: string; extractor: string; notes: string }[]).map((f) => ({ ...f, notes: JSON.parse(f.notes) as string[] }));
+    return (this.db.prepare('SELECT * FROM files ORDER BY path').all() as { path: string; hash: string; extractor: string; notes: string }[]).map((f) => ({
+      ...f,
+      notes: JSON.parse(f.notes) as string[],
+    }));
   }
 
   removeFile(path: string): void {

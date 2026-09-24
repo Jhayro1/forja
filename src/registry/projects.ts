@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { FORJA_AUTHOR, git } from '../git/git.js';
 import { newId } from '../domain/ids.js';
+import { FORJA_AUTHOR, git } from '../git/git.js';
 import { CONFIG_FILE, ForjaConfig, findRepoRoot, readConfig, writeConfig } from './config.js';
 import { inspectRepo, type RepoInspection } from './inspect.js';
 import type { CheckoutRow, Registry } from './registry.js';
@@ -33,10 +33,7 @@ export async function createProject(registry: Registry, name: string, dir: strin
   return { checkout, config };
 }
 
-export async function importProject(
-  registry: Registry,
-  dir: string,
-): Promise<{ checkout: CheckoutRow; config: ForjaConfig; inspection: RepoInspection; createdConfig: boolean }> {
+export async function importProject(registry: Registry, dir: string): Promise<{ checkout: CheckoutRow; config: ForjaConfig; inspection: RepoInspection; createdConfig: boolean }> {
   const inspection = await inspectRepo(resolve(dir));
   const root = realpathSync(inspection.root);
   let createdConfig = false;

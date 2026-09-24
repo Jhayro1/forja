@@ -1,7 +1,7 @@
+import { pauseProvider, type Role, recordUsage } from '../../core/engine.js';
 import { captureTask, resetWorktree } from '../../git/workspace.js';
-import { pauseProvider, recordUsage, type Role } from '../../core/engine.js';
-import { launchStatus, spawnRunner } from '../../runtime/launcher.js';
 import { readOutcome } from '../../runtime/launch-service.js';
+import { launchStatus, spawnRunner } from '../../runtime/launcher.js';
 import { extractQuestion } from '../context.js';
 import type { RunContext } from './run-context.js';
 

@@ -8,7 +8,7 @@ import { ConnectionStore } from '../../src/actions/connections.js';
 import { urlUnder } from '../../src/actions/operations.js';
 import { ActionService, classify } from '../../src/actions/protocol.js';
 import { EventStore } from '../../src/store/event-store.js';
-import { ROOT, ensureBuilt } from '../helpers/engine.js';
+import { ensureBuilt, ROOT } from '../helpers/engine.js';
 
 const TOKEN = 'tok-servicio-muy-secreto';
 const EXECUTOR = join(ROOT, 'dist/actions/executor-main.js');
@@ -81,7 +81,17 @@ beforeEach(async () => {
   await svc.start();
   now = Date.now();
   actions = new ActionService(store, conns, { now: () => now, executorScript: EXECUTOR, timeoutMs: 700 });
-  conns.save({ name: 'pedidos', type: 'http', base_url: `http://127.0.0.1:${svc.port}/`, secret: 'SERVICIO_TOKEN', auth_header: 'Authorization', auth_scheme: 'Bearer', idempotent: true, allow_local: true, test_path: null });
+  conns.save({
+    name: 'pedidos',
+    type: 'http',
+    base_url: `http://127.0.0.1:${svc.port}/`,
+    secret: 'SERVICIO_TOKEN',
+    auth_header: 'Authorization',
+    auth_scheme: 'Bearer',
+    idempotent: true,
+    allow_local: true,
+    test_path: null,
+  });
   actions.link('pedidos', ['http.json']);
 });
 afterEach(async () => {
@@ -90,7 +100,8 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const propose = (params: Record<string, unknown> = { ruta: '/pedidos', cuerpo: { producto: 'arroz', cantidad: 2 } }) => actions.propose({ type: 'http.json', connection: 'pedidos', params, origin: 'cli' });
+const propose = (params: Record<string, unknown> = { ruta: '/pedidos', cuerpo: { producto: 'arroz', cantidad: 2 } }) =>
+  actions.propose({ type: 'http.json', connection: 'pedidos', params, origin: 'cli' });
 
 describe('acciones externas (V2-051)', () => {
   it('propuesta → vista previa → aprobación por hash → ejecución confirmada, sin el secreto en ningún registro', async () => {
@@ -195,7 +206,17 @@ describe('acciones externas (V2-051)', () => {
     expect((await actions.execute(a.action_id, secret)).state).toBe('sin_efecto');
     await svc.start();
 
-    conns.save({ name: 'interno', type: 'http', base_url: 'https://127.0.0.1:9/', secret: null, auth_header: 'Authorization', auth_scheme: 'Bearer', idempotent: false, allow_local: false, test_path: null });
+    conns.save({
+      name: 'interno',
+      type: 'http',
+      base_url: 'https://127.0.0.1:9/',
+      secret: null,
+      auth_header: 'Authorization',
+      auth_scheme: 'Bearer',
+      idempotent: false,
+      allow_local: false,
+      test_path: null,
+    });
     actions.link('interno', ['http.json']);
     const b = actions.propose({ type: 'http.json', connection: 'interno', params: { ruta: '/x' }, origin: 'cli' });
     actions.approve(b.action_id, b.hash, 'yo');
@@ -209,7 +230,10 @@ describe('acciones externas (V2-051)', () => {
   it('una acción que quedó «ejecutando» por una caída se registra como desconocida, nunca como hecha', () => {
     const a = propose();
     actions.approve(a.action_id, a.hash, 'yo');
-    store.execute({ request_id: 'x', type: 'accion.ejecutando', input: null }, () => ({ result: null, events: [{ type: 'accion.ejecutando', aggregate_type: 'accion', aggregate_id: a.action_id, payload: { attempt: 1 } }] }));
+    store.execute({ request_id: 'x', type: 'accion.ejecutando', input: null }, () => ({
+      result: null,
+      events: [{ type: 'accion.ejecutando', aggregate_type: 'accion', aggregate_id: a.action_id, payload: { attempt: 1 } }],
+    }));
     now += 10 * 60_000;
     expect(actions.recoverInterrupted()).toEqual([a.action_id]);
     expect(actions.get(a.action_id).state).toBe('desconocido');

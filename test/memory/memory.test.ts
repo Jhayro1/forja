@@ -51,14 +51,19 @@ function write(r: string, files: Record<string, string>): void {
 const TS_APP: Record<string, string> = {
   'src/contratos.ts': 'export type Fiado = { monto: number };\nexport const MONEDA = "PEN";\n',
   'src/dominio/saldo.ts': "import type { Fiado } from '../contratos.js';\nexport function saldo(f: Fiado[]) { return f.reduce((a, x) => a + x.monto, 0); }\n",
-  'src/uc-001.ts': "// R-001: no se fía a quien debe más de 100\nimport { saldo } from './dominio/saldo.js';\nimport { MONEDA } from './contratos';\nexport async function registrarFiado() { return saldo([]) + MONEDA; }\nclass Interna {}\n",
-  'src/api.ts': "import express from 'express';\nimport { registrarFiado } from './uc-001.js';\nimport { util } from '@/util';\nimport { nuevo } from './nuevo.js';\nconst m = await import(nombre);\nexport { registrarFiado };\n",
-  'src/trampas.ts': "const s = \"import x from 'falso'\";\n// import y from 'comentario'\n/* import z from 'bloque' */\nconst re = /import 'regex'/g;\nconst t = `import w from 'plantilla' ${s}`;\nexport const listo = true;\n",
+  'src/uc-001.ts':
+    "// R-001: no se fía a quien debe más de 100\nimport { saldo } from './dominio/saldo.js';\nimport { MONEDA } from './contratos';\nexport async function registrarFiado() { return saldo([]) + MONEDA; }\nclass Interna {}\n",
+  'src/api.ts':
+    "import express from 'express';\nimport { registrarFiado } from './uc-001.js';\nimport { util } from '@/util';\nimport { nuevo } from './nuevo.js';\nconst m = await import(nombre);\nexport { registrarFiado };\n",
+  'src/trampas.ts':
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: source code under test, not a template
+    "const s = \"import x from 'falso'\";\n// import y from 'comentario'\n/* import z from 'bloque' */\nconst re = /import 'regex'/g;\nconst t = `import w from 'plantilla' ${s}`;\nexport const listo = true;\n",
   'test/uc-001.test.ts': "import { test } from 'node:test';\nimport { registrarFiado } from '../src/uc-001.js';\ntest('CA-UC-001-01', () => { registrarFiado(); });\n",
   '.env': 'SECRET=no-leer\n',
   'app/__init__.py': '',
   'app/modelos.py': 'class Fiado:\n    pass\n\ndef saldo(fiados):\n    return 0\n_privado = 1\n',
-  'app/servicio.py': '"""\nimport os  (esto es texto)\n"""\nfrom .modelos import Fiado, saldo\nimport json\n\ndef registrar():\n    import importlib\n    importlib.import_module("x")\n    return Fiado()\n',
+  'app/servicio.py':
+    '"""\nimport os  (esto es texto)\n"""\nfrom .modelos import Fiado, saldo\nimport json\n\ndef registrar():\n    import importlib\n    importlib.import_module("x")\n    return Fiado()\n',
   'tests/test_servicio.py': '# CA-UC-002-01\nfrom app.servicio import registrar\n\ndef test_registrar():\n    registrar()\n',
 };
 
@@ -134,7 +139,22 @@ describe('grafo incremental (V2-060, V2-061)', () => {
   });
 });
 
-const task = (id: string, p: Partial<PlanTask>): PlanTask => ({ id, titulo: id, objetivo: 'x', tipo: 'implementacion', criterios: [], requisitos: [], depende_de: [], escribe: [], lee: [], recursos_exclusivos: [], complejidad: 'baja', red: false, notas: '', ...p });
+const task = (id: string, p: Partial<PlanTask>): PlanTask => ({
+  id,
+  titulo: id,
+  objetivo: 'x',
+  tipo: 'implementacion',
+  criterios: [],
+  requisitos: [],
+  depende_de: [],
+  escribe: [],
+  lee: [],
+  recursos_exclusivos: [],
+  complejidad: 'baja',
+  red: false,
+  notas: '',
+  ...p,
+});
 
 describe('selector de contexto y evaluación (V2-061)', () => {
   it('el grafo agrega lo que la tarea realmente necesita, con motivo; mejora al simple en el corpus sin perder reglas', async () => {

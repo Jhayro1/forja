@@ -84,9 +84,7 @@ export const PlannerTurn = z
   .strict();
 export const DiscoveryApproved = z.object({ revision: z.number().int().positive() }).strict();
 export const SpecRevised = z.object({ revision: z.number().int().positive(), hash: z.string(), spec: z.record(z.string(), z.unknown()) }).strict();
-export const PlanProposed = z
-  .object({ plan_id: z.string(), revision: z.number().int().positive(), hash: z.string(), plan: z.record(z.string(), z.unknown()) })
-  .strict();
+export const PlanProposed = z.object({ plan_id: z.string(), revision: z.number().int().positive(), hash: z.string(), plan: z.record(z.string(), z.unknown()) }).strict();
 export const ApprovalGranted = z.object({ approval: z.record(z.string(), z.unknown()) }).strict();
 export const ApprovalStateChanged = z.object({ approval_id: z.string(), state: z.enum(['vigente', 'revocada', 'consumida', 'obsoleta']) }).strict();
 export const UsageObserved = z
@@ -139,12 +137,21 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
       if (row.discovery_revision !== p.base_revision) {
         throw new PlanningProjectionError(`turno sobre la revisión ${p.base_revision}, pero la vigente es ${row.discovery_revision}`);
       }
-      db.prepare(
-        'INSERT INTO planner_turns (turn_id, change_id, n, user_text, planner_text, provider, model, created_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(p.turn_id, id, p.n, p.user_text, p.planner_text, p.provider, p.model, e.seq);
-      db.prepare(
-        'INSERT INTO discovery (change_id, revision, state) VALUES (?, ?, ?) ON CONFLICT(change_id) DO UPDATE SET revision = excluded.revision, state = excluded.state',
-      ).run(id, p.new_revision, JSON.stringify(p.state));
+      db.prepare('INSERT INTO planner_turns (turn_id, change_id, n, user_text, planner_text, provider, model, created_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        p.turn_id,
+        id,
+        p.n,
+        p.user_text,
+        p.planner_text,
+        p.provider,
+        p.model,
+        e.seq,
+      );
+      db.prepare('INSERT INTO discovery (change_id, revision, state) VALUES (?, ?, ?) ON CONFLICT(change_id) DO UPDATE SET revision = excluded.revision, state = excluded.state').run(
+        id,
+        p.new_revision,
+        JSON.stringify(p.state),
+      );
       db.prepare('UPDATE changes SET discovery_revision = ?, updated_seq = ? WHERE change_id = ?').run(p.new_revision, e.seq, id);
       return;
     }

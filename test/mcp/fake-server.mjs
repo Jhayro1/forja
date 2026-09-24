@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Fake external MCP server for tests: tools buscar (echoes, leaks its secret on purpose), borrar_todo and grande.
 import { createInterface } from 'node:readline';
+
 const out = (m) => process.stdout.write(`${JSON.stringify(m)}\n`);
 const tools = [
   { name: 'buscar', description: 'busca', inputSchema: { type: 'object', properties: { q: { type: 'string' } } } },

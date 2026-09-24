@@ -3,12 +3,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { activePauses, pauseProvider, pickCandidate, resumeProvider, type Simulation } from '../../src/core/engine.js';
 import type { Plan } from '../../src/plan/plan.js';
-import { Orchestrator, getExec, getRun, reassignTask, requestPause, resumeTask, startOrResumeRun } from '../../src/run/orchestrator.js';
+import { getExec, getRun, Orchestrator, reassignTask, requestPause, resumeTask, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { dependentCounts, levelFor, nextToIntegrate, selectLaunches } from '../../src/run/pipeline/scheduler.js';
 import { applyTaskControls } from '../../src/run/task-control.js';
 import { getTask, listTasks, type TaskRow } from '../../src/store/projections.js';
 import { HAS_BWRAP, testEngine } from '../helpers/engine.js';
-import { FILES, TASKS, seedApprovedPlan, seedApprovedPlanIn, sh } from './fixture.js';
+import { FILES, seedApprovedPlan, seedApprovedPlanIn, sh, TASKS } from './fixture.js';
 
 let cleanup: (() => void) | undefined;
 afterEach(() => cleanup?.());
@@ -31,7 +31,13 @@ describe('política de lanzamiento (función pura)', () => {
     expect(selectLaunches({ plan: PLAN, tasks, parallel: 1 })).toEqual(['T-002']);
     expect(selectLaunches({ plan: PLAN, tasks, parallel: 3 })).toEqual(['T-002', 'T-004']);
     expect(selectLaunches({ plan: PLAN, tasks: [...tasks.slice(0, 1), row('T-002', 'ejecutando'), ...tasks.slice(2)], parallel: 1 })).toEqual([]);
-    const sameFile = { tareas: [{ ...TASKS[0]!, id: 'A', depende_de: [] }, { ...TASKS[0]!, id: 'B', depende_de: [] }], recursos_implicitos: { 'archivo:x.ts': ['A', 'B'] } } as unknown as Plan;
+    const sameFile = {
+      tareas: [
+        { ...TASKS[0]!, id: 'A', depende_de: [] },
+        { ...TASKS[0]!, id: 'B', depende_de: [] },
+      ],
+      recursos_implicitos: { 'archivo:x.ts': ['A', 'B'] },
+    } as unknown as Plan;
     expect(selectLaunches({ plan: sameFile, tasks: [row('A', 'lista'), row('B', 'lista')], parallel: 4 })).toEqual(['A']);
     expect(selectLaunches({ plan: sameFile, tasks: [row('A', 'verificada'), row('B', 'lista')], parallel: 4 })).toEqual([]);
   });
@@ -171,7 +177,13 @@ describe('control por tarea y --solo (agentes simulados)', () => {
   it('los fallos de entorno se acotan: tras 3 la tarea se bloquea con el motivo', async () => {
     const t = testEngine(agents());
     cleanup = t.cleanup;
-    t.engine.adapters.simulado = { id: 'simulado', parser: 'claude', buildOrder: () => { throw new Error('CLI roto'); } } as unknown as typeof t.engine.adapters.simulado;
+    t.engine.adapters.simulado = {
+      id: 'simulado',
+      parser: 'claude',
+      buildOrder: () => {
+        throw new Error('CLI roto');
+      },
+    } as unknown as typeof t.engine.adapters.simulado;
     const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
     const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
     const summary = await new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 20 }).loop();

@@ -63,7 +63,9 @@ export const httpJson: OperationType<HttpJsonParams> = {
       peticion: `${p.metodo} ${urlUnder(conn.base_url, p.ruta)}`,
       cuerpo: p.cuerpo ?? null,
       credencial: conn.secret ? `${conn.auth_header}: ${conn.auth_scheme} <${conn.secret} de la bóveda>` : 'ninguna',
-      precondicion: p.precondicion ? `${p.precondicion.ruta} ${p.precondicion.puntero || '(documento)'} = ${JSON.stringify(p.precondicion.valor)}${p.precondicion.si_coincide ? ' (atómica con If-Match si el servicio da ETag)' : ' (sin garantía atómica: hay ventana de carrera)'}` : 'ninguna',
+      precondicion: p.precondicion
+        ? `${p.precondicion.ruta} ${p.precondicion.puntero || '(documento)'} = ${JSON.stringify(p.precondicion.valor)}${p.precondicion.si_coincide ? ' (atómica con If-Match si el servicio da ETag)' : ' (sin garantía atómica: hay ventana de carrera)'}`
+        : 'ninguna',
       reintento_seguro: conn.idempotent ? 'sí: el servicio respeta Idempotency-Key' : 'no: si el resultado es incierto se concilia a mano',
     };
   },
@@ -77,9 +79,13 @@ export const httpJson: OperationType<HttpJsonParams> = {
   },
 };
 
-export const OPERATIONS: Record<string, OperationType<any>> = { [httpJson.id]: httpJson };
+/** Any operation type: its params are validated by its own schema before use. */
+// biome-ignore lint/suspicious/noExplicitAny: a registry of operations with different parameter types
+export type AnyOperation = OperationType<any>;
 
-export function operation(id: string): OperationType<any> {
+export const OPERATIONS: Record<string, AnyOperation> = { [httpJson.id]: httpJson };
+
+export function operation(id: string): AnyOperation {
   const op = OPERATIONS[id];
   if (!op) throw new OperationError(`operación desconocida: ${id} (disponibles: ${Object.keys(OPERATIONS).join(', ')})`);
   return op;

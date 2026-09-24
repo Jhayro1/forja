@@ -1,5 +1,5 @@
 import type { Role } from '../../core/engine.js';
-import { taskResources, type Plan, type PlanTask } from '../../plan/plan.js';
+import { type Plan, type PlanTask, taskResources } from '../../plan/plan.js';
 import type { TaskRow } from '../../store/projections.js';
 
 /**

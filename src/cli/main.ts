@@ -1,8 +1,9 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
 import { Command, CommanderError } from 'commander';
-import { overall, runChecks, type Level } from '../doctor/checks.js';
+import { type Level, overall, runChecks } from '../doctor/checks.js';
 import { ConfigError } from '../registry/config.js';
 import { ProjectError } from '../registry/projects.js';
+import { FORJA_VERSION } from '../version.js';
 import { registerActionCommands } from './commands/actions.js';
 import { registerConformanceCommands } from './commands/conformance.js';
 import { registerMcpCommands } from './commands/mcp.js';
@@ -10,14 +11,13 @@ import { registerMemoryCommands } from './commands/memory.js';
 import { registerOpsCommands } from './commands/ops.js';
 import { registerPilotCommands } from './commands/pilot.js';
 import { registerPlanCommands } from './commands/plan.js';
+import { registerProfileCommands } from './commands/profile.js';
 import { registerProjectCommands } from './commands/projects.js';
 import { registerRunCommands } from './commands/run.js';
 import { registerTaskControlCommands } from './commands/task-control.js';
 import { registerUiCommands } from './commands/ui.js';
 import { registerVaultCommands } from './commands/vault.js';
-import { FORJA_VERSION } from '../version.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from './context.js';
-
+import { CliError, EXIT, type GlobalOptions, print, printJson } from './context.js';
 
 // `forja estado | head` closes the pipe early: that is a normal end, not a crash.
 process.stdout.on('error', (error: NodeJS.ErrnoException) => {
@@ -60,6 +60,7 @@ program
 
 registerProjectCommands(program);
 registerOpsCommands(program);
+registerProfileCommands(program);
 registerPlanCommands(program);
 registerRunCommands(program);
 registerTaskControlCommands(program);

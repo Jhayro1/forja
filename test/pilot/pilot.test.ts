@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
-import { runMetrics, type RunMetrics } from '../../src/pilot/metrics.js';
+import { type RunMetrics, runMetrics } from '../../src/pilot/metrics.js';
 import { MIN_RUNS, pilotReport, renderPilotMarkdown } from '../../src/pilot/report.js';
-import { Orchestrator, answerTaskQuestion, getRun, startOrResumeRun } from '../../src/run/orchestrator.js';
+import { answerTaskQuestion, getRun, Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { HAS_BWRAP, testEngine } from '../helpers/engine.js';
 import { FILES, seedApprovedPlan } from '../run/fixture.js';
 

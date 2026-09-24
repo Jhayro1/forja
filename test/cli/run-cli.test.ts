@@ -8,7 +8,7 @@ import { createEngine } from '../../src/core/engine.js';
 import { readConfig } from '../../src/registry/config.js';
 import { checkoutDir } from '../../src/registry/home.js';
 import { EventStore } from '../../src/store/event-store.js';
-import { HAS_BWRAP, ROOT, ensureBuilt } from '../helpers/engine.js';
+import { ensureBuilt, HAS_BWRAP, ROOT } from '../helpers/engine.js';
 import { FILES, seedApprovedPlanIn, sh } from '../run/fixture.js';
 
 /**
@@ -48,7 +48,10 @@ describe.skipIf(!HAS_BWRAP)('forja run por el CLI (agentes simulados en sandbox)
         tareas: {
           'T-001': [write('T-001')],
           'T-002': [write('T-002')],
-          'T-003': [{ cuando_contiene: 'Sí, con dos decimales', ...write('T-003') }, { pasos: [], resultado: 'NECESITA_ACLARACION: ¿Se permiten montos con decimales?' }],
+          'T-003': [
+            { cuando_contiene: 'Sí, con dos decimales', ...write('T-003') },
+            { pasos: [], resultado: 'NECESITA_ACLARACION: ¿Se permiten montos con decimales?' },
+          ],
           'T-004': [write('T-004')],
           'T-005': [write('T-005')],
         },

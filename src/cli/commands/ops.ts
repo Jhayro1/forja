@@ -1,9 +1,9 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
 import { createBackup, listBackups, restoreBackup, verifyBackup } from '../../ops/backup.js';
-import { LockHeldError, type LockFile } from '../../registry/lock.js';
+import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { acquireOrchestratorLock } from '../../run/process.js';
-import { CliError, EXIT, openProject, print, printJson, type GlobalOptions } from '../context.js';
+import { CliError, EXIT, type GlobalOptions, openProject, print, printJson } from '../context.js';
 
 export function registerOpsCommands(program: Command): void {
   const backup = program.command('backup').description('copias de seguridad del estado del proyecto');

@@ -132,7 +132,13 @@ export async function execute(order: ExecutorOrder): Promise<ExecutorResult> {
   };
   try {
     const res = await send(target, ip, r.method, headers, r.body, order.timeoutMs);
-    return { phase: 'respuesta', status: res.status, etag: (res.headers.etag as string | undefined) ?? null, location: (res.headers.location as string | undefined) ?? null, body: res.body.slice(0, 4096) };
+    return {
+      phase: 'respuesta',
+      status: res.status,
+      etag: (res.headers.etag as string | undefined) ?? null,
+      location: (res.headers.location as string | undefined) ?? null,
+      body: res.body.slice(0, 4096),
+    };
   } catch (e) {
     const err = e as NodeJS.ErrnoException & { uncertain?: boolean };
     if (!err.uncertain && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH'].includes(err.code ?? '')) {

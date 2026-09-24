@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SimulatedAdapter } from '../../src/providers/adapters.js';
-import { ConformanceStore, SIMULATED_CONFORMANCE, conformanceProblems, runConformance, type ConformanceReport } from '../../src/providers/conformance.js';
-import { HAS_BWRAP, ROOT, RUNNER, ensureBuilt } from '../helpers/engine.js';
+import { type ConformanceReport, ConformanceStore, conformanceProblems, runConformance, SIMULATED_CONFORMANCE } from '../../src/providers/conformance.js';
+import { ensureBuilt, HAS_BWRAP, ROOT, RUNNER } from '../helpers/engine.js';
 
 let dir: string;
 beforeAll(() => {
@@ -29,7 +29,12 @@ describe.skipIf(!HAS_BWRAP)('matriz de conformidad (V2-040)', () => {
     const bad = { ...GOOD, edicion: { pasos: [{ escribir: { ruta: 'hola.txt', contenido: 'otra cosa' } }], resultado: 'LISTO' }, esquema: { pasos: [], resultado: 'no es json' } };
     const r = await runConformance({ adapter: sim(), model: 'sim', cliVersion: 'forja-0', dir: join(dir, 'mal'), runnerScript: RUNNER, simulation: bad, timeoutMs: 30_000 });
     expect(r.passed).toBe(false);
-    expect(r.checks.filter((c) => c.estado === 'fallo').map((c) => c.id).sort()).toEqual(['edicion', 'esquema']);
+    expect(
+      r.checks
+        .filter((c) => c.estado === 'fallo')
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(['edicion', 'esquema']);
   }, 120_000);
 });
 

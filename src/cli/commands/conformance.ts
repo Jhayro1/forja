@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { ConformanceStore, SIMULATED_CONFORMANCE, cliVersion, runConformance, type ConformanceReport } from '../../providers/conformance.js';
+import { type ConformanceReport, ConformanceStore, cliVersion, runConformance, SIMULATED_CONFORMANCE } from '../../providers/conformance.js';
 import { FORJA_VERSION } from '../../version.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { openEngine } from '../engine-context.js';
 
 const ICON = { ok: '✔', fallo: '✘', desconocido: '?' } as const;

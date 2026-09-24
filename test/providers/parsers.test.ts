@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { summarize, type ProviderEvent } from '../../src/providers/normalized.js';
-import { simulateProviderOutput, type SimulationFaults } from '../../src/providers/simulated.js';
-import { parseProviderStream, type ProviderKind } from '../../src/providers/stream.js';
+import { type ProviderEvent, summarize } from '../../src/providers/normalized.js';
+import { type SimulationFaults, simulateProviderOutput } from '../../src/providers/simulated.js';
+import { type ProviderKind, parseProviderStream } from '../../src/providers/stream.js';
 
 const FIX = join(import.meta.dirname, '../../m0/fixtures');
 

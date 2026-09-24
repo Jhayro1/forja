@@ -61,7 +61,9 @@ export function progressLine(s: RunSnapshot): string {
 
 export function taskDetailLines(t: TaskView, def: PlanTask | undefined): string[] {
   const e = t.exec;
-  const steps = (JSON.parse(e.steps ?? '[]') as { paso: string; ok: boolean; detalle?: string }[]).map((s) => `  ${s.ok ? '✔' : '✘'} ${s.paso}${s.detalle && !s.ok ? `: ${s.detalle.split('\n')[0]}` : ''}`);
+  const steps = (JSON.parse(e.steps ?? '[]') as { paso: string; ok: boolean; detalle?: string }[]).map(
+    (s) => `  ${s.ok ? '✔' : '✘'} ${s.paso}${s.detalle && !s.ok ? `: ${s.detalle.split('\n')[0]}` : ''}`,
+  );
   const files = JSON.parse(e.files ?? '[]') as string[];
   const lines = [
     `${t.id} · ${t.title}`,
@@ -84,7 +86,16 @@ export function taskDetailLines(t: TaskView, def: PlanTask | undefined): string[
     ...(steps.length ? ['', 'Verificación:', ...steps] : []),
     ...(e.question ? ['', 'Pregunta del agente:', ...e.question.split('\n').map((l) => `  ${l}`)] : []),
     ...(e.answer ? ['Tu respuesta:', ...e.answer.split('\n').map((l) => `  ${l}`)] : []),
-    ...(e.feedback ? ['', 'Indicaciones para el próximo intento:', ...e.feedback.split('\n').slice(0, 30).map((l) => `  ${l}`)] : []),
+    ...(e.feedback
+      ? [
+          '',
+          'Indicaciones para el próximo intento:',
+          ...e.feedback
+            .split('\n')
+            .slice(0, 30)
+            .map((l) => `  ${l}`),
+        ]
+      : []),
     ...(e.last_error ? ['', `Último error: ${e.last_error}`] : []),
   ];
   return lines;

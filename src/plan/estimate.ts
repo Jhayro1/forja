@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import type { ForjaConfig } from '../registry/config.js';
-import { waves, type Plan, type PlanTask } from './plan.js';
+import { type Plan, type PlanTask, waves } from './plan.js';
 
 /**
  * Pre-run estimate (v2/07 · Presupuestos): works only with persisted inputs, never

@@ -119,7 +119,9 @@ export function pilotReport(metrics: RunMetrics[]): PilotReport {
   return {
     condiciones,
     recomendacion,
-    modelos: [...models.entries()].map(([modelo, v]) => ({ modelo, tareas: v.tareas, tasa_primer_intento: ratio(v.primer, v.tareas) ?? 0 })).sort((a, b) => b.tasa_primer_intento - a.tasa_primer_intento),
+    modelos: [...models.entries()]
+      .map(([modelo, v]) => ({ modelo, tareas: v.tareas, tasa_primer_intento: ratio(v.primer, v.tareas) ?? 0 }))
+      .sort((a, b) => b.tasa_primer_intento - a.tasa_primer_intento),
     sin_aceptar: metrics.filter((m) => !m.aceptado).map((m) => ({ run_id: m.run_id, estado: m.estado })),
   };
 }

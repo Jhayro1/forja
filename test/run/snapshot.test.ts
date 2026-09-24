@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Simulation } from '../../src/core/engine.js';
 import { EngineBoardSource, taskLogLines } from '../../src/cli/board-source.js';
-import { agentActivity, launchPrompt, readSpoolTail, readableLog } from '../../src/run/activity.js';
+import type { Simulation } from '../../src/core/engine.js';
+import { agentActivity, launchPrompt, readableLog, readSpoolTail } from '../../src/run/activity.js';
 import { taskDetailLines } from '../../src/run/describe.js';
-import { Orchestrator, answerTaskQuestion, startOrResumeRun } from '../../src/run/orchestrator.js';
+import { answerTaskQuestion, Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { RunLog } from '../../src/run/run-log.js';
 import { currentChange, elapsed, runSnapshot } from '../../src/run/snapshot.js';
 import { taskDiff } from '../../src/run/task-diff.js';
@@ -55,16 +55,17 @@ describe('vista del run (estado, preguntas y tablero leen lo mismo)', () => {
 
     const s = runSnapshot(t.engine, currentChange(t.engine)!);
     expect(s.run?.run_id).toBe(runId);
-    expect(s.pending).toEqual([
-      { kind: 'pregunta_tarea', id: 'T-003', text: '¿Se permiten montos con decimales?', action: 'forja responder T-003 "<respuesta>"' },
-    ]);
+    expect(s.pending).toEqual([{ kind: 'pregunta_tarea', id: 'T-003', text: '¿Se permiten montos con decimales?', action: 'forja responder T-003 "<respuesta>"' }]);
     expect(s.nextStep).toMatch(/forja preguntas/);
     expect(s.counts.esperando_respuesta).toBe(1);
     expect(s.usage.find((u) => u.role === 'trabajador')?.calls).toBeGreaterThanOrEqual(3);
     expect(log.tail(100).some((l) => /\? T-003 pregunta/.test(l))).toBe(true);
 
     const task = s.tasks.find((x) => x.id === 'T-003')!;
-    const detail = taskDetailLines(task, s.plan!.tareas.find((x) => x.id === 'T-003'));
+    const detail = taskDetailLines(
+      task,
+      s.plan!.tareas.find((x) => x.id === 'T-003'),
+    );
     expect(detail).toContain('Pregunta del agente:');
     expect(detail.join('\n')).toMatch(/Registrar fiado/);
     expect(taskLogLines(task).join('\n')).toMatch(/⚙ Write src\/uc-001\.mjs/);
@@ -98,7 +99,7 @@ describe('lectura de registros', () => {
   it('lee sólo registros completos al cortar el final del spool', () => {
     const d = dir();
     try {
-      const rec = (seq: number, line: string) => JSON.stringify({ seq, ts: '2026-09-24T10:00:0' + seq + 'Z', stream: 'stdout', line });
+      const rec = (seq: number, line: string) => JSON.stringify({ seq, ts: `2026-09-24T10:00:0${seq}Z`, stream: 'stdout', line });
       const tool = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } });
       writeFileSync(join(d, 'spool.jsonl'), `${rec(1, tool)}\n${rec(2, 'x'.repeat(300))}\n${rec(3, tool)}\n{"seq":4,"ts":"cortado`);
       expect(readSpoolTail(d).map((r) => r.seq)).toEqual([1, 2, 3]);

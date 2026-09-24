@@ -1,13 +1,13 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LockFile, currentIdentity } from '../registry/lock.js';
+import { currentIdentity, LockFile } from '../registry/lock.js';
 import { Redactor } from '../security/redact.js';
 import { AllowlistProxy, hostMatcher } from './netproxy.js';
 import { FILES, LaunchOrder, type LaunchResult, type SpoolRecord } from './order.js';
-import { SANDBOX_HELPER_DIR, SANDBOX_PROXY_SOCKET, bwrapArgs } from './sandbox.js';
+import { bwrapArgs, SANDBOX_HELPER_DIR, SANDBOX_PROXY_SOCKET } from './sandbox.js';
 
 const HEARTBEAT_MS = 5000;
 const BRIDGE_PORT = 18080;
@@ -131,11 +131,17 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
         });
         await proxy.start();
       }
-      const inner = proxySocket
-        ? [process.execPath, `${SANDBOX_HELPER_DIR}/bridge.js`, SANDBOX_PROXY_SOCKET, String(BRIDGE_PORT), '--', ...order.argv]
-        : order.argv;
+      const inner = proxySocket ? [process.execPath, `${SANDBOX_HELPER_DIR}/bridge.js`, SANDBOX_PROXY_SOCKET, String(BRIDGE_PORT), '--', ...order.argv] : order.argv;
       const env = proxySocket
-        ? { ...order.env, HTTPS_PROXY: `http://127.0.0.1:${BRIDGE_PORT}`, HTTP_PROXY: `http://127.0.0.1:${BRIDGE_PORT}`, https_proxy: `http://127.0.0.1:${BRIDGE_PORT}`, http_proxy: `http://127.0.0.1:${BRIDGE_PORT}`, NO_PROXY: '', no_proxy: '' }
+        ? {
+            ...order.env,
+            HTTPS_PROXY: `http://127.0.0.1:${BRIDGE_PORT}`,
+            HTTP_PROXY: `http://127.0.0.1:${BRIDGE_PORT}`,
+            https_proxy: `http://127.0.0.1:${BRIDGE_PORT}`,
+            http_proxy: `http://127.0.0.1:${BRIDGE_PORT}`,
+            NO_PROXY: '',
+            no_proxy: '',
+          }
         : order.env;
       const spec = {
         workspace: order.cwd,

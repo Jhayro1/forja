@@ -19,12 +19,28 @@ const Scope = z.object({ tipo: z.string().nullable(), archivos: z.array(z.string
 const Proposed = z.object({ text: z.string().min(1).max(1000), scope: Scope, evidence: z.record(z.string(), z.unknown()) }).strict();
 const Reviewed = z.object({ state: z.enum(['aprobada', 'rechazada']), actor: z.string(), note: z.string() }).strict();
 
-export type Lesson = { lesson_id: string; text: string; scope: z.infer<typeof Scope>; evidence: Record<string, unknown>; state: 'propuesta' | 'aprobada' | 'rechazada'; reviewed_by: string | null; note: string | null; created_at: string };
+export type Lesson = {
+  lesson_id: string;
+  text: string;
+  scope: z.infer<typeof Scope>;
+  evidence: Record<string, unknown>;
+  state: 'propuesta' | 'aprobada' | 'rechazada';
+  reviewed_by: string | null;
+  note: string | null;
+  created_at: string;
+};
 
 export function applyMemoryEvent(db: Db, e: StoredEvent): void {
   if (e.type === LEV.proposed) {
     const p = Proposed.parse(e.payload);
-    db.prepare("INSERT INTO lessons (lesson_id, text, scope, evidence, state, created_at, updated_seq) VALUES (?, ?, ?, ?, 'propuesta', ?, ?)").run(e.aggregate_id, p.text, JSON.stringify(p.scope), JSON.stringify(p.evidence), e.recorded_at, e.seq);
+    db.prepare("INSERT INTO lessons (lesson_id, text, scope, evidence, state, created_at, updated_seq) VALUES (?, ?, ?, ?, 'propuesta', ?, ?)").run(
+      e.aggregate_id,
+      p.text,
+      JSON.stringify(p.scope),
+      JSON.stringify(p.evidence),
+      e.recorded_at,
+      e.seq,
+    );
   } else if (e.type === LEV.reviewed) {
     const p = Reviewed.parse(e.payload);
     db.prepare('UPDATE lessons SET state = ?, reviewed_by = ?, note = ?, updated_seq = ? WHERE lesson_id = ?').run(p.state, p.actor, p.note, e.seq, e.aggregate_id);
@@ -39,7 +55,10 @@ export class LessonService {
   constructor(private readonly store: EventStore) {}
 
   list(state?: Lesson['state']): Lesson[] {
-    const rows = this.store.db.prepare(`SELECT * FROM lessons ${state ? 'WHERE state = ?' : ''} ORDER BY created_at DESC`).all(...(state ? [state] : [])) as (Omit<Lesson, 'scope' | 'evidence'> & { scope: string; evidence: string })[];
+    const rows = this.store.db.prepare(`SELECT * FROM lessons ${state ? 'WHERE state = ?' : ''} ORDER BY created_at DESC`).all(...(state ? [state] : [])) as (Omit<Lesson, 'scope' | 'evidence'> & {
+      scope: string;
+      evidence: string;
+    })[];
     return rows.map((r) => ({ ...r, scope: JSON.parse(r.scope), evidence: JSON.parse(r.evidence) }));
   }
 
@@ -72,8 +91,6 @@ export class LessonService {
   /** Approved lessons whose scope touches this task (same type or overlapping files). */
   forTask(task: PlanTask): Lesson[] {
     const mine = [...task.escribe, ...task.lee];
-    return this.list('aprobada').filter(
-      (l) => l.scope.tipo === task.tipo || l.scope.archivos.some((f) => mine.some((g) => f === g || matchesGlob(f, g) || matchesGlob(g, f))),
-    );
+    return this.list('aprobada').filter((l) => l.scope.tipo === task.tipo || l.scope.archivos.some((f) => mine.some((g) => f === g || matchesGlob(f, g) || matchesGlob(g, f))));
   }
 }

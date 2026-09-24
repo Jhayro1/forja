@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
-import { AdapterError, ClaudeAdapter, CodexAdapter, SimulatedAdapter, type LaunchParams, type ProviderAdapter, type ToolProfile } from '../providers/adapters.js';
+import { AdapterError, ClaudeAdapter, CodexAdapter, type LaunchParams, type ProviderAdapter, SimulatedAdapter, type ToolProfile } from '../providers/adapters.js';
 import type { ForjaConfig } from '../registry/config.js';
-import { runToCompletion, type LaunchOutcome } from '../runtime/launch-service.js';
+import { type LaunchOutcome, runToCompletion } from '../runtime/launch-service.js';
 import type { EventStore } from '../store/event-store.js';
 import { EV } from '../store/planning-projections.js';
 
@@ -20,14 +20,7 @@ export type Engine = {
   simulation?: Simulation;
 };
 
-export function createEngine(opts: {
-  store: EventStore;
-  dataDir: string;
-  config: ForjaConfig;
-  runnerScript?: string;
-  simulation?: Simulation;
-  adapters?: Partial<Engine['adapters']>;
-}): Engine {
+export function createEngine(opts: { store: EventStore; dataDir: string; config: ForjaConfig; runnerScript?: string; simulation?: Simulation; adapters?: Partial<Engine['adapters']> }): Engine {
   return {
     store: opts.store,
     dataDir: opts.dataDir,
@@ -203,31 +196,28 @@ export function recordUsage(engine: Engine, opts: Pick<CallOptions, 'role' | 'sc
     return total;
   };
   const scope = opts.scope;
-  engine.store.execute(
-    { request_id: `uso:${launchId}`, type: 'registrar_uso', input: { launchId } },
-    () => ({
-      result: null,
-      events: [
-        {
-          type: EV.usage,
-          aggregate_type: scope.task_id ? 'tarea' : 'cambio',
-          aggregate_id: scope.task_id ? `${scope.run_id}/${scope.task_id}` : (scope.change_id ?? 'sin_cambio'),
-          ...(scope.run_id ? { run_id: scope.run_id } : {}),
-          ...(scope.task_id ? { task_id: scope.task_id } : {}),
+  engine.store.execute({ request_id: `uso:${launchId}`, type: 'registrar_uso', input: { launchId } }, () => ({
+    result: null,
+    events: [
+      {
+        type: EV.usage,
+        aggregate_type: scope.task_id ? 'tarea' : 'cambio',
+        aggregate_id: scope.task_id ? `${scope.run_id}/${scope.task_id}` : (scope.change_id ?? 'sin_cambio'),
+        ...(scope.run_id ? { run_id: scope.run_id } : {}),
+        ...(scope.task_id ? { task_id: scope.task_id } : {}),
+        launch_id: launchId,
+        payload: {
           launch_id: launchId,
-          payload: {
-            launch_id: launchId,
-            role: opts.role,
-            provider,
-            model: outcome.summary.model ?? model,
-            input: sum('inputTokens'),
-            output: sum('outputTokens'),
-            cache_read: sum('cacheReadTokens'),
-            cache_write: sum('cacheWriteTokens'),
-            cost_micro: last?.semantics === 'acumulado_sesion' ? last.costEquivalentMicroUsd : null,
-          },
+          role: opts.role,
+          provider,
+          model: outcome.summary.model ?? model,
+          input: sum('inputTokens'),
+          output: sum('outputTokens'),
+          cache_read: sum('cacheReadTokens'),
+          cache_write: sum('cacheWriteTokens'),
+          cost_micro: last?.semantics === 'acumulado_sesion' ? last.costEquivalentMicroUsd : null,
         },
-      ],
-    }),
-  );
+      },
+    ],
+  }));
 }

@@ -254,6 +254,17 @@ const MIGRATIONS: readonly string[] = [
     updated_seq INTEGER NOT NULL
   );
   `,
+  `
+  -- Perfil aprobado y línea base del repositorio antes de tocarlo (MEJORAS 1.2, V2-030).
+  CREATE TABLE baselines (
+    baseline_id  TEXT PRIMARY KEY,
+    sha          TEXT NOT NULL,
+    profile_hash TEXT NOT NULL,
+    steps        TEXT NOT NULL,
+    recorded_at  TEXT NOT NULL,
+    created_seq  INTEGER NOT NULL
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;
@@ -263,16 +274,12 @@ export function migrate(db: Db): void {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
   const current = row ? Number(row.value) : 0;
   if (current > CURRENT_SCHEMA) {
-    throw new Error(
-      `la base de datos es de una versión más nueva de Forja (esquema ${current}, esta versión conoce ${CURRENT_SCHEMA}); actualiza Forja`,
-    );
+    throw new Error(`la base de datos es de una versión más nueva de Forja (esquema ${current}, esta versión conoce ${CURRENT_SCHEMA}); actualiza Forja`);
   }
   for (let v = current; v < CURRENT_SCHEMA; v++) {
     transaction(db, () => {
       db.exec(MIGRATIONS[v]!);
-      db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
-        String(v + 1),
-      );
+      db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(v + 1));
     });
   }
 }

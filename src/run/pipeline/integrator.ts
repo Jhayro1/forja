@@ -6,7 +6,7 @@ import { runCommand } from '../../verify/commands.js';
 import { acceptanceFilesFor } from '../../verify/verify.js';
 import type { ExecRow } from '../records.js';
 import { isNoChangeCandidate } from './outcome-handler.js';
-import { TEST_FILE, greenTests } from './regression.js';
+import { greenTests, TEST_FILE } from './regression.js';
 import type { RunContext } from './run-context.js';
 
 /**
@@ -71,7 +71,7 @@ export class Integrator {
     }
     for (const name of ['typecheck', 'build'] as const) {
       const recipe = c[name];
-      if (!recipe) continue;
+      if (!recipe || ctx.preexisting.has(name)) continue;
       const r = await runCommand(ctx.cmd, wtPath, recipe);
       if (!r.ok) {
         ctx.qualityFailure(taskId, `Al integrarlo con lo demás falló «${name}»:\n${r.output}`);

@@ -3,18 +3,18 @@ import { ConnectionStore } from '../actions/connections.js';
 import type { ConnectionsBackend } from '../api/modules/connections.js';
 import type { MemoryBackend } from '../api/modules/memory.js';
 import type { RunsBackend } from '../api/modules/runs.js';
+import type { EventFeed } from '../api/server.js';
+import { resumeProvider } from '../core/engine.js';
+import { McpRegistry } from '../mcp/registry.js';
 import { GraphStore } from '../memory/graph-store.js';
 import { LessonService } from '../memory/lessons.js';
-import { McpRegistry } from '../mcp/registry.js';
-import { actionService } from './commands/actions.js';
-import type { EventFeed } from '../api/server.js';
 import { approvePlan } from '../plan/approve.js';
-import { resumeProvider } from '../core/engine.js';
 import { activeChange } from '../planner/session.js';
 import { runningOrchestrator } from '../run/process.js';
-import { snapshotJson } from '../run/snapshot-json.js';
 import type { TaskView } from '../run/snapshot.js';
+import { snapshotJson } from '../run/snapshot-json.js';
 import { EngineBoardSource } from './board-source.js';
+import { actionService } from './commands/actions.js';
 import type { EngineContext } from './engine-context.js';
 
 /**

@@ -9,14 +9,10 @@ const Id = (re: RegExp, example: string) => z.string().regex(re, `formato ${exam
 
 export const SpecBody = z
   .object({
-    sistema: z
-      .object({ nombre: z.string(), objetivo: z.string(), alcance: z.array(z.string()), fuera_de_alcance: z.array(z.string()) })
-      .strict(),
+    sistema: z.object({ nombre: z.string(), objetivo: z.string(), alcance: z.array(z.string()), fuera_de_alcance: z.array(z.string()) }).strict(),
     actores: z.array(z.object({ id: Id(/^A-\d{3}$/, 'A-001'), nombre: z.string(), tipo: z.enum(['humano', 'sistema']), descripcion: z.string() }).strict()),
     terminos: z.array(z.object({ termino: z.string(), definicion: z.string() }).strict()),
-    requisitos: z.array(
-      z.object({ id: Id(/^REQ-\d{3}$/, 'REQ-001'), texto: z.string(), prioridad: z.enum(['alta', 'media', 'baja']), origen: z.string() }).strict(),
-    ),
+    requisitos: z.array(z.object({ id: Id(/^REQ-\d{3}$/, 'REQ-001'), texto: z.string(), prioridad: z.enum(['alta', 'media', 'baja']), origen: z.string() }).strict()),
     entidades: z.array(
       z
         .object({
@@ -38,9 +34,7 @@ export const SpecBody = z
           precondiciones: z.array(z.string()),
           postcondiciones: z.array(z.string()),
           pasos: z.array(z.object({ id: Id(/^P\d+$/, 'P1'), texto: z.string() }).strict()).min(1),
-          alternos: z.array(
-            z.object({ id: Id(/^AL\d+$/, 'AL1'), desde_paso: z.string(), condicion: z.string(), pasos: z.array(z.string()), retorno: z.string().nullable() }).strict(),
-          ),
+          alternos: z.array(z.object({ id: Id(/^AL\d+$/, 'AL1'), desde_paso: z.string(), condicion: z.string(), pasos: z.array(z.string()), retorno: z.string().nullable() }).strict()),
           excepciones: z.array(z.object({ id: Id(/^EX\d+$/, 'EX1'), desde_paso: z.string(), condicion: z.string(), resultado: z.string() }).strict()),
           excepciones_no_aplican: z.string().nullable(),
           reglas: z.array(z.string()),
@@ -62,9 +56,7 @@ export const SpecBody = z
         })
         .strict(),
     ),
-    contratos: z.array(
-      z.object({ id: Id(/^CT-\d{3}$/, 'CT-001'), tipo: z.enum(['endpoint', 'tipo', 'evento', 'esquema', 'otro']), descripcion: z.string(), detalle: z.string() }).strict(),
-    ),
+    contratos: z.array(z.object({ id: Id(/^CT-\d{3}$/, 'CT-001'), tipo: z.enum(['endpoint', 'tipo', 'evento', 'esquema', 'otro']), descripcion: z.string(), detalle: z.string() }).strict()),
     rnf: z.array(
       z
         .object({
@@ -82,9 +74,7 @@ export const SpecBody = z
       z.object({ id: Id(/^I-\d{3}$/, 'I-001'), tipo: z.string(), recurso: z.string(), operaciones: z.array(z.string()), sensibilidad: z.enum(['baja', 'media', 'alta']) }).strict(),
     ),
     decisiones: z.array(z.object({ id: z.string(), texto: z.string(), motivo: z.string(), estado: z.enum(['aprobada', 'propuesta', 'sustituida']) }).strict()),
-    preguntas: z.array(
-      z.object({ id: Id(/^Q-\d{3}$/, 'Q-001'), texto: z.string(), bloquea: z.array(z.string()), responsable: z.string(), condicion: z.string() }).strict(),
-    ),
+    preguntas: z.array(z.object({ id: Id(/^Q-\d{3}$/, 'Q-001'), texto: z.string(), bloquea: z.array(z.string()), responsable: z.string(), condicion: z.string() }).strict()),
   })
   .strict();
 export type SpecBody = z.infer<typeof SpecBody>;
@@ -141,7 +131,12 @@ export function validateSpec(spec: SpecBody): SpecIssue[] {
     if (!has(c.caso_uso_id, 'UC-')) err(at, `caso de uso ${c.caso_uso_id} no existe`);
     else if (!c.id.startsWith(`CA-${c.caso_uso_id}-`)) err(at, `el id debe empezar con CA-${c.caso_uso_id}-`);
     for (const r of c.requisitos) if (!has(r, 'REQ-')) err(at, `requisito ${r} no existe`);
-    for (const [k, v] of [['dado', c.dado], ['cuando', c.cuando], ['entonces', c.entonces]] as const) if (!v.trim()) err(at, `«${k}» está vacío`);
+    for (const [k, v] of [
+      ['dado', c.dado],
+      ['cuando', c.cuando],
+      ['entonces', c.entonces],
+    ] as const)
+      if (!v.trim()) err(at, `«${k}» está vacío`);
   });
 
   for (const r of spec.requisitos) {

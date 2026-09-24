@@ -10,7 +10,14 @@ import { graphSelection, simpleSelection } from './selector.js';
  */
 export type EvalCase = { task: PlanTask; needed: string[]; source: string };
 export type SelectorScore = { recall: number | null; archivos_promedio: number; aciertos: number; necesarios: number };
-export type EvalReport = { casos: number; simple: SelectorScore; grafo: SelectorScore; por_caso: { tarea: string; fuente: string; necesarios: string[]; simple: string[]; grafo: string[] }[]; recomendacion: 'grafo' | 'simple' | 'sin_datos'; motivo: string };
+export type EvalReport = {
+  casos: number;
+  simple: SelectorScore;
+  grafo: SelectorScore;
+  por_caso: { tarea: string; fuente: string; necesarios: string[]; simple: string[]; grafo: string[] }[];
+  recomendacion: 'grafo' | 'simple' | 'sin_datos';
+  motivo: string;
+};
 
 function score(selected: string[][], needed: string[][]): SelectorScore {
   let hits = 0;
@@ -20,7 +27,12 @@ function score(selected: string[][], needed: string[][]): SelectorScore {
     total += needed[i]!.length;
     hits += needed[i]!.filter((f) => s.has(f)).length;
   }
-  return { recall: total ? Math.round((hits / total) * 100) / 100 : null, archivos_promedio: selected.length ? Math.round((selected.reduce((a, x) => a + x.length, 0) / selected.length) * 10) / 10 : 0, aciertos: hits, necesarios: total };
+  return {
+    recall: total ? Math.round((hits / total) * 100) / 100 : null,
+    archivos_promedio: selected.length ? Math.round((selected.reduce((a, x) => a + x.length, 0) / selected.length) * 10) / 10 : 0,
+    aciertos: hits,
+    necesarios: total,
+  };
 }
 
 export function evaluateSelectors(graph: GraphStore, plan: Plan, tree: string[], cases: EvalCase[]): EvalReport {

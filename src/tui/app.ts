@@ -1,7 +1,7 @@
 import { emitKeypressEvents } from 'node:readline';
 import type { RunSnapshot, TaskView } from '../run/snapshot.js';
-import { colorsEnabled, painter, screen as ansi, type Paint } from './ansi.js';
-import { renderBoard, textBodyRows, textScroll, type BoardModel, type TextScreen } from './board.js';
+import { screen as ansi, colorsEnabled, type Paint, painter } from './ansi.js';
+import { type BoardModel, renderBoard, type TextScreen, textBodyRows, textScroll } from './board.js';
 
 /**
  * Everything the board needs from the rest of Forja (dependency inversion: the
@@ -160,7 +160,7 @@ export class BoardApp {
         break;
       }
       case 't': {
-        if (!task || task.state !== 'bloqueada') {
+        if (task?.state !== 'bloqueada') {
           this.flash('elige una tarea bloqueada para reintentarla');
           break;
         }

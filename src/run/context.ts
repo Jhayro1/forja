@@ -50,7 +50,8 @@ export async function buildWorkerPrompt(input: {
   const rules = spec.reglas.filter((r) => ruleIds.has(r.id) || task.notas.includes(r.id));
   const entityIds = new Set(ucs.flatMap((u) => u.entidades));
   const entities = task.tipo === 'contrato' || task.tipo === 'infraestructura' ? spec.entidades : spec.entidades.filter((e) => entityIds.has(e.id));
-  const contracts = task.tipo === 'contrato' || task.tipo === 'infraestructura' ? spec.contratos : spec.contratos.filter((c) => task.notas.includes(c.id) || ucs.some((u) => c.descripcion.includes(u.id)));
+  const contracts =
+    task.tipo === 'contrato' || task.tipo === 'infraestructura' ? spec.contratos : spec.contratos.filter((c) => task.notas.includes(c.id) || ucs.some((u) => c.descripcion.includes(u.id)));
   for (const c of criteria) fragments.push({ id: c.id, reason: 'criterio de la tarea', bytes: JSON.stringify(c).length });
   for (const r of rules) fragments.push({ id: r.id, reason: 'regla de sus casos de uso', bytes: r.texto.length });
 
@@ -89,9 +90,7 @@ export async function buildWorkerPrompt(input: {
   for (const l of input.lessons ?? []) fragments.push({ id: l.id, reason: 'lección aprobada', bytes: l.text.length });
 
   const c = plan.perfil.comandos;
-  const verify = (['typecheck', 'build', 'lint', 'test'] as const)
-    .map((k) => (c[k] ? `${k}: ${[c[k]!.executable, ...c[k]!.args].join(' ')}` : null))
-    .filter(Boolean);
+  const verify = (['typecheck', 'build', 'lint', 'test'] as const).map((k) => (c[k] ? `${k}: ${[c[k]!.executable, ...c[k]!.args].join(' ')}` : null)).filter(Boolean);
   const data: Record<string, unknown> = {
     tarea: {
       id: task.id,
@@ -111,13 +110,18 @@ export async function buildWorkerPrompt(input: {
     entidades: entities,
     contratos: contracts,
     decisiones: spec.decisiones.filter((d) => d.estado === 'aprobada'),
-    ...(input.lessons?.length ? { lecciones_aprobadas: { nota: 'Aprendidas de tareas anteriores y revisadas por una persona. No son reglas: si contradicen una decisión aprobada, manda la decisión.', lecciones: input.lessons.map((l) => l.text) } } : {}),
+    ...(input.lessons?.length
+      ? {
+          lecciones_aprobadas: {
+            nota: 'Aprendidas de tareas anteriores y revisadas por una persona. No son reglas: si contradicen una decisión aprobada, manda la decisión.',
+            lecciones: input.lessons.map((l) => l.text),
+          },
+        }
+      : {}),
     archivos_del_proyecto: tree.length > 300 ? [...tree.slice(0, 300), `… y ${tree.length - 300} más`] : tree,
     contenido_de_archivos: files,
     ...(excluded.length ? { archivos_no_incluidos: `Léelos si los necesitas: ${excluded.join(', ')}` } : {}),
-    ...(input.feedback
-      ? { intento_anterior: `Este es el intento ${input.attempt}. Tu trabajo anterior sigue en el directorio. Esto falló y debes corregirlo:\n${input.feedback}` }
-      : {}),
+    ...(input.feedback ? { intento_anterior: `Este es el intento ${input.attempt}. Tu trabajo anterior sigue en el directorio. Esto falló y debes corregirlo:\n${input.feedback}` } : {}),
     ...(input.question && input.answer ? { aclaracion: { pregunta: input.question, respuesta: input.answer } } : {}),
   };
   const { prompt } = compose([loadPrompt('trabajo/trabajador')], { contexto: data });

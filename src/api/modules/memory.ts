@@ -25,7 +25,11 @@ export function memoryModule(backend: MemoryBackend): ApiModule {
       {
         method: 'POST',
         path: /^\/v1\/memoria\/lecciones\/(lec_[0-9A-HJKMNP-TV-Z]{26})\/(aprobar|rechazar)$/,
-        handler: async ({ params, body }) => ({ ok: true, leccion: backend.review(params[0]!, params[1] === 'aprobar', stringField(await body(), 'nota', { optional: true }) ?? ''), mensaje: params[1] === 'aprobar' ? 'lección aprobada' : 'lección rechazada' }),
+        handler: async ({ params, body }) => ({
+          ok: true,
+          leccion: backend.review(params[0]!, params[1] === 'aprobar', stringField(await body(), 'nota', { optional: true }) ?? ''),
+          mensaje: params[1] === 'aprobar' ? 'lección aprobada' : 'lección rechazada',
+        }),
       },
     ],
   };

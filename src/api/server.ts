@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { ApiError, SECURITY_HEADERS, cookie, readJson, send, sendError } from './http.js';
-import { SessionManager, safeEqual, type Session } from './session.js';
+import { ApiError, cookie, readJson, SECURITY_HEADERS, send, sendError } from './http.js';
+import { type Session, SessionManager, safeEqual } from './session.js';
 
 /**
  * Local HTTP API and panel (V2-041). Loopback only, no CORS, session cookie +
@@ -115,7 +115,12 @@ export class ApiServer {
       if (required) throw new ApiError(403, 'origen_requerido', 'falta el encabezado Origin');
       return;
     }
-    if (!this.allowedHosts().map((h) => `http://${h}`).includes(origin)) throw new ApiError(403, 'origen_no_permitido', 'origen no permitido');
+    if (
+      !this.allowedHosts()
+        .map((h) => `http://${h}`)
+        .includes(origin)
+    )
+      throw new ApiError(403, 'origen_no_permitido', 'origen no permitido');
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

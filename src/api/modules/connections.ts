@@ -25,7 +25,8 @@ export function connectionsModule(backend: ConnectionsBackend): ApiModule {
         handler: async ({ params, body }) => {
           const b = await body();
           // Approving from the panel binds the exact hash the user saw; execution stays in the terminal (vault).
-          const accion = params[1] === 'aprobar' ? backend.approve(params[0]!, stringField(b, 'hash')!) : backend.discard(params[0]!, stringField(b, 'motivo', { optional: true }) ?? 'descartada desde el panel');
+          const accion =
+            params[1] === 'aprobar' ? backend.approve(params[0]!, stringField(b, 'hash')!) : backend.discard(params[0]!, stringField(b, 'motivo', { optional: true }) ?? 'descartada desde el panel');
           return { ok: true, accion, mensaje: params[1] === 'aprobar' ? 'aprobada: ejecútala en la terminal con forja accion ejecutar' : 'descartada' };
         },
       },

@@ -3,7 +3,7 @@ import { request } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { memoryModule } from '../../src/api/modules/memory.js';
-import { runsModule, type RunsBackend } from '../../src/api/modules/runs.js';
+import { type RunsBackend, runsModule } from '../../src/api/modules/runs.js';
 import { ApiServer, type EventFeed } from '../../src/api/server.js';
 import { SessionManager } from '../../src/api/session.js';
 import { ROOT } from '../helpers/engine.js';
@@ -151,7 +151,10 @@ describe('API local · sesión y protecciones', () => {
     expect((await call('POST', '/v1/tareas/T-001/respuesta', { headers: { Cookie: cookie, 'X-Forja-CSRF': csrf, ...json }, body })).status).toBe(403);
     expect((await call('POST', '/v1/tareas/T-001/respuesta', { headers: { Cookie: cookie, ...origin(), ...json }, body })).status).toBe(403);
     expect((await call('POST', '/v1/tareas/T-001/respuesta', { headers: { Cookie: cookie, ...origin(), 'X-Forja-CSRF': 'otro', ...json }, body })).status).toBe(403);
-    const form = await call('POST', '/v1/tareas/T-001/respuesta', { headers: { Cookie: cookie, ...origin(), 'X-Forja-CSRF': csrf, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'respuesta=si' });
+    const form = await call('POST', '/v1/tareas/T-001/respuesta', {
+      headers: { Cookie: cookie, ...origin(), 'X-Forja-CSRF': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'respuesta=si',
+    });
     expect(form.status).toBe(415);
     const ok = await call('POST', '/v1/tareas/T-001/respuesta', { headers: { Cookie: cookie, ...origin(), 'X-Forja-CSRF': csrf, ...json }, body });
     expect(ok.status).toBe(200);
@@ -271,7 +274,16 @@ describe('API local · memoria', () => {
   it('busca con validación y revisa lecciones con CSRF', async () => {
     const reviews: [string, boolean][] = [];
     const mem = new ApiServer({
-      modules: [memoryModule({ overview: () => ({ grafo: {} }), search: (q) => [{ id: `x:${q}` }], review: (id, ok) => (reviews.push([id, ok]), { id }) })],
+      modules: [
+        memoryModule({
+          overview: () => ({ grafo: {} }),
+          search: (q) => [{ id: `x:${q}` }],
+          review: (id, ok) => {
+            reviews.push([id, ok]);
+            return { id };
+          },
+        }),
+      ],
       feed,
       sessions: server.sessions,
     });

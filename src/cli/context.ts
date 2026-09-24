@@ -1,8 +1,8 @@
 import { join } from 'node:path';
-import { ConfigError, readConfig, type ForjaConfig } from '../registry/config.js';
+import { ConfigError, type ForjaConfig, readConfig } from '../registry/config.js';
 import { checkoutDir, forjaHome } from '../registry/home.js';
 import { ProjectError, resolveCheckout } from '../registry/projects.js';
-import { Registry, type CheckoutRow } from '../registry/registry.js';
+import { type CheckoutRow, Registry } from '../registry/registry.js';
 import { EventStore } from '../store/event-store.js';
 
 // Exit codes from v2/10.

@@ -28,7 +28,17 @@ afterEach(() => {
 
 function services(store: EventStore) {
   const conns = ConnectionStore.in(dir);
-  conns.save({ name: 'pedidos', type: 'http', base_url: 'https://api.example.com/', secret: 'TOKEN', auth_header: 'Authorization', auth_scheme: 'Bearer', idempotent: true, allow_local: false, test_path: null });
+  conns.save({
+    name: 'pedidos',
+    type: 'http',
+    base_url: 'https://api.example.com/',
+    secret: 'TOKEN',
+    auth_header: 'Authorization',
+    auth_scheme: 'Bearer',
+    idempotent: true,
+    allow_local: false,
+    test_path: null,
+  });
   const actions = new ActionService(store, conns);
   actions.link('pedidos', ['http.json']);
   return actions;
@@ -76,9 +86,11 @@ describe('servidor MCP externo a través del gateway', () => {
     const list = (await call('tools/list', {})) as { tools: { name: string }[] };
     expect(list.tools.map((t) => t.name)).toEqual(['listar_conexiones', 'proponer_accion', 'estado_accion', 'falso__buscar']);
 
-    const tool = async (name: string, args: unknown) => ((await call('tools/call', { name, arguments: args })) as { content: { text: string }[]; isError?: boolean });
+    const tool = async (name: string, args: unknown) => (await call('tools/call', { name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
     expect(JSON.parse((await tool('listar_conexiones', {})).content[0]!.text)).toEqual([{ conexion: 'pedidos', operaciones: ['http.json'] }]);
-    const proposed = JSON.parse((await tool('proponer_accion', { conexion: 'pedidos', operacion: 'http.json', parametros: { ruta: '/pedidos', cuerpo: { a: 1 } }, motivo: 'la tarea crea el pedido' })).content[0]!.text);
+    const proposed = JSON.parse(
+      (await tool('proponer_accion', { conexion: 'pedidos', operacion: 'http.json', parametros: { ruta: '/pedidos', cuerpo: { a: 1 } }, motivo: 'la tarea crea el pedido' })).content[0]!.text,
+    );
     expect(proposed.estado).toBe('pendiente de aprobación humana');
     const action = actions.get(proposed.id);
     expect(action).toMatchObject({ state: 'propuesta', origin: 'agente T-001 · run_1 · la tarea crea el pedido' });
@@ -109,8 +121,19 @@ describe('adaptadores con gateway', () => {
     process.env.CODEX_HOME = codexHome;
     try {
       const params = (mcpSocket?: string) => ({
-        launchId: 'lan_1', fencingToken: 1, runId: 'run_1', taskId: 'T-001', attempt: 1, model: 'm', prompt: 'p', workspace: dir,
-        providerStateDir: join(dir, 'estado'), inputsDir: join(dir, 'in'), tools: 'edicion' as const, timeoutMs: 1000, ...(mcpSocket ? { mcpSocket } : {}),
+        launchId: 'lan_1',
+        fencingToken: 1,
+        runId: 'run_1',
+        taskId: 'T-001',
+        attempt: 1,
+        model: 'm',
+        prompt: 'p',
+        workspace: dir,
+        providerStateDir: join(dir, 'estado'),
+        inputsDir: join(dir, 'in'),
+        tools: 'edicion' as const,
+        timeoutMs: 1000,
+        ...(mcpSocket ? { mcpSocket } : {}),
       });
       const claude = new ClaudeAdapter('/usr/bin/true');
       const withGw = claude.buildOrder(params('/tmp/fmcp-x/1.sock'));
@@ -138,7 +161,10 @@ describe.skipIf(!HAS_BWRAP)('de punta a punta: un agente en el sandbox propone p
     const t = testEngine(({ role, taskId }) => {
       if (role === 'revisor') return { pasos: [], estructurado: { criterios: [], hallazgos: [], veredicto: 'aprobado', resumen: 'ok' } };
       const files = Object.entries(FILES[taskId] ?? {}).map(([ruta, contenido]) => ({ escribir: { ruta, contenido } }));
-      const mcp = taskId === 'T-001' ? [{ mcp: { herramienta: 'proponer_accion', argumentos: { conexion: 'pedidos', operacion: 'http.json', parametros: { ruta: '/avisos', cuerpo: { texto: 'listo' } }, motivo: 'avisar' } } }] : [];
+      const mcp =
+        taskId === 'T-001'
+          ? [{ mcp: { herramienta: 'proponer_accion', argumentos: { conexion: 'pedidos', operacion: 'http.json', parametros: { ruta: '/avisos', cuerpo: { texto: 'listo' } }, motivo: 'avisar' } } }]
+          : [];
       return { pasos: [...mcp, ...files], resultado: 'Listo.' };
     });
     closers.push(t.cleanup);

@@ -18,7 +18,12 @@ export const McpServerDef = z
     tools: z.array(z.string().min(1)).min(1),
     /** ENV variable → vault secret name, injected only into this server's process. */
     secrets: z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string()).default({}),
-    max_response_bytes: z.number().int().positive().max(1024 * 1024).default(64 * 1024),
+    max_response_bytes: z
+      .number()
+      .int()
+      .positive()
+      .max(1024 * 1024)
+      .default(64 * 1024),
     timeout_ms: z.number().int().positive().max(300_000).default(30_000),
     version: z.number().int().positive(),
     updated_at: z.string(),

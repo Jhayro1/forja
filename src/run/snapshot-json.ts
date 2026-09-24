@@ -29,4 +29,3 @@ export function snapshotJson(s: RunSnapshot, runner: { pid: number } | null) {
     siguiente: s.nextStep,
   };
 }
-

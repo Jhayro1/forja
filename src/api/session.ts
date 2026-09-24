@@ -20,9 +20,7 @@ export class SessionManager {
   private readonly codes = new Map<string, number>();
   private readonly sessions = new Map<string, Session>();
 
-  constructor(
-    private readonly opts: { codeTtlMs?: number; sessionTtlMs?: number; now?: () => number } = {},
-  ) {}
+  constructor(private readonly opts: { codeTtlMs?: number; sessionTtlMs?: number; now?: () => number } = {}) {}
 
   private now(): number {
     return this.opts.now?.() ?? Date.now();

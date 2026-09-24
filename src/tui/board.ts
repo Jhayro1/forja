@@ -1,7 +1,7 @@
-import { STATE_ICON, STATE_LABEL, modelOf, progressLine, taskActivityLine } from '../run/describe.js';
+import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine } from '../run/describe.js';
 import { agentTasks, compactTokens, type RunSnapshot, type TaskView } from '../run/snapshot.js';
 import type { ChangePhase } from '../store/planning-projections.js';
-import { fit, sanitize, type Paint, type Style } from './ansi.js';
+import { fit, type Paint, type Style, sanitize } from './ansi.js';
 
 /**
  * Pure rendering of the terminal board (V2-039): model in, lines out. The

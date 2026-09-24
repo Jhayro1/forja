@@ -3,7 +3,7 @@ import { activePauses, allowedModels, resumeProvider } from '../../core/engine.j
 import { reassignTask, requestPause, resumeTask } from '../../run/orchestrator.js';
 import { runningOrchestrator } from '../../run/process.js';
 import { applyTaskControls } from '../../run/task-control.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { openEngine } from '../engine-context.js';
 import { domainError, snapshotOrFail, taskOrFail } from '../run-selection.js';
 
@@ -20,7 +20,7 @@ export function registerTaskControlCommands(program: Command): void {
         const s = snapshotOrFail(ctx);
         const task = taskOrFail(s, id);
         const running = runningOrchestrator(ctx.dataDir) !== null;
-        let r;
+        let r: ReturnType<typeof requestPause>;
         try {
           r = requestPause(ctx.engine, s.run!.run_id, task.id);
           // Nobody runs the run: apply the request here (stops the agent if there is one).
@@ -29,7 +29,7 @@ export function registerTaskControlCommands(program: Command): void {
           throw domainError(error);
         }
         print(r.immediate || !running ? `⏸ ${task.id} pausada.` : `⏸ Se pidió pausar ${task.id}: el run la detiene en cuanto sea seguro.`);
-        print('  Reanúdala con: forja reanudar ' + task.id);
+        print(`  Reanúdala con: forja reanudar ${task.id}`);
       } finally {
         ctx.close();
       }
@@ -43,7 +43,7 @@ export function registerTaskControlCommands(program: Command): void {
       try {
         const s = snapshotOrFail(ctx);
         const task = taskOrFail(s, id);
-        let to;
+        let to: ReturnType<typeof resumeTask>;
         try {
           to = resumeTask(ctx.engine, s.run!.run_id, task.id);
         } catch (error) {

@@ -1,10 +1,10 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { newId } from '../domain/ids.js';
 import { callRole, type Engine } from '../core/engine.js';
-import { EV, type ChangePhase } from '../store/planning-projections.js';
-import { PlannerTurnOutput, closureBlockers, emptyState, mergeTurn, openQuestions, stateForPrompt, type DiscoveryState, type Question } from './discovery.js';
+import { newId } from '../domain/ids.js';
+import { type ChangePhase, EV } from '../store/planning-projections.js';
+import { closureBlockers, type DiscoveryState, emptyState, mergeTurn, openQuestions, PlannerTurnOutput, type Question, stateForPrompt } from './discovery.js';
 import { compose, loadPrompt } from './prompts.js';
 
 export class PlannerError extends Error {}
@@ -48,24 +48,24 @@ export function getChange(engine: Engine, changeId: string): ChangeRow {
 
 /** The most recent change that is not delivered or cancelled. */
 export function activeChange(engine: Engine): ChangeRow | undefined {
-  return engine.store.db
-    .prepare("SELECT * FROM changes WHERE phase NOT IN ('entregado', 'cancelado') ORDER BY created_at DESC LIMIT 1")
-    .get() as ChangeRow | undefined;
+  return engine.store.db.prepare("SELECT * FROM changes WHERE phase NOT IN ('entregado', 'cancelado') ORDER BY created_at DESC LIMIT 1").get() as ChangeRow | undefined;
 }
 
 export function getDiscovery(engine: Engine, changeId: string): { revision: number; state: DiscoveryState; approvedRevision: number | null } {
   const change = getChange(engine, changeId);
-  const row = engine.store.db.prepare('SELECT * FROM discovery WHERE change_id = ?').get(changeId) as
-    | { revision: number; state: string; approved_revision: number | null }
-    | undefined;
+  const row = engine.store.db.prepare('SELECT * FROM discovery WHERE change_id = ?').get(changeId) as { revision: number; state: string; approved_revision: number | null } | undefined;
   if (!row) return { revision: 0, state: emptyState(change.mode, change.title), approvedRevision: null };
   return { revision: row.revision, state: JSON.parse(row.state) as DiscoveryState, approvedRevision: row.approved_revision };
 }
 
 export function transcript(engine: Engine, changeId: string): { n: number; user_text: string | null; planner_text: string; provider: string; model: string | null }[] {
-  return engine.store.db
-    .prepare('SELECT n, user_text, planner_text, provider, model FROM planner_turns WHERE change_id = ? ORDER BY n')
-    .all(changeId) as { n: number; user_text: string | null; planner_text: string; provider: string; model: string | null }[];
+  return engine.store.db.prepare('SELECT n, user_text, planner_text, provider, model FROM planner_turns WHERE change_id = ? ORDER BY n').all(changeId) as {
+    n: number;
+    user_text: string | null;
+    planner_text: string;
+    provider: string;
+    model: string | null;
+  }[];
 }
 
 const CONTRACT = `Contrato de salida:
@@ -92,10 +92,7 @@ export type TurnResult = {
  * + user message), call the planner role with structured output, validate, apply
  * authority rules and persist the new revision in a single event.
  */
-export async function runPlannerTurn(
-  engine: Engine,
-  input: { changeId: string; userText: string | null; workspace: string; evidence?: object; closing?: boolean },
-): Promise<TurnResult> {
+export async function runPlannerTurn(engine: Engine, input: { changeId: string; userText: string | null; workspace: string; evidence?: object; closing?: boolean }): Promise<TurnResult> {
   const change = getChange(engine, input.changeId);
   if (change.phase !== 'descubrir') throw new PlannerError(`el cambio está en la fase «${change.phase}»; el descubrimiento ya se aprobó`);
   const { revision, state } = getDiscovery(engine, input.changeId);
@@ -129,7 +126,13 @@ export async function runPlannerTurn(
     used = { provider: call.provider, model: call.outcome.summary.model ?? call.model };
     const parsed = PlannerTurnOutput.safeParse(call.outcome.summary.structured);
     if (parsed.success) output = parsed.data;
-    else lastError = call.outcome.summary.error?.message ?? parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    else
+      lastError =
+        call.outcome.summary.error?.message ??
+        parsed.error.issues
+          .slice(0, 3)
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join('; ');
   }
   if (!output) throw new PlannerError(`el planeador no devolvió un turno válido tras 3 intentos: ${lastError}`);
 

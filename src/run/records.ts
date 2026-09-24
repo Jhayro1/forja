@@ -1,5 +1,5 @@
-import { newId } from '../domain/ids.js';
 import type { Engine } from '../core/engine.js';
+import { newId } from '../domain/ids.js';
 import { EV, type RunState } from '../store/planning-projections.js';
 
 /** Read side of runs and per-task execution rows (projections of run/task events). */

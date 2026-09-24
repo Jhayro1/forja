@@ -42,7 +42,7 @@ export class Delivery {
       '',
       `- Rama entregada: \`${branch}\` (${tip.slice(0, 12)}), desde \`${ctx.run.base_sha.slice(0, 12)}\``,
       `- Plan revisión ${ctx.run.plan_revision} · aprobación ${ctx.run.approval_id}`,
-      '- La rama principal no se modificó. Para revisar: `git log --oneline ' + `${ctx.run.base_sha.slice(0, 12)}..${branch}` + '`',
+      `- La rama principal no se modificó. Para revisar: \`git log --oneline ${ctx.run.base_sha.slice(0, 12)}..${branch}\``,
       '',
       '## Tareas',
       '| Tarea | Estado | Intentos | Modelo | Verificación |',

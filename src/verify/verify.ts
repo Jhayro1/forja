@@ -4,10 +4,10 @@ import { z } from 'zod';
 import { callRole, type Engine } from '../core/engine.js';
 import { git } from '../git/git.js';
 import type { Plan, PlanTask } from '../plan/plan.js';
-import { llmSchema } from '../planner/session.js';
 import { compose, loadPrompt } from '../planner/prompts.js';
+import { llmSchema } from '../planner/session.js';
 import type { Spec } from '../spec/spec.js';
-import { runCommand, type CommandContext } from './commands.js';
+import { type CommandContext, runCommand } from './commands.js';
 
 export const ReviewOutput = z
   .object({
@@ -66,6 +66,8 @@ export async function verifyTask(
     review: boolean;
     /** The agent changed nothing: the task passes only if checks prove the code already meets it. */
     noChanges?: boolean;
+    /** Repository-wide steps that already failed on the baseline: not charged to the task. */
+    preexisting?: ReadonlySet<string>;
   },
 ): Promise<Verification> {
   const { plan, task, worktree } = input;
@@ -92,6 +94,10 @@ export async function verifyTask(
   for (const name of ['typecheck', 'build', 'lint'] as const) {
     const recipe = c[name];
     if (!recipe) continue;
+    if (input.preexisting?.has(name)) {
+      steps.push({ paso: name, ok: true, detalle: 'omitido: ya fallaba en la línea base del repositorio (no se atribuye a la tarea)' });
+      continue;
+    }
     const r = await runCommand(input.cmd, worktree, recipe);
     if (!r.ok) return fail(name, r.output);
     steps.push({ paso: name, ok: true, detalle: `${Math.round(r.durationMs / 1000)}s` });

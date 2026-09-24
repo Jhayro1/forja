@@ -1,5 +1,5 @@
 import { dirname, posix } from 'node:path';
-import { mentionsIn, type Extraction, type LanguageExtractor, type Resolution, type SymbolRef } from './types.js';
+import { type Extraction, type LanguageExtractor, mentionsIn, type Resolution, type SymbolRef } from './types.js';
 
 /**
  * TS/JS extractor without dependencies: a small lexer (comments, strings,
@@ -14,7 +14,41 @@ import { mentionsIn, type Extraction, type LanguageExtractor, type Resolution, t
 
 type Tok = { t: 'id' | 'str' | 'p'; v: string; line: number };
 
-const REGEX_PREV = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '<', '>', '~', '^', 'return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'yield', 'await']);
+const REGEX_PREV = new Set([
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  '}',
+  ';',
+  '+',
+  '-',
+  '*',
+  '%',
+  '<',
+  '>',
+  '~',
+  '^',
+  'return',
+  'typeof',
+  'case',
+  'do',
+  'else',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'throw',
+  'yield',
+  'await',
+]);
 
 export function tokenize(src: string): Tok[] {
   const out: Tok[] = [];
@@ -160,7 +194,12 @@ export function extractTs(src: string): Extraction {
         const u = toks[j]!;
         if (u.v === '{') braces++;
         else if (u.v === '}') braces--;
-        if (braces === 0 && (u.v === ';' || (u.t === 'id' && ['function', 'class', 'const', 'let', 'var', 'interface', 'type', 'enum', 'async', 'default', 'abstract', 'declare', 'namespace'].includes(u.v) && t.v === 'export'))) break;
+        if (
+          braces === 0 &&
+          (u.v === ';' ||
+            (u.t === 'id' && ['function', 'class', 'const', 'let', 'var', 'interface', 'type', 'enum', 'async', 'default', 'abstract', 'declare', 'namespace'].includes(u.v) && t.v === 'export'))
+        )
+          break;
         if (u.t === 'id' && u.v === 'from' && toks[j + 1]?.t === 'str') {
           imports.push({ specifier: toks[j + 1]!.v, confidence: 'seguro', line: t.line });
           break;

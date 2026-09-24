@@ -95,14 +95,20 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
     checks.push({
       id: 'red',
       estado: 'ok',
-      detalle: outcome.deniedHosts.length ? `hosts bloqueados por el filtro: ${[...new Set(outcome.deniedHosts)].join(', ')}${unexpected.length ? ' (no conocidos: revisar)' : ''}` : 'sin intentos de salir fuera de su API',
+      detalle: outcome.deniedHosts.length
+        ? `hosts bloqueados por el filtro: ${[...new Set(outcome.deniedHosts)].join(', ')}${unexpected.length ? ' (no conocidos: revisar)' : ''}`
+        : 'sin intentos de salir fuera de su API',
     });
   });
 
   await guard('esquema', async () => {
     const { outcome } = await launch('esquema', 'Elige un color y el número 7.', { tools: 'lectura', outputSchema: SCHEMA });
     const s = outcome.summary.structured as { numero?: unknown } | undefined;
-    checks.push({ id: 'esquema', estado: outcome.summary.status === 'completed' && s?.numero === 7 ? 'ok' : 'fallo', detalle: s ? `salida: ${JSON.stringify(s).slice(0, 80)}` : `sin salida estructurada: ${outcome.summary.error?.message ?? ''}` });
+    checks.push({
+      id: 'esquema',
+      estado: outcome.summary.status === 'completed' && s?.numero === 7 ? 'ok' : 'fallo',
+      detalle: s ? `salida: ${JSON.stringify(s).slice(0, 80)}` : `sin salida estructurada: ${outcome.summary.error?.message ?? ''}`,
+    });
   });
 
   await guard('aislamiento', async () => {

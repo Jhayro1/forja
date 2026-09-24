@@ -18,7 +18,15 @@ import type { GraphStore } from './graph-store.js';
 export const GRAPH_BUILDER_VERSION = 'grafo-1';
 const MAX_FILE_BYTES = 512 * 1024;
 /** Never read, even if versioned: they may contain secrets or are not source (v2/08). */
-const EXCLUDED = [/(^|\/)\.env(\.|$)/, /\.(pem|key|p12|pfx|crt|jks)$/i, /(^|\/)node_modules\//, /(^|\/)(dist|build|coverage)\//, /(^|\/)\.forja\//, /\.(min\.js|map|lock)$/, /(^|\/)package-lock\.json$/];
+const EXCLUDED = [
+  /(^|\/)\.env(\.|$)/,
+  /\.(pem|key|p12|pfx|crt|jks)$/i,
+  /(^|\/)node_modules\//,
+  /(^|\/)(dist|build|coverage)\//,
+  /(^|\/)\.forja\//,
+  /\.(min\.js|map|lock)$/,
+  /(^|\/)package-lock\.json$/,
+];
 
 export const fileId = (path: string) => `archivo:${path}`;
 export const symbolId = (path: string, name: string) => `simbolo:${path}#${name}`;
@@ -124,7 +132,14 @@ export async function buildGraph(graph: GraphStore, input: { repoPath: string; s
       for (const imp of data.imports) {
         const res = extractor.resolve(imp.specifier, r.label, present);
         if (res && 'path' in res) {
-          graph.addEdge({ src: r.id, dst: fileId(res.path), kind: 'importa', confidence: res.confidence === 'seguro' && imp.confidence === 'seguro' ? 'seguro' : 'posible', source: 'resolucion', method: extractor.version });
+          graph.addEdge({
+            src: r.id,
+            dst: fileId(res.path),
+            kind: 'importa',
+            confidence: res.confidence === 'seguro' && imp.confidence === 'seguro' ? 'seguro' : 'posible',
+            source: 'resolucion',
+            method: extractor.version,
+          });
         } else if (res && 'package' in res) {
           graph.addNode({ id: `paquete:${res.package}`, kind: 'paquete', label: res.package, source: 'resolucion' });
           graph.addEdge({ src: r.id, dst: `paquete:${res.package}`, kind: 'importa', confidence: 'seguro', source: 'resolucion', method: extractor.version });
@@ -143,7 +158,8 @@ export async function buildGraph(graph: GraphStore, input: { repoPath: string; s
     graph.dropSource('conexiones');
     const s = input.spec;
     if (s) {
-      const add = (id: string, kind: Parameters<GraphStore['addNode']>[0]['kind'], label: string, data?: Record<string, unknown>) => graph.addNode({ id, kind, label, source: 'spec', ...(data ? { data } : {}) });
+      const add = (id: string, kind: Parameters<GraphStore['addNode']>[0]['kind'], label: string, data?: Record<string, unknown>) =>
+        graph.addNode({ id, kind, label, source: 'spec', ...(data ? { data } : {}) });
       const edge = (src: string, dst: string, kind: Parameters<GraphStore['addEdge']>[0]['kind']) => graph.addEdge({ src, dst, kind, confidence: 'seguro', source: 'spec', method: 'spec' });
       for (const r of s.requisitos) add(`requisito:${r.id}`, 'requisito', r.texto);
       for (const r of s.reglas) add(`regla:${r.id}`, 'regla', r.texto);
@@ -165,7 +181,8 @@ export async function buildGraph(graph: GraphStore, input: { repoPath: string; s
       for (const e of s.entidades) {
         const word = e.nombre.toLowerCase().replace(/\s+/g, '');
         if (word.length < 4) continue;
-        for (const sym of symbols) if (sym.label.toLowerCase().includes(word)) graph.addEdge({ src: `entidad:${e.id}`, dst: sym.id, kind: 'menciona', confidence: 'posible', source: 'spec', method: 'nombre' });
+        for (const sym of symbols)
+          if (sym.label.toLowerCase().includes(word)) graph.addEdge({ src: `entidad:${e.id}`, dst: sym.id, kind: 'menciona', confidence: 'posible', source: 'spec', method: 'nombre' });
       }
     }
     const p = input.plan;

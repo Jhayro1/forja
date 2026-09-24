@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,7 +56,14 @@ export class ExternalMcp {
       text = text.slice(0, this.def.max_response_bytes);
       truncated = true;
     }
-    const safe = this.redactor.redact(truncated ? text : (r?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n'));
+    const safe = this.redactor.redact(
+      truncated
+        ? text
+        : (r?.content ?? [])
+            .filter((c) => c.type === 'text')
+            .map((c) => c.text)
+            .join('\n'),
+    );
     return { content: [{ type: 'text', text: truncated ? `${safe}\n… [respuesta recortada a ${this.def.max_response_bytes} bytes]` : safe }], ...(r?.isError ? { isError: true } : {}) };
   }
 

@@ -19,9 +19,36 @@ export type RepoInspection = {
   warnings: string[];
 };
 
-const MANIFESTS = ['package.json', 'pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'bun.lockb', 'tsconfig.json', 'go.mod', 'pyproject.toml', 'requirements.txt', 'Cargo.toml', 'Makefile', 'Dockerfile'];
+const MANIFESTS = [
+  'package.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'package-lock.json',
+  'bun.lockb',
+  'tsconfig.json',
+  'go.mod',
+  'pyproject.toml',
+  'requirements.txt',
+  'Cargo.toml',
+  'Makefile',
+  'Dockerfile',
+];
 
-const EXT_LANG: Record<string, string> = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', py: 'python', go: 'go', rs: 'rust', java: 'java', php: 'php', rb: 'ruby', cs: 'csharp' };
+const EXT_LANG: Record<string, string> = {
+  ts: 'typescript',
+  tsx: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  py: 'python',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  php: 'php',
+  rb: 'ruby',
+  cs: 'csharp',
+};
 
 /**
  * Static inspection only: reads files and git metadata. Never runs install scripts,

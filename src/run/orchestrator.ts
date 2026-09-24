@@ -1,6 +1,6 @@
-import { newId } from '../domain/ids.js';
-import { tasksReadyToUnblock } from '../core/task-commands.js';
 import type { Engine } from '../core/engine.js';
+import { tasksReadyToUnblock } from '../core/task-commands.js';
+import { newId } from '../domain/ids.js';
 import type { GatewayHost } from '../mcp/gateway.js';
 import { EV, type RunState } from '../store/planning-projections.js';
 import { Delivery } from './pipeline/delivery.js';
@@ -9,14 +9,14 @@ import { JobRunner } from './pipeline/jobs.js';
 import { OutcomeHandler } from './pipeline/outcome-handler.js';
 import { Reconciler } from './pipeline/reconciler.js';
 import { RunContext } from './pipeline/run-context.js';
-import { HOLDING_STATES, dependentCounts, nextToIntegrate, selectLaunches } from './pipeline/scheduler.js';
+import { dependentCounts, HOLDING_STATES, nextToIntegrate, selectLaunches } from './pipeline/scheduler.js';
 import { TaskLauncher } from './pipeline/task-launcher.js';
 import { TaskVerifier } from './pipeline/task-verifier.js';
 import { getRun, setRunState } from './records.js';
 import { applyTaskControls } from './task-control.js';
 
 // Public surface of the run module (kept here so callers have one entry point).
-export { RunError, getExec, getRun, runsOf, type ExecRow, type RunRow } from './records.js';
+export { type ExecRow, getExec, getRun, RunError, type RunRow, runsOf } from './records.js';
 export { startOrResumeRun } from './start.js';
 export { answerTaskQuestion, reassignTask, requestPause, resumeTask, unblockTask } from './task-control.js';
 
@@ -92,7 +92,15 @@ export class Orchestrator {
     await new Reconciler(this.ctx).reconcile();
     this.engine.store.execute({ request_id: newId('req'), type: 'parametros_run', input: { runId: this.runId } }, () => ({
       result: null,
-      events: [{ type: EV.runParams, aggregate_type: 'run', aggregate_id: this.runId, run_id: this.runId, payload: { paralelo: this.parallel, revisor: this.opts.review ?? true, ...(this.opts.only ? { solo: this.opts.only } : {}) } }],
+      events: [
+        {
+          type: EV.runParams,
+          aggregate_type: 'run',
+          aggregate_id: this.runId,
+          run_id: this.runId,
+          payload: { paralelo: this.parallel, revisor: this.opts.review ?? true, ...(this.opts.only ? { solo: this.opts.only } : {}) },
+        },
+      ],
     }));
     const pollMs = this.opts.pollMs ?? 1000;
     let stopping = false;

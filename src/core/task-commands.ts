@@ -74,7 +74,5 @@ export function changeTaskState(
 export function tasksReadyToUnblock(store: EventStore, runId: string): string[] {
   const tasks = listTasks(store.db, runId);
   const state = new Map(tasks.map((t) => [t.task_id, t.state]));
-  return tasks
-    .filter((t) => t.state === 'pendiente' && t.depends_on.every((d) => state.get(d) === 'integrada'))
-    .map((t) => t.task_id);
+  return tasks.filter((t) => t.state === 'pendiente' && t.depends_on.every((d) => state.get(d) === 'integrada')).map((t) => t.task_id);
 }

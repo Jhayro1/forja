@@ -31,7 +31,9 @@ function useCaseDoc(spec: Spec, uc: Spec['casos_uso'][number]): string {
     '',
     '## Flujos alternos',
     uc.alternos.length
-      ? uc.alternos.map((a) => `- **${a.id}** (desde ${a.desde_paso}) · ${a.condicion}\n${a.pasos.map((p, i) => `  ${i + 1}. ${p}`).join('\n')}${a.retorno ? `\n  → vuelve a ${a.retorno}` : ''}`).join('\n')
+      ? uc.alternos
+          .map((a) => `- **${a.id}** (desde ${a.desde_paso}) · ${a.condicion}\n${a.pasos.map((p, i) => `  ${i + 1}. ${p}`).join('\n')}${a.retorno ? `\n  → vuelve a ${a.retorno}` : ''}`)
+          .join('\n')
       : '—',
     '',
     '## Excepciones',
@@ -44,9 +46,7 @@ function useCaseDoc(spec: Spec, uc: Spec['casos_uso'][number]): string {
     list(rules.map((r) => `**${r.id}** ${r.texto}`)),
     '',
     '## Criterios de aceptación',
-    criteria.length
-      ? criteria.map((c) => `- **${c.id}** (${c.tipo_evidencia})\n  - Dado ${c.dado}\n  - Cuando ${c.cuando}\n  - Entonces ${c.entonces}`).join('\n')
-      : '—',
+    criteria.length ? criteria.map((c) => `- **${c.id}** (${c.tipo_evidencia})\n  - Dado ${c.dado}\n  - Cuando ${c.cuando}\n  - Entonces ${c.entonces}`).join('\n') : '—',
     '',
   ].join('\n');
 }
@@ -141,7 +141,10 @@ export function renderDocs(spec: Spec, tasksByCriterion: Map<string, string[]> =
     list(spec.decisiones.map((d) => `**${d.id}** (${d.estado}) ${d.texto} — ${d.motivo}`)),
     '',
     '## Preguntas pendientes',
-    list(spec.preguntas.map((q) => `**${q.id}** ${q.texto} (bloquea: ${q.bloquea.join(', ') || 'nada'}; responsable: ${q.responsable})`), 'Ninguna.'),
+    list(
+      spec.preguntas.map((q) => `**${q.id}** ${q.texto} (bloquea: ${q.bloquea.join(', ') || 'nada'}; responsable: ${q.responsable})`),
+      'Ninguna.',
+    ),
     '',
     '## Documentos',
     '- [Reglas](reglas.md) · [Modelo de datos](modelo-de-datos.md) · [Glosario](glosario.md) · [Trazabilidad](trazabilidad.md) · [Plan de pruebas](plan-de-pruebas.md)',
@@ -182,8 +185,7 @@ export function writeDocs(dir: string, spec: Spec, docs: Doc[]): WriteReport {
   const manifestPath = join(dir, 'manifiesto.json');
   const manifest: Manifest = existsSync(manifestPath) ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest) : { version: 1, files: {} };
   const report: WriteReport = { written: [], unchanged: [], conflicts: [] };
-  const sourceHash = (sources: string[]) =>
-    hashJson(sources.map((s) => (spec as unknown as Record<string, unknown>)[s] ?? spec.casos_uso.find((u) => u.id === s) ?? s));
+  const sourceHash = (sources: string[]) => hashJson(sources.map((s) => (spec as unknown as Record<string, unknown>)[s] ?? spec.casos_uso.find((u) => u.id === s) ?? s));
   for (const doc of docs) {
     const path = join(dir, doc.path);
     const rendered = hashBytes(doc.content);

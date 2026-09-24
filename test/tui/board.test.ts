@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RunSnapshot, TaskView } from '../../src/run/snapshot.js';
 import { fit, painter, sanitize, stripAnsi, visibleWidth, wrap } from '../../src/tui/ansi.js';
 import { BoardApp, type BoardSource } from '../../src/tui/app.js';
-import { renderBoard, windowAround, type BoardModel } from '../../src/tui/board.js';
+import { type BoardModel, renderBoard, windowAround } from '../../src/tui/board.js';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 
@@ -49,7 +49,19 @@ function snapshot(tasks: TaskView[]): RunSnapshot {
     change: { change_id: 'cam_1', title: 'Fiados de la bodega', mode: 'idea', phase: 'ejecutar', discovery_revision: 1, spec_revision: 2, plan_revision: 1, created_at: '' },
     plan: null,
     approved: true,
-    run: { run_id: 'run_01ABCDEFGH', change_id: 'cam_1', plan_id: 'p', plan_revision: 1, plan_hash: 'h', approval_id: 'a', state: 'ejecutando', base_sha: 'b', branch: 'forja/run/x/integracion', detail: null, created_at: '' },
+    run: {
+      run_id: 'run_01ABCDEFGH',
+      change_id: 'cam_1',
+      plan_id: 'p',
+      plan_revision: 1,
+      plan_hash: 'h',
+      approval_id: 'a',
+      state: 'ejecutando',
+      base_sha: 'b',
+      branch: 'forja/run/x/integracion',
+      detail: null,
+      created_at: '',
+    },
     tasks,
     counts,
     integrated: counts.integrada ?? 0,
@@ -200,7 +212,11 @@ describe('tablero', () => {
 describe('teclado del tablero', () => {
   const setup = () => {
     const source = new FakeSource(snapshot(TASKS));
-    const app = new BoardApp(source, () => ({ width: 100, height: 30 }), () => NOW);
+    const app = new BoardApp(
+      source,
+      () => ({ width: 100, height: 30 }),
+      () => NOW,
+    );
     return { source, app };
   };
 

@@ -2,12 +2,12 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
+import { resolveExecutable } from '../providers/adapters.js';
 import type { CommandRecipe } from '../registry/config.js';
-import { buildAgentEnv } from '../security/env.js';
-import { launchDir, readSpool, spawnRunner, waitForLaunch, writeOrder, DEFAULT_RUNNER_SCRIPT } from '../runtime/launcher.js';
+import { DEFAULT_RUNNER_SCRIPT, launchDir, readSpool, spawnRunner, waitForLaunch, writeOrder } from '../runtime/launcher.js';
 import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds } from '../runtime/sandbox.js';
-import { resolveExecutable } from '../providers/adapters.js';
+import { buildAgentEnv } from '../security/env.js';
 
 export type CommandRun = { ok: boolean; exitCode: number | null; status: string; output: string; launchId: string; durationMs: number };
 
@@ -40,7 +40,11 @@ export async function runCommand(ctx: CommandContext, cwd: string, recipe: Comma
     attempt: 1,
     provider: 'comando',
     argv: [exe, ...recipe.args, ...extraArgs],
-    env: buildAgentEnv(process.env, { home, tmpdir: '/tmp', extra: { CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', npm_config_cache: join(home, '.npm'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' } }),
+    env: buildAgentEnv(process.env, {
+      home,
+      tmpdir: '/tmp',
+      extra: { CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', npm_config_cache: join(home, '.npm'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' },
+    }),
     cwd: 'cwd' in recipe && recipe.cwd && recipe.cwd !== '.' ? join(cwd, recipe.cwd) : cwd,
     sandbox: ctx.sandbox
       ? {
@@ -60,7 +64,9 @@ export async function runCommand(ctx: CommandContext, cwd: string, recipe: Comma
   writeOrder(dir, order);
   spawnRunner(dir, ctx.runnerScript ?? DEFAULT_RUNNER_SCRIPT);
   const status = await waitForLaunch(dir, ctx.timeoutMs + 30_000);
-  const lines = readSpool(dir).filter((r) => r.stream !== 'forja').map((r) => r.line);
+  const lines = readSpool(dir)
+    .filter((r) => r.stream !== 'forja')
+    .map((r) => r.line);
   const output = lines.slice(-120).join('\n');
   if (status.state !== 'terminado') return { ok: false, exitCode: null, status: status.state, output, launchId, durationMs: Date.now() - started };
   const r = status.result;

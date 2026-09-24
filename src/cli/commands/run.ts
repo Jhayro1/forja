@@ -2,26 +2,26 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Command } from 'commander';
 import { latestPlan } from '../../plan/divide.js';
-import { ConformanceStore, conformanceProblems } from '../../providers/conformance.js';
-import { FORJA_VERSION } from '../../version.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { activeChange, getChange } from '../../planner/session.js';
-import { LockHeldError, type LockFile } from '../../registry/lock.js';
-import { readSpool } from '../../runtime/launcher.js';
+import { ConformanceStore, conformanceProblems } from '../../providers/conformance.js';
+import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { readableLog } from '../../run/activity.js';
-import { STATE_ICON, STATE_LABEL, modelOf, progressLine, taskActivityLine, taskDetailLines } from '../../run/describe.js';
-import { Orchestrator, RunError, answerTaskQuestion, getExec, startOrResumeRun, unblockTask, type RunSummary } from '../../run/orchestrator.js';
-import { RUN_PURPOSE, acquireOrchestratorLock, requestStop, runningOrchestrator } from '../../run/process.js';
+import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine, taskDetailLines } from '../../run/describe.js';
+import { answerTaskQuestion, getExec, Orchestrator, RunError, type RunSummary, startOrResumeRun, unblockTask } from '../../run/orchestrator.js';
+import { acquireOrchestratorLock, RUN_PURPOSE, requestStop, runningOrchestrator } from '../../run/process.js';
 import { RunLog } from '../../run/run-log.js';
+import { compactTokens, currentChange, type RunSnapshot, runSnapshot } from '../../run/snapshot.js';
 import { snapshotJson } from '../../run/snapshot-json.js';
-import { compactTokens, currentChange, runSnapshot, type RunSnapshot, type TaskView } from '../../run/snapshot.js';
-import { runBoard } from '../../tui/app.js';
-import { EngineBoardSource, taskLogLines } from '../board-source.js';
-import { gatewayForProject } from '../gateway-setup.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
-import { openEngine, type EngineContext } from '../engine-context.js';
-import { showPlan } from '../plan-view.js';
+import { readSpool } from '../../runtime/launcher.js';
 import { listTasks } from '../../store/projections.js';
+import { runBoard } from '../../tui/app.js';
+import { FORJA_VERSION } from '../../version.js';
+import { EngineBoardSource, taskLogLines } from '../board-source.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
+import { type EngineContext, openEngine } from '../engine-context.js';
+import { gatewayForProject } from '../gateway-setup.js';
+import { showPlan } from '../plan-view.js';
 import { domainError, snapshotOrFail, taskOrFail } from '../run-selection.js';
 
 function showPending(s: RunSnapshot): void {
@@ -142,7 +142,7 @@ export function registerRunCommands(program: Command): void {
           throw error;
         }
 
-        let started;
+        let started: Awaited<ReturnType<typeof startOrResumeRun>>;
         try {
           started = await startOrResumeRun(ctx.engine, { changeId: change.change_id, repoPath: ctx.checkout.path });
         } catch (error) {
@@ -162,6 +162,7 @@ export function registerRunCommands(program: Command): void {
         if (unverified.length) say(`⚠ se ejecuta con modelos sin conformidad aprobada (--sin-conformidad): ${unverified.join('; ')}`);
         if (only) say(`· modo --solo: sólo se lanza ${only}`);
         if (started.inherited.length) say(`  heredadas del run anterior (ya integradas y sin cambios): ${started.inherited.join(', ')}`);
+        for (const r of started.redone) say(`  ↻ ${r.task} se rehace: ${r.reason}`);
 
         const controller = new AbortController();
         let interrupts = 0;
@@ -180,7 +181,10 @@ export function registerRunCommands(program: Command): void {
         process.on('SIGTERM', onSignal);
 
         const gateway = await gatewayForProject(ctx, say);
-        if (gateway) say(`· gateway MCP activo: conexiones vinculadas${gateway.externals.length ? ` y ${gateway.externals.map((e) => e.def.name).join(', ')}` : ''} (los agentes sólo proponen; nada se ejecuta sin tu aprobación)`);
+        if (gateway)
+          say(
+            `· gateway MCP activo: conexiones vinculadas${gateway.externals.length ? ` y ${gateway.externals.map((e) => e.def.name).join(', ')}` : ''} (los agentes sólo proponen; nada se ejecuta sin tu aprobación)`,
+          );
         const orchestrator = new Orchestrator(ctx.engine, ctx.checkout.path, runId, {
           ...(gateway ? { gateway } : {}),
           ...(opts.paralelo ? { parallel: opts.paralelo } : {}),
@@ -265,7 +269,9 @@ export function registerRunCommands(program: Command): void {
           return;
         }
         for (const p of s.pending) {
-          print(`${p.kind === 'tarea_bloqueada' ? '✘' : '?'} ${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', tarea_pausada: 'tarea pausada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind]}`);
+          print(
+            `${p.kind === 'tarea_bloqueada' ? '✘' : '?'} ${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', tarea_pausada: 'tarea pausada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind]}`,
+          );
           for (const l of p.text.split('\n')) print(`  ${l}`);
           print(`  → ${p.action}`);
           print();

@@ -71,7 +71,10 @@ export const ForjaConfig = z
     git: z
       .object({
         rama_principal: z.string().default('main'),
-        prefijo: z.string().regex(/^[a-z0-9-]+\/$/).default('forja/'),
+        prefijo: z
+          .string()
+          .regex(/^[a-z0-9-]+\/$/)
+          .default('forja/'),
       })
       .strict()
       .prefault({}),

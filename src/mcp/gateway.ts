@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import type { ActionService } from '../actions/protocol.js';
 import { FORJA_VERSION } from '../version.js';
 import type { ExternalMcp, McpTool, ToolResult } from './external.js';
-import { RPC, RpcError, serveRpc } from './jsonrpc.js';
 import { MCP_PROTOCOL } from './external.js';
+import { RPC, RpcError, serveRpc } from './jsonrpc.js';
 
 /**
  * MCP gateway (V2-052). What an agent can reach through MCP, and nothing else:
@@ -26,8 +26,7 @@ const OWN_TOOLS: McpTool[] = [
   },
   {
     name: 'proponer_accion',
-    description:
-      'Propone una operación externa tipada. NO se ejecuta: queda pendiente de aprobación humana con su vista previa. Úsala cuando la tarea necesite un efecto fuera del repositorio.',
+    description: 'Propone una operación externa tipada. NO se ejecuta: queda pendiente de aprobación humana con su vista previa. Úsala cuando la tarea necesite un efecto fuera del repositorio.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -80,10 +79,24 @@ export function gatewayHandler(ctx: GatewayContext): (method: string, params: un
         try {
           switch (p.name) {
             case 'listar_conexiones':
-              return text(JSON.stringify(ctx.actions.links().filter((l) => l.active && !l.connection.startsWith('mcp:')).map((l) => ({ conexion: l.connection, operaciones: l.operations }))));
+              return text(
+                JSON.stringify(
+                  ctx.actions
+                    .links()
+                    .filter((l) => l.active && !l.connection.startsWith('mcp:'))
+                    .map((l) => ({ conexion: l.connection, operaciones: l.operations })),
+                ),
+              );
             case 'proponer_accion': {
-              const a = ctx.actions.propose({ type: String(args.operacion), connection: String(args.conexion), params: args.parametros, origin: `${ctx.origin} · ${String(args.motivo ?? '').slice(0, 200)}` });
-              return text(JSON.stringify({ id: a.action_id, estado: 'pendiente de aprobación humana', vista_previa: a.preview, nota: 'No se ejecutó nada. Sigue con tu tarea sin depender de su resultado.' }));
+              const a = ctx.actions.propose({
+                type: String(args.operacion),
+                connection: String(args.conexion),
+                params: args.parametros,
+                origin: `${ctx.origin} · ${String(args.motivo ?? '').slice(0, 200)}`,
+              });
+              return text(
+                JSON.stringify({ id: a.action_id, estado: 'pendiente de aprobación humana', vista_previa: a.preview, nota: 'No se ejecutó nada. Sigue con tu tarea sin depender de su resultado.' }),
+              );
             }
             case 'estado_accion': {
               const a = ctx.actions.get(String(args.id));

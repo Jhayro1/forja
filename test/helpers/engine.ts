@@ -38,5 +38,12 @@ export function testEngine(simulation: Simulation, roles: Partial<ForjaConfig['r
     simulation,
     adapters: { simulado: new SimulatedAdapter({ agentDir: join(ROOT, 'dist/providers'), sandbox: HAS_BWRAP }) },
   });
-  return { engine, dir, cleanup: () => { store.close(); rmSync(dir, { recursive: true, force: true }); } };
+  return {
+    engine,
+    dir,
+    cleanup: () => {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }

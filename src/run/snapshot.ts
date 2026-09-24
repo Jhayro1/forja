@@ -1,14 +1,14 @@
 import { activePauses, type Engine, type ProviderPause } from '../core/engine.js';
-import { deliveryBranch as deliveryBranchName } from '../git/workspace.js';
 import { ACTIVE_STATES, type TaskState } from '../domain/task-state.js';
+import { deliveryBranch as deliveryBranchName } from '../git/workspace.js';
 import { currentApproval } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import type { Plan, PlanTask } from '../plan/plan.js';
-import { activeChange, listChanges, type ChangeRow } from '../planner/session.js';
+import { activeChange, type ChangeRow, listChanges } from '../planner/session.js';
 import { latestSpec, specAnswers } from '../spec/generate.js';
 import { listTasks } from '../store/projections.js';
-import { agentActivity, type AgentActivity } from './activity.js';
-import { getExec, runsOf, type ExecRow, type RunRow } from './records.js';
+import { type AgentActivity, agentActivity } from './activity.js';
+import { type ExecRow, getExec, type RunRow, runsOf } from './records.js';
 
 /**
  * Read model of a change and its latest run, shared by `forja estado`,

@@ -1,30 +1,19 @@
 import { createInterface } from 'node:readline/promises';
 import type { Command } from 'commander';
 import { NoProviderError } from '../../core/engine.js';
-import { closureBlockers, openQuestions, type DiscoveryState } from '../../planner/discovery.js';
-import {
-  PlannerError,
-  activeChange,
-  approveDiscovery,
-  createChange,
-  getDiscovery,
-  listChanges,
-  plannerScratch,
-  runPlannerTurn,
-  transcript,
-  type TurnResult,
-} from '../../planner/session.js';
 import { approvePlan, currentApproval, gateProblems } from '../../plan/approve.js';
 import { dividePlan, latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { waves } from '../../plan/plan.js';
-import { LockHeldError, type LockFile } from '../../registry/lock.js';
+import { closureBlockers, type DiscoveryState, openQuestions } from '../../planner/discovery.js';
+import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, PlannerError, plannerScratch, runPlannerTurn, type TurnResult, transcript } from '../../planner/session.js';
+import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { acquireOrchestratorLock } from '../../run/process.js';
 import { renderDocs, writeDocs } from '../../spec/docs.js';
-import { answerSpecQuestion, changeDir, generateSpec, latestSpec } from '../../spec/generate.js';
+import { answerSpecQuestion, changeDir, generateSpec, latestSpec, requestSpecChange } from '../../spec/generate.js';
 import { blockingQuestions } from '../../spec/spec.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
-import { hasProductCode, openEngine, repoEvidence, type EngineContext } from '../engine-context.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
+import { type EngineContext, hasProductCode, openEngine, repoEvidence } from '../engine-context.js';
 import { showPlan } from '../plan-view.js';
 import { answerTaskFromCli } from './run.js';
 
@@ -75,9 +64,7 @@ function showState(state: DiscoveryState): void {
 }
 
 async function planningInputs(ctx: EngineContext, mode: 'idea' | 'mejora') {
-  return mode === 'mejora'
-    ? { workspace: ctx.checkout.path, evidence: await repoEvidence(ctx.checkout.path) }
-    : { workspace: plannerScratch(ctx.engine) };
+  return mode === 'mejora' ? { workspace: ctx.checkout.path, evidence: await repoEvidence(ctx.checkout.path) } : { workspace: plannerScratch(ctx.engine) };
 }
 
 async function turn(ctx: EngineContext, changeId: string, mode: 'idea' | 'mejora', userText: string | null, closing = false): Promise<TurnResult> {
@@ -219,15 +206,30 @@ export function registerPlanCommands(program: Command): void {
 
   program
     .command('especificar')
-    .description('convierte el descubrimiento aprobado en especificación y documentos')
-    .action(async (_o: unknown, cmd: Command) => {
+    .description('convierte el descubrimiento aprobado en especificación y documentos (también para cambiarla después de aprobar el plan)')
+    .option('--cambio <texto>', 'cambio que quieres en la especificación ya aprobada (sólo se rehace lo que toque)')
+    .action(async (o: { cambio?: string }, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
+      let lock: LockFile | null = null;
       try {
         const change = activeChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso; empieza con: forja planear', EXIT.precondition);
+        if (change.phase === 'ejecutar') {
+          // Changing the spec mid-run: no orchestrator may keep executing the old plan meanwhile.
+          try {
+            lock = acquireOrchestratorLock(ctx.dataDir, 'cambiar la especificación');
+          } catch (error) {
+            if (error instanceof LockHeldError) throw new CliError(`${error.message}: detenlo con forja detener antes de cambiar la especificación`, EXIT.precondition);
+            throw error;
+          }
+        }
+        if ((change.phase === 'aprobar' || change.phase === 'ejecutar') && !o.cambio) {
+          throw new CliError('la especificación ya se dividió en un plan: di qué quieres cambiar con forja especificar --cambio "…"', EXIT.input);
+        }
+        if (o.cambio) requestSpecChange(ctx.engine, change.change_id, o.cambio.trim());
         const stop = spinner(`especificando con ${ctx.config.roles.planeador[0]}…`);
-        let result;
+        let result: Awaited<ReturnType<typeof generateSpec>>;
         try {
           result = await generateSpec(ctx.engine, {
             changeId: change.change_id,
@@ -250,14 +252,19 @@ export function registerPlanCommands(program: Command): void {
         print(`${errors.length ? '!' : '✔'} Especificación revisión ${result.revision} (${result.attempts} llamada${result.attempts > 1 ? 's' : ''} al planeador)`);
         print(`  ${s.casos_uso.length} casos de uso · ${s.criterios.length} criterios · ${s.requisitos.length} requisitos · ${s.reglas.length} reglas · ${s.entidades.length} entidades`);
         print(`  Documentos en ${dir}`);
-        print(`  ${report.written.length} escritos · ${report.unchanged.length} sin cambios${report.conflicts.length ? ` · ${report.conflicts.length} editados a mano (versión nueva en .nuevo)` : ''}`);
+        print(
+          `  ${report.written.length} escritos · ${report.unchanged.length} sin cambios${report.conflicts.length ? ` · ${report.conflicts.length} editados a mano (versión nueva en .nuevo)` : ''}`,
+        );
         for (const e of errors) print(`  ✘ ${e.path}: ${e.message}`);
         for (const w of warnings) print(`  ! ${w.path}: ${w.message}`);
         const qs = blockingQuestions(s);
         for (const q of qs) print(`  ? ${q.id} ${q.texto} (bloquea ${q.bloquea.join(', ')})`);
-        print(errors.length ? '\nCorrige o vuelve a ejecutar forja especificar.' : '\nSiguiente paso: forja dividir');
+        print(
+          errors.length ? '\nCorrige o vuelve a ejecutar forja especificar.' : `\nSiguiente paso: forja dividir${o.cambio ? ' (el run siguiente sólo rehace las tareas que el cambio afecta)' : ''}`,
+        );
         if (errors.length) process.exitCode = EXIT.verification;
       } finally {
+        lock?.release();
         ctx.close();
       }
     });
@@ -308,7 +315,7 @@ export function registerPlanCommands(program: Command): void {
           }
         }
         const stop = spinner(`dividiendo en tareas con ${ctx.config.roles.planeador[0]}…`);
-        let result;
+        let result: Awaited<ReturnType<typeof dividePlan>>;
         try {
           result = await dividePlan(ctx.engine, {
             changeId: change.change_id,
@@ -367,7 +374,7 @@ export function registerPlanCommands(program: Command): void {
       try {
         const change = activeChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
-        let approval;
+        let approval: ReturnType<typeof approvePlan>;
         try {
           approval = approvePlan(ctx.engine, change.change_id);
         } catch (error) {

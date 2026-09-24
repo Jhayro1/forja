@@ -15,7 +15,10 @@ export const Connection = z
     base_url: z.url(),
     /** Name of the vault secret sent as credential; null for services without auth. */
     secret: z.string().nullable(),
-    auth_header: z.string().regex(/^[A-Za-z0-9-]+$/).default('Authorization'),
+    auth_header: z
+      .string()
+      .regex(/^[A-Za-z0-9-]+$/)
+      .default('Authorization'),
     auth_scheme: z.string().default('Bearer'),
     /** The service honors Idempotency-Key: an uncertain result can be resolved by resending. */
     idempotent: z.boolean().default(false),

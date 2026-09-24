@@ -4,13 +4,27 @@ import { callRole, type Engine } from '../core/engine.js';
 import { hashJson } from '../domain/hash.js';
 import { newId } from '../domain/ids.js';
 import { gitOut } from '../git/git.js';
-import { getChange, llmSchema, PlannerError } from '../planner/session.js';
 import { compose, loadPrompt } from '../planner/prompts.js';
+import { getChange, llmSchema, PlannerError } from '../planner/session.js';
+import { latestBaseline, profileHash } from '../profile/baseline.js';
 import { changeDir, latestSpec } from '../spec/generate.js';
 import { blockingQuestions } from '../spec/spec.js';
 import { EV } from '../store/planning-projections.js';
 import { draftTasks } from './draft.js';
-import { PlanOutput, validatePlan, waves, type Plan, type PlanIssue } from './plan.js';
+import { type Plan, type PlanIssue, PlanOutput, type ProfileProposal, validatePlan, waves } from './plan.js';
+
+/** The profile the user approved in forja.yaml, in the plan's shape (null if there is none). */
+export function approvedProfile(engine: Engine): ProfileProposal | null {
+  const p = engine.config.perfil;
+  if (Object.keys(p.comandos).length === 0) return null;
+  const cmd = (k: keyof typeof p.comandos) => (p.comandos[k] ? { executable: p.comandos[k].executable, args: p.comandos[k].args } : null);
+  return {
+    stack: p.stack,
+    gestor: p.gestor ?? '',
+    comandos: { instalar: cmd('instalar'), build: cmd('build'), typecheck: cmd('typecheck'), lint: cmd('lint'), test: cmd('test') },
+    red_instalar: p.red_instalar,
+  };
+}
 
 export function latestPlan(engine: Engine, changeId: string): { plan: Plan; hash: string; revision: number } | null {
   const row = engine.store.db.prepare('SELECT plan, hash, revision FROM plans WHERE change_id = ? ORDER BY revision DESC LIMIT 1').get(changeId) as
@@ -25,10 +39,7 @@ export type DivideResult = { plan: Plan; hash: string; issues: PlanIssue[]; atte
  * Spec → plan: rules make the draft (0 tokens), the planner adjusts it in one call
  * (plus repairs), code validates the DAG, coverage and file overlaps.
  */
-export async function dividePlan(
-  engine: Engine,
-  input: { changeId: string; repoPath: string; workspace: string; hasCode: boolean; evidence?: object },
-): Promise<DivideResult> {
+export async function dividePlan(engine: Engine, input: { changeId: string; repoPath: string; workspace: string; hasCode: boolean; evidence?: object }): Promise<DivideResult> {
   const change = getChange(engine, input.changeId);
   // «ejecutar» = re-plan mid-run (V2-037): the new revision goes back to «aprobar»
   // and the next run inherits the tasks already integrated with an identical definition.
@@ -45,12 +56,21 @@ export async function dividePlan(
     especificacion: {
       sistema: spec.spec.sistema,
       requisitos: spec.spec.requisitos,
-      casos_uso: spec.spec.casos_uso.map((u) => ({ id: u.id, nombre: u.nombre, objetivo: u.objetivo, pasos: u.pasos.length, excepciones: u.excepciones.length, reglas: u.reglas, requisitos: u.requisitos })),
+      casos_uso: spec.spec.casos_uso.map((u) => ({
+        id: u.id,
+        nombre: u.nombre,
+        objetivo: u.objetivo,
+        pasos: u.pasos.length,
+        excepciones: u.excepciones.length,
+        reglas: u.reglas,
+        requisitos: u.requisitos,
+      })),
       criterios: spec.spec.criterios.map((c) => ({ id: c.id, caso_uso_id: c.caso_uso_id, tipo_evidencia: c.tipo_evidencia })),
       entidades: spec.spec.entidades.map((e) => ({ id: e.id, nombre: e.nombre })),
       contratos: spec.spec.contratos,
     },
-    perfil_actual: Object.keys(engine.config.perfil.comandos).length ? engine.config.perfil : 'sin perfil: propón stack y comandos (TypeScript/Node si nada indica otra cosa)',
+    perfil_actual: approvedProfile(engine) ?? 'sin perfil: propón stack y comandos (TypeScript/Node si nada indica otra cosa)',
+    linea_base: baselineSummary(engine),
     borrador_de_tareas: draft,
     evidencia_del_repositorio: input.evidence,
   });
@@ -75,7 +95,13 @@ export async function dividePlan(
     });
     const parsed = PlanOutput.safeParse(call.outcome.summary.structured);
     if (!parsed.success) {
-      feedback = `\n\n<correccion>La respuesta no cumplía el esquema: ${call.outcome.summary.error?.message ?? parsed.error.issues.slice(0, 6).map((x) => `${x.path.join('.')}: ${x.message}`).join('; ')}</correccion>`;
+      feedback = `\n\n<correccion>La respuesta no cumplía el esquema: ${
+        call.outcome.summary.error?.message ??
+        parsed.error.issues
+          .slice(0, 6)
+          .map((x) => `${x.path.join('.')}: ${x.message}`)
+          .join('; ')
+      }</correccion>`;
       continue;
     }
     output = parsed.data;
@@ -96,7 +122,8 @@ export async function dividePlan(
     spec_revision: spec.revision,
     spec_hash: spec.hash,
     base_sha: await gitOut(input.repoPath, ['rev-parse', 'HEAD']),
-    perfil: output.perfil,
+    // An approved profile is the user's decision: the planner cannot change it.
+    perfil: approvedProfile(engine) ?? output.perfil,
     tareas: output.tareas,
     supuestos: output.supuestos,
     recursos_implicitos: implicit,
@@ -117,6 +144,19 @@ export async function dividePlan(
   writeFileSync(join(dir, 'plan.json'), `${JSON.stringify(plan, null, 2)}\n`);
   writeFileSync(join(dir, 'plan.md'), renderPlanMarkdown(plan));
   return { plan, hash, issues, attempts };
+}
+
+/** What the planner should know about the untouched repository (failing steps become tasks or assumptions). */
+function baselineSummary(engine: Engine): object | string {
+  const approved = approvedProfile(engine);
+  const b = approved ? latestBaseline(engine, profileHash(approved)) : null;
+  if (!b) return 'sin línea base';
+  const failing = b.pasos.filter((s) => !s.ok);
+  return {
+    commit: b.sha.slice(0, 12),
+    pasos_que_ya_fallan: failing.map((s) => ({ paso: s.paso, salida: s.detalle.slice(-600) })),
+    nota: failing.length ? 'estos pasos ya fallaban antes del cambio: no los atribuyas a las tareas; si hace falta, planifica una tarea para arreglarlos' : 'todo pasaba antes del cambio',
+  };
 }
 
 export function renderPlanMarkdown(plan: Plan): string {

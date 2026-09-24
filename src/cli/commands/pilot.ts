@@ -4,7 +4,7 @@ import type { Command } from 'commander';
 import { allRunMetrics } from '../../pilot/metrics.js';
 import { pilotReport, renderPilotMarkdown } from '../../pilot/report.js';
 import { writeConfig } from '../../registry/config.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { openEngine } from '../engine-context.js';
 
 export function registerPilotCommands(program: Command): void {

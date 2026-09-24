@@ -1,4 +1,4 @@
-import { currentChange, runSnapshot, type RunSnapshot, type TaskView } from '../run/snapshot.js';
+import { currentChange, type RunSnapshot, runSnapshot, type TaskView } from '../run/snapshot.js';
 import { CliError, EXIT } from './context.js';
 import type { EngineContext } from './engine-context.js';
 

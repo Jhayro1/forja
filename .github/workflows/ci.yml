@@ -20,6 +20,8 @@ jobs:
           sudo apt-get install -y bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / true && echo "bwrap ok"
+      - name: lint y formato (Biome)
+        run: npm run lint
       - run: npm run typecheck
       - run: npm run build
       - run: npm test

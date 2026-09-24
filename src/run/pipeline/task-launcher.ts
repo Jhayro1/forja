@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { type ProviderRef, parseRef, pickCandidate, providerPause } from '../../core/engine.js';
 import { newId } from '../../domain/ids.js';
-import { parseRef, pickCandidate, providerPause, type ProviderRef } from '../../core/engine.js';
 import { refSha, taskBranch, taskWorktree } from '../../git/workspace.js';
 import type { GatewayHost } from '../../mcp/gateway.js';
 import { LessonService } from '../../memory/lessons.js';
-import { launchDir } from '../../runtime/launcher.js';
 import { startLaunch } from '../../runtime/launch-service.js';
+import { launchDir } from '../../runtime/launcher.js';
 import { runCommand } from '../../verify/commands.js';
 import { buildWorkerPrompt } from '../context.js';
 import { GraphContext } from './graph-context.js';
@@ -38,7 +38,7 @@ export class TaskLauncher {
     return this.noProviderSince === null ? null : Date.now() - this.noProviderSince;
   }
 
-  private candidateFor(taskId: string, role: ReturnType<typeof levelFor>, pinned: string | null): ProviderRef | null {
+  private candidateFor(_taskId: string, role: ReturnType<typeof levelFor>, pinned: string | null): ProviderRef | null {
     if (!pinned) return pickCandidate(this.ctx.engine, role);
     if (providerPause(this.ctx.engine, pinned)) return null;
     return { ref: pinned, ...parseRef(pinned) };

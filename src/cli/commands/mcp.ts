@@ -4,7 +4,7 @@ import { ExternalMcp } from '../../mcp/external.js';
 import { McpRegistry, McpRegistryError, mcpLinkName } from '../../mcp/registry.js';
 import { forjaHome } from '../../registry/home.js';
 import { Vault, vaultPaths } from '../../vault/vault.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { openEngine } from '../engine-context.js';
 import { vaultPassphrase } from '../secret-input.js';
 import { actionService } from './actions.js';
@@ -35,7 +35,10 @@ export function registerMcpCommands(program: Command): void {
           command: o.comando,
           args: o.arg,
           declared_version: o.version,
-          tools: o.herramientas.split(',').map((t) => t.trim()).filter(Boolean),
+          tools: o.herramientas
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean),
           secrets,
         });
         print(`✔ MCP «${def.name}» v${def.version} (${def.declared_version}). Vincúlalo a un proyecto con: forja mcp vincular ${def.name}`);
@@ -63,7 +66,9 @@ export function registerMcpCommands(program: Command): void {
       if (!all.length) return print('No hay servidores MCP registrados.');
       for (const d of all) {
         const l = links.find((x) => x.connection === mcpLinkName(d.name) && x.active);
-        print(`  ${d.name.padEnd(16)} v${d.version} ${d.declared_version}  ${d.command}  herramientas: ${d.tools.join(', ')}  · ${!l ? 'sin vincular' : l.version !== d.version ? 'cambió: vuelve a vincular' : `vinculado: ${l.operations.join(', ')}`}`);
+        print(
+          `  ${d.name.padEnd(16)} v${d.version} ${d.declared_version}  ${d.command}  herramientas: ${d.tools.join(', ')}  · ${!l ? 'sin vincular' : l.version !== d.version ? 'cambió: vuelve a vincular' : `vinculado: ${l.operations.join(', ')}`}`,
+        );
       }
     });
 
@@ -107,7 +112,7 @@ export function registerMcpCommands(program: Command): void {
     .command('probar <nombre>')
     .description('arranca el servidor como lo haría el gateway y muestra las herramientas autorizadas que ofrece')
     .action(async (name: string) => {
-      let def;
+      let def: ReturnType<McpRegistry['get']>;
       try {
         def = McpRegistry.in(forjaHome()).get(name);
       } catch (error) {

@@ -56,11 +56,7 @@ export async function runChecks(exec: Exec = realExec, platform: Platform = dete
   });
 
   const git = await exec('git', ['--version']);
-  checks.push(
-    git.code === 0
-      ? { id: 'git', title: 'Git', level: 'ok', detail: git.stdout.trim() }
-      : { id: 'git', title: 'Git', level: 'error', detail: 'no instalado', fix: 'Instala git' },
-  );
+  checks.push(git.code === 0 ? { id: 'git', title: 'Git', level: 'ok', detail: git.stdout.trim() } : { id: 'git', title: 'Git', level: 'error', detail: 'no instalado', fix: 'Instala git' });
 
   checks.push(await checkClaude(exec));
   checks.push(await checkCodex(exec));

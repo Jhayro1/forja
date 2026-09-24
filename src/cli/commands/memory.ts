@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { git } from '../../git/git.js';
 import { buildGraph } from '../../memory/build.js';
-import { evaluateSelectors, type EvalCase } from '../../memory/evaluate.js';
+import { type EvalCase, evaluateSelectors } from '../../memory/evaluate.js';
 import { GraphStore } from '../../memory/graph-store.js';
 import { LessonError, LessonService } from '../../memory/lessons.js';
 import { graphSelection, simpleSelection } from '../../memory/selector.js';
@@ -10,11 +10,11 @@ import { latestPlan } from '../../plan/divide.js';
 import type { Plan } from '../../plan/plan.js';
 import { writeConfig } from '../../registry/config.js';
 import { filesReadBy } from '../../run/activity.js';
-import { launchDir } from '../../runtime/launcher.js';
 import { currentChange } from '../../run/snapshot.js';
+import { launchDir } from '../../runtime/launcher.js';
 import { latestSpec } from '../../spec/generate.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
-import { openEngine, type EngineContext } from '../engine-context.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
+import { type EngineContext, openEngine } from '../engine-context.js';
 
 function currentPlan(ctx: EngineContext): Plan {
   const change = currentChange(ctx.engine);
@@ -36,7 +36,11 @@ const tree = async (path: string) => (await git(path, ['ls-files'])).stdout.spli
 
 /** Real needs from history: files agents opened by themselves in each task's launches. */
 function historyCases(ctx: EngineContext, plan: Plan, files: string[]): EvalCase[] {
-  const rows = ctx.store.db.prepare("SELECT task_id, launch_id, provider FROM usage WHERE task_id IS NOT NULL AND role IN ('trabajador', 'complejo')").all() as { task_id: string; launch_id: string; provider: string }[];
+  const rows = ctx.store.db.prepare("SELECT task_id, launch_id, provider FROM usage WHERE task_id IS NOT NULL AND role IN ('trabajador', 'complejo')").all() as {
+    task_id: string;
+    launch_id: string;
+    provider: string;
+  }[];
   const byTask = new Map<string, Set<string>>();
   for (const r of rows) {
     const dir = launchDir(ctx.dataDir, r.launch_id);
@@ -65,9 +69,27 @@ export function registerMemoryCommands(program: Command): void {
         const stats = graph.stats();
         if (g.json) return printJson({ construccion: r, grafo: stats });
         print(`✔ ${r.archivos} archivos: ${r.analizados} analizados, ${r.reutilizados} sin cambios, ${r.eliminados} eliminados del índice, ${r.excluidos} excluidos (secretos, binarios, generados)`);
-        print(`  Nodos: ${Object.entries(stats.nodos).map(([k, v]) => `${k} ${v}`).join(' · ') || 'ninguno'}`);
-        print(`  Aristas: ${Object.entries(stats.aristas).map(([k, v]) => `${k} ${v}`).join(' · ') || 'ninguna'} (${stats.posibles} «posibles»: inferidas, no demostradas)`);
-        if (r.sin_resolver.length) print(`  ! ${r.sin_resolver.length} import(s) sin resolver (alias o rutas que no existen), p. ej. ${r.sin_resolver.slice(0, 3).map((x) => `${x.archivo} → ${x.importa}`).join('; ')}`);
+        print(
+          `  Nodos: ${
+            Object.entries(stats.nodos)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(' · ') || 'ninguno'
+          }`,
+        );
+        print(
+          `  Aristas: ${
+            Object.entries(stats.aristas)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(' · ') || 'ninguna'
+          } (${stats.posibles} «posibles»: inferidas, no demostradas)`,
+        );
+        if (r.sin_resolver.length)
+          print(
+            `  ! ${r.sin_resolver.length} import(s) sin resolver (alias o rutas que no existen), p. ej. ${r.sin_resolver
+              .slice(0, 3)
+              .map((x) => `${x.archivo} → ${x.importa}`)
+              .join('; ')}`,
+          );
         for (const l of r.limitaciones.slice(0, 8)) print(`  ! ${l.archivo}: ${l.nota}`);
         print('  Limitaciones del análisis: sintáctico; no sigue llamadas entre funciones ni imports dinámicos. La ausencia de una arista no prueba ausencia de impacto.');
       } finally {
@@ -155,7 +177,9 @@ export function registerMemoryCommands(program: Command): void {
           applied = true;
         }
         if (g.json) return printJson({ evaluacion: r, aplicado: applied });
-        print(`Casos: ${r.casos} · simple: ${r.simple.recall === null ? '—' : `${Math.round(r.simple.recall * 100)}%`} de lo necesario con ${r.simple.archivos_promedio} archivos · grafo: ${r.grafo.recall === null ? '—' : `${Math.round(r.grafo.recall * 100)}%`} con ${r.grafo.archivos_promedio}`);
+        print(
+          `Casos: ${r.casos} · simple: ${r.simple.recall === null ? '—' : `${Math.round(r.simple.recall * 100)}%`} de lo necesario con ${r.simple.archivos_promedio} archivos · grafo: ${r.grafo.recall === null ? '—' : `${Math.round(r.grafo.recall * 100)}%`} con ${r.grafo.archivos_promedio}`,
+        );
         print(`Recomendación: ${r.recomendacion} — ${r.motivo}`);
         if (applied) print('✔ contexto.modo = grafo en forja.yaml');
       } finally {
@@ -185,7 +209,10 @@ export function registerMemoryCommands(program: Command): void {
       }
     });
 
-  for (const [verb, approve] of [['aprobar', true], ['rechazar', false]] as const) {
+  for (const [verb, approve] of [
+    ['aprobar', true],
+    ['rechazar', false],
+  ] as const) {
     memoria
       .command(`${verb} <leccion>`)
       .description(approve ? 'aprueba una lección: pasará al contexto de tareas de su ámbito (nunca a la política)' : 'rechaza una lección')

@@ -1,8 +1,8 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import type { Command } from 'commander';
 import { forjaHome } from '../../registry/home.js';
-import { Vault, VaultError, restoreVault, vaultPaths } from '../../vault/vault.js';
-import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
+import { restoreVault, Vault, VaultError, vaultPaths } from '../../vault/vault.js';
+import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { readSecret, vaultPassphrase } from '../secret-input.js';
 
 async function openVault(): Promise<Vault> {

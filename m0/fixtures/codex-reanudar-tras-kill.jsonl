@@ -1,0 +1,4 @@
+{"type": "thread.started", "thread_id": "01a0d479-b508-73f1-b453-ea8c011c827e"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "Tenía que escribir los números del 1 al 60 en `cuenta.txt`, uno por segundo, y esperar a que terminara."}}
+{"type": "turn.completed", "usage": {"input_tokens": 28228, "cached_input_tokens": 24064, "cache_write_input_tokens": 0, "output_tokens": 89, "reasoning_output_tokens": 0}}

@@ -28,10 +28,10 @@ Decisión del usuario (D2-18): el MVP funciona con **todos** estos modelos de Cl
 
 | Proveedor | Identificador para `--model` / `-m` | Descripción del proveedor | Rol por defecto |
 |---|---|---|---|
-| Claude | `fable` | Alias del último Fable | planeador |
+| Claude | `fable` | Alias del último Fable (`claude-fable-5-1`). En la cuenta de prueba devolvió 429 `credits_required`: usa créditos de uso aparte ([M0](../m0/RESULTADOS.md)) | planeador |
 | Claude | `opus` | Alias del último Opus | planeador |
 | Claude | `sonnet` | Alias del último Sonnet | trabajador complejo, revisor |
-| Claude | `haiku` | Alias del último Haiku (verificar en V2-006) | trabajador |
+| Claude | `haiku` | Alias del último Haiku (`claude-haiku-4-5-20251001`) | trabajador |
 | Codex | `gpt-6-astra` | «Frontier intelligence for the most demanding work» | planeador |
 | Codex | `gpt-6-sol` | «Workhorse model for coding and everyday work» | trabajador complejo, revisor |
 | Codex | `gpt-6-luna` | «Fast and affordable model for easier tasks» | trabajador |

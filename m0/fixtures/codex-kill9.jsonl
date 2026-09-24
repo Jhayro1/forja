@@ -1,0 +1,3 @@
+{"type": "thread.started", "thread_id": "01a0d479-b508-73f1-b453-ea8c011c827e"}
+{"type": "turn.started"}
+{"type": "item.started", "item": {"id": "item_0", "type": "command_execution", "command": "/bin/bash -lc 'for i in $(seq 1 60); do echo $i >> cuenta.txt; sleep 1; done'", "aggregated_output": "", "exit_code": null, "status": "in_progress"}}

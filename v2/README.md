@@ -6,6 +6,8 @@ Forja será un orquestador local y abierto que convierte una idea o mejora en un
 
 La idea original es viable como dirección de producto. Antes de desarrollar la ejecución real hay que demostrar aislamiento, autenticación de los CLI y recuperación de procesos. No basta con envolver comandos y ponerles una cola.
 
+> **Estado:** M0 en curso. Resultados reales en [../m0/RESULTADOS.md](../m0/RESULTADOS.md).
+
 > **¿Primera vez? Empieza por [LEEME-PRIMERO.md](LEEME-PRIMERO.md)**: todo el plan en lenguaje llano, en 5 minutos.
 
 ## Ruta de lectura

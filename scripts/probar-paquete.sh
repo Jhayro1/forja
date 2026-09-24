@@ -18,7 +18,10 @@ export FORJA_HOME="$tmp/home"
 "$bin" --version
 "$bin" doctor --json > "$tmp/doctor.json" || true
 node -e 'const d=require(process.argv[1]); if(!Array.isArray(d.checks)) process.exit(1); console.log("doctor:", d.estado, d.checks.map(c=>c.id+"="+c.level).join(" "))' "$tmp/doctor.json"
-cd "$tmp" && "$bin" nuevo demo --ruta "$tmp/demo" >/dev/null && cd "$tmp/demo" && "$bin" estado | head -1
+cd "$tmp" && "$bin" nuevo demo --ruta "$tmp/demo" >/dev/null && cd "$tmp/demo" && "$bin" estado 2>"$tmp/estado.err" | head -1
+# El arranque (dist/cli/bin.js) oculta sólo el aviso experimental de SQLite, sin `env -S`.
+if grep -q ExperimentalWarning "$tmp/estado.err"; then echo "✘ se filtró el aviso experimental de SQLite"; cat "$tmp/estado.err"; exit 1; fi
+head -1 "$tmp/prefijo/lib/node_modules/@jhayro1/forja/dist/cli/bin.js" | grep -qx '#!/usr/bin/env node'
 test -f "$tmp/prefijo/lib/node_modules/@jhayro1/forja/panel/panel.js"
 test -f "$tmp/prefijo/lib/node_modules/@jhayro1/forja/dist/runtime/runner-main.js"
 test -f "$tmp/prefijo/lib/node_modules/@jhayro1/forja/dist/providers/sim-agent.js"

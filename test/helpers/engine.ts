@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createEngine, type Engine, type Simulation } from '../../src/core/engine.js';
@@ -12,11 +12,9 @@ export const ROOT = resolve(import.meta.dirname, '../..');
 export const RUNNER = join(ROOT, 'dist/runtime/runner-main.js');
 export const HAS_BWRAP = spawnSync('bwrap', ['--ro-bind', '/', '/', 'true']).status === 0;
 
-let built = false;
+/** dist/ is built once by test/global-setup.ts; this only checks it is there. */
 export function ensureBuilt(): void {
-  if (built) return;
-  execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore' });
-  built = true;
+  if (!existsSync(join(ROOT, 'dist/cli/main.js'))) execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore' });
 }
 
 export function testEngine(simulation: Simulation, roles: Partial<ForjaConfig['roles']> = {}): { engine: Engine; dir: string; cleanup(): void } {

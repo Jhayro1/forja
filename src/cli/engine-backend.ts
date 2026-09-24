@@ -2,17 +2,25 @@ import { auditTrail } from '../actions/audit.js';
 import { ConnectionStore } from '../actions/connections.js';
 import type { ConnectionsBackend } from '../api/modules/connections.js';
 import type { MemoryBackend } from '../api/modules/memory.js';
+import type { PlanningBackend } from '../api/modules/planning.js';
 import type { RunsBackend } from '../api/modules/runs.js';
 import type { EventFeed } from '../api/server.js';
 import { resumeProvider } from '../core/engine.js';
 import { McpRegistry } from '../mcp/registry.js';
 import { GraphStore } from '../memory/graph-store.js';
 import { LessonService } from '../memory/lessons.js';
-import { approvePlan } from '../plan/approve.js';
-import { activeChange } from '../planner/session.js';
+import { approvePlan, currentApproval, gateProblems } from '../plan/approve.js';
+import { latestPlan } from '../plan/divide.js';
+import { estimatePlan } from '../plan/estimate.js';
+import { waves } from '../plan/plan.js';
+import { closureBlockers, openQuestions } from '../planner/discovery.js';
+import { activeChange, approveDiscovery, getDiscovery, transcript } from '../planner/session.js';
 import { runningOrchestrator } from '../run/process.js';
 import type { TaskView } from '../run/snapshot.js';
+import { currentChange } from '../run/snapshot.js';
 import { snapshotJson } from '../run/snapshot-json.js';
+import { answerSpecQuestion, latestSpec, specAnswers } from '../spec/generate.js';
+import { validateSpec } from '../spec/spec.js';
 import { EngineBoardSource } from './board-source.js';
 import { actionService } from './commands/actions.js';
 import type { EngineContext } from './engine-context.js';
@@ -171,5 +179,75 @@ export class EngineMemoryBackend implements MemoryBackend {
 
   review(id: string, approve: boolean, note: string): object {
     return new LessonService(this.ctx.store).review(id, approve, 'panel', note);
+  }
+}
+
+/** Planning read model for the panel: the same data `forja planear`, `forja plan` and `forja preguntas` show. */
+export class EnginePlanningBackend implements PlanningBackend {
+  constructor(private readonly ctx: EngineContext) {}
+
+  overview(): object {
+    const change = currentChange(this.ctx.engine);
+    if (!change) return { cambio: null };
+    const id = change.change_id;
+    const { state, approvedRevision, revision } = getDiscovery(this.ctx.engine, id);
+    const spec = latestSpec(this.ctx.engine, id);
+    const answers = new Map(specAnswers(this.ctx.engine, id).map((a) => [a.question_id, a.answer]));
+    const plan = latestPlan(this.ctx.engine, id);
+    return {
+      cambio: { id, titulo: change.title, fase: change.phase, modo: change.mode },
+      conversacion: transcript(this.ctx.engine, id)
+        .slice(-30)
+        .map((t) => ({ n: t.n, usuario: t.user_text, planeador: t.planner_text, modelo: `${t.provider}:${t.model ?? '?'}` })),
+      descubrimiento: {
+        revision,
+        aprobado: approvedRevision !== null,
+        resumen: state.resumen,
+        alcance: state.alcance,
+        decisiones: Object.values(state.decisiones),
+        propuestas: Object.values(state.propuestas),
+        preguntas_abiertas: openQuestions(state),
+        cobertura: state.cobertura,
+        bloqueos: closureBlockers(state),
+      },
+      especificacion: spec
+        ? {
+            revision: spec.revision,
+            sistema: spec.spec.sistema,
+            casos_uso: spec.spec.casos_uso.map((u) => ({ id: u.id, nombre: u.nombre, objetivo: u.objetivo })),
+            criterios: spec.spec.criterios.length,
+            decisiones: spec.spec.decisiones,
+            preguntas: spec.spec.preguntas.map((q) => ({ ...q, respuesta: answers.get(q.id) ?? null })),
+            problemas: validateSpec(spec.spec).filter((i) => i.severity === 'error'),
+          }
+        : null,
+      plan: plan
+        ? {
+            revision: plan.revision,
+            olas: waves(plan.plan.tareas),
+            tareas: plan.plan.tareas.map((t) => ({ id: t.id, titulo: t.titulo, tipo: t.tipo, complejidad: t.complejidad, depende_de: t.depende_de, escribe: t.escribe, criterios: t.criterios })),
+            supuestos: plan.plan.supuestos,
+            perfil: plan.plan.perfil,
+            estimacion: estimatePlan(plan.plan, this.ctx.config, this.ctx.engine.prices ?? null),
+            aprobado: currentApproval(this.ctx.engine, id) !== null,
+            problemas_para_aprobar: change.phase === 'aprobar' ? gateProblems(this.ctx.engine, id) : [],
+          }
+        : null,
+    };
+  }
+
+  answerSpecQuestion(questionId: string, text: string): string {
+    const change = activeChange(this.ctx.engine);
+    if (!change) throw new Error('no hay un cambio en curso');
+    answerSpecQuestion(this.ctx.engine, change.change_id, questionId, text);
+    return `respuesta a ${questionId} registrada; incorpórala con forja especificar`;
+  }
+
+  approveDiscovery(): string {
+    const change = activeChange(this.ctx.engine);
+    if (!change) throw new Error('no hay un cambio en curso');
+    const { revision } = getDiscovery(this.ctx.engine, change.change_id);
+    approveDiscovery(this.ctx.engine, change.change_id, `aprobar:${change.change_id}:${revision}`);
+    return `descubrimiento aprobado (revisión ${revision}); sigue con forja especificar`;
   }
 }

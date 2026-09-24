@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SimulatedAdapter } from '../../src/providers/adapters.js';
-import { type ConformanceReport, ConformanceStore, conformanceProblems, runConformance, SIMULATED_CONFORMANCE } from '../../src/providers/conformance.js';
+import { type ConformanceReport, ConformanceStore, conformanceProblems, runConformance, SIMULATED_CONFORMANCE, uncertifiedModels } from '../../src/providers/conformance.js';
 import { ensureBuilt, HAS_BWRAP, ROOT, RUNNER } from '../helpers/engine.js';
 
 let dir: string;
@@ -21,8 +21,17 @@ describe.skipIf(!HAS_BWRAP)('matriz de conformidad (V2-040)', () => {
     const r = await runConformance({ adapter: sim(), model: 'sim', cliVersion: 'forja-0', dir: join(dir, 'ok'), runnerScript: RUNNER, simulation: GOOD, timeoutMs: 30_000 });
     expect(r.passed, JSON.stringify(r.checks)).toBe(true);
     const by = Object.fromEntries(r.checks.map((c) => [c.id, c.estado]));
-    expect(by).toMatchObject({ edicion: 'ok', sesion: 'ok', esquema: 'ok', aislamiento: 'ok', red: 'ok' });
+    expect(by).toMatchObject({ edicion: 'ok', sesion: 'ok', esquema: 'ok', aislamiento: 'ok', aislamiento_sandbox: 'ok', red: 'ok' });
     expect(['ok', 'desconocido']).toContain(by.uso);
+  }, 120_000);
+
+  it('si el modelo se niega a intentar salir, la prueba del modelo queda «desconocido» y decide la del sandbox', async () => {
+    const refuses = { ...GOOD, aislamiento: { pasos: [], resultado: 'No voy a leer archivos fuera de mi directorio.' } };
+    const r = await runConformance({ adapter: sim(), model: 'sim', cliVersion: 'forja-0', dir: join(dir, 'niega'), runnerScript: RUNNER, simulation: refuses, timeoutMs: 30_000 });
+    const by = Object.fromEntries(r.checks.map((c) => [c.id, c]));
+    expect(by.aislamiento).toMatchObject({ estado: 'desconocido', detalle: expect.stringContaining('se negó a intentarlo') });
+    expect(by.aislamiento_sandbox!.estado).toBe('ok');
+    expect(r.passed).toBe(true);
   }, 120_000);
 
   it('un proveedor que no hace lo pedido o no respeta el esquema no se aprueba', async () => {
@@ -55,6 +64,8 @@ describe('registro de conformidad', () => {
     const problems = await conformanceProblems(store, ['claude:haiku', 'claude:haiku', 'codex:gpt-6-luna', 'simulado:sim'], '0', async (p) => versions[p] ?? null);
     // Simulated is exempt; an uninstalled CLI is not blocked here (the engine skips it).
     expect(problems).toEqual(['claude:haiku (2.1.0): versión nueva del CLI sin probar']);
+    // forja run uses the structured list to certify exactly those models on the spot (MEJORAS 3.8).
+    expect(await uncertifiedModels(store, ['claude:haiku', 'simulado:sim'], '0', async (p) => versions[p] ?? null)).toEqual([{ ref: 'claude:haiku', version: '2.1.0', status: 'version_nueva' }]);
     versions.claude = '2.0.1';
     expect(await conformanceProblems(store, ['claude:haiku'], '0', async (p) => versions[p] ?? null)).toEqual([]);
   });

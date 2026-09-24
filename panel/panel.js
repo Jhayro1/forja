@@ -30,14 +30,20 @@ function toast(text, ms = 4000) {
   toast.timer = setTimeout(() => (t.hidden = true), ms);
 }
 
+const etags = new Map();
+
 async function api(method, path, body) {
   const headers = {};
+  // Lecturas con ETag: si nada cambió, el servidor responde 304 y no se vuelve a pintar.
+  if (method === 'GET' && etags.has(path)) headers['If-None-Match'] = etags.get(path);
   if (method !== 'GET') {
     headers['Content-Type'] = 'application/json';
     headers['X-Forja-CSRF'] = state.csrf || '';
     headers['Idempotency-Key'] = crypto.randomUUID();
   }
   const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : method === 'GET' ? undefined : '{}', credentials: 'same-origin' });
+  if (res.status === 304) return { sinCambios: true };
+  if (method === 'GET' && res.headers.get('ETag')) etags.set(path, res.headers.get('ETag'));
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error?.mensaje || `error ${res.status}`);
@@ -569,8 +575,162 @@ function renderMemoria(d) {
 }
 
 // Módulos opcionales registran su vista aquí; el menú sólo muestra los que el servidor tiene.
+// ---------- planeación (MEJORAS 3.4) ----------
+
+function list(items, fn) {
+  return items.length
+    ? h(
+        'ul',
+        {},
+        items.map((x) => h('li', {}, fn(x))),
+      )
+    : h('p', { class: 'muted' }, '—');
+}
+
+function renderPlaneacion(d) {
+  if (!d.cambio)
+    return [h('div', { class: 'card' }, h('h1', {}, 'Sin cambios todavía'), h('p', {}, 'Empieza en la terminal con ', h('span', { class: 'mono' }, 'forja planear "lo que quieres construir"')))];
+  const out = [h('h1', {}, `Planeación · ${d.cambio.titulo}`), h('p', { class: 'muted' }, `Fase: ${d.cambio.fase} · la conversación con el planeador sigue en la terminal (forja planear).`)];
+  const disc = d.descubrimiento;
+  out.push(
+    h('h2', {}, `Descubrimiento (revisión ${disc.revision}${disc.aprobado ? ', aprobado' : ''})`),
+    h(
+      'div',
+      { class: 'card' },
+      disc.resumen ? h('p', {}, disc.resumen) : null,
+      h('strong', {}, 'Incluye'),
+      list(disc.alcance.incluye, (x) => x),
+      h('strong', {}, 'Excluye'),
+      list(disc.alcance.excluye, (x) => x),
+      h('strong', {}, 'Decisiones'),
+      list(disc.decisiones, (x) => `${x.id} · ${x.contenido} (${x.estado})`),
+      h('strong', {}, 'Preguntas abiertas'),
+      list(disc.preguntas_abiertas, (x) => `${x.id} · ${x.texto}`),
+      d.cambio.fase === 'descubrir' && disc.bloqueos.length ? h('p', { class: 's-bloqueada' }, `Para aprobar falta: ${disc.bloqueos.join('; ')}`) : null,
+      !disc.aprobado && d.cambio.fase === 'descubrir' && !disc.bloqueos.length
+        ? h('button', { class: 'act', onclick: () => confirm('¿Aprobar el descubrimiento tal como está?') && mutate('POST', '/v1/planeacion/descubrimiento/aprobar') }, 'Aprobar descubrimiento')
+        : null,
+    ),
+  );
+  if (d.conversacion.length) {
+    out.push(
+      h('h2', {}, `Conversación (${d.conversacion.length} turnos recientes)`),
+      h(
+        'div',
+        { class: 'card' },
+        d.conversacion.map((t) => h('div', {}, t.usuario ? h('p', {}, h('strong', {}, 'Tú: '), t.usuario) : null, h('p', {}, h('strong', {}, `Planeador (${t.modelo}): `), t.planeador))),
+      ),
+    );
+  }
+  const spec = d.especificacion;
+  if (spec) {
+    out.push(h('h2', {}, `Especificación (revisión ${spec.revision})`));
+    out.push(
+      h(
+        'div',
+        { class: 'card' },
+        h('p', {}, spec.sistema.objetivo),
+        h('p', { class: 'muted' }, `${spec.casos_uso.length} casos de uso · ${spec.criterios} criterios`),
+        list(spec.casos_uso, (u) => `${u.id} · ${u.nombre}: ${u.objetivo}`),
+        spec.problemas.length ? h('p', { class: 's-bloqueada' }, `${spec.problemas.length} problema(s): ${spec.problemas.map((p) => p.message).join('; ')}`) : null,
+      ),
+    );
+    const pending = spec.preguntas.filter((q) => !q.respuesta);
+    if (spec.preguntas.length) {
+      out.push(h('h2', {}, `Preguntas de la especificación (${pending.length} sin responder)`));
+      out.push(
+        h(
+          'div',
+          { class: 'grid' },
+          spec.preguntas.map((q) => {
+            const card = h('div', { class: `card${q.respuesta ? '' : ' pending'}` }, h('strong', {}, q.id), h('p', {}, q.texto));
+            if (q.respuesta) card.append(h('p', { class: 'muted' }, `Respuesta: ${q.respuesta}`));
+            else {
+              const area = h('textarea', { rows: 2, 'aria-label': `Respuesta para ${q.id}` });
+              card.append(
+                area,
+                h(
+                  'button',
+                  {
+                    class: 'act',
+                    onclick: () => (area.value.trim() ? mutate('POST', `/v1/planeacion/preguntas/${q.id}/respuesta`, { respuesta: area.value.trim() }) : toast('Escribe una respuesta')),
+                  },
+                  'Responder',
+                ),
+              );
+            }
+            return card;
+          }),
+        ),
+      );
+    }
+  }
+  const plan = d.plan;
+  if (plan) {
+    const e = plan.estimacion;
+    out.push(h('h2', {}, `Plan (revisión ${plan.revision}${plan.aprobado ? ', aprobado' : ''})`));
+    out.push(
+      h(
+        'div',
+        { class: 'card' },
+        h(
+          'p',
+          {},
+          `${plan.tareas.length} tareas en ${plan.olas.length} olas · ~${e.minutos_en_paralelo} min con ${e.paralelo} agentes (${e.minutos_en_serie} en serie) · ${Math.round(e.tokens_total / 1000)}k tokens estimados${e.costo_equivalente_usd === null ? '' : ` · ≈US$ ${e.costo_equivalente_usd.toFixed(2)}`} (sin calibrar)`,
+        ),
+        h(
+          'p',
+          { class: 'muted mono' },
+          `Perfil: ${plan.perfil.stack.join(', ')} · test: ${plan.perfil.comandos.test ? [plan.perfil.comandos.test.executable, ...plan.perfil.comandos.test.args].join(' ') : '—'}`,
+        ),
+        plan.olas.map((ola, i) =>
+          h(
+            'div',
+            {},
+            h('strong', {}, `Ola ${i + 1}: `),
+            ola
+              .map((id) => {
+                const t = plan.tareas.find((x) => x.id === id);
+                return `${id} ${t ? t.titulo : ''}`;
+              })
+              .join(' · '),
+          ),
+        ),
+        plan.supuestos.length ? [h('strong', {}, 'Supuestos'), list(plan.supuestos, (x) => x)] : null,
+        plan.problemas_para_aprobar.length ? h('p', { class: 's-bloqueada' }, `Para aprobar falta: ${plan.problemas_para_aprobar.join('; ')}`) : null,
+        !plan.aprobado && d.cambio.fase === 'aprobar' && !plan.problemas_para_aprobar.length
+          ? h('button', { class: 'act', onclick: () => confirm('¿Aprobar exactamente este plan, esta especificación y esta política?') && mutate('POST', '/v1/plan/aprobar') }, 'Aprobar plan')
+          : null,
+      ),
+    );
+    out.push(
+      h(
+        'table',
+        {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Tarea'), h('th', {}, 'Tipo'), h('th', { class: 'hide-sm' }, 'Depende de'), h('th', { class: 'hide-sm' }, 'Escribe'))),
+        h(
+          'tbody',
+          {},
+          plan.tareas.map((t) =>
+            h(
+              'tr',
+              {},
+              h('td', {}, h('strong', {}, t.id), ` ${t.titulo}`),
+              h('td', {}, `${t.tipo} · ${t.complejidad}`),
+              h('td', { class: 'hide-sm' }, t.depende_de.join(', ') || '—'),
+              h('td', { class: 'mono hide-sm' }, t.escribe.join(', ')),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  return out;
+}
+
 const VIEWS = [
   { id: 'resumen', title: 'Flujo', module: 'runs', path: '/v1/estado', key: 'estado', render: renderResumen },
+  { id: 'planeacion', title: 'Planeación', module: 'planeacion', path: '/v1/planeacion', key: 'planeacion', render: renderPlaneacion },
   { id: 'acciones', title: 'Acciones', module: 'conexiones', path: '/v1/acciones', key: 'acciones', render: renderAcciones },
   { id: 'conexiones', title: 'Conexiones', module: 'conexiones', path: '/v1/conexiones', key: 'conexiones', render: renderConexiones },
   { id: 'auditoria', title: 'Auditoría', module: 'conexiones', path: '/v1/auditoria', key: 'auditoria', render: renderAuditoria },
@@ -588,6 +748,7 @@ function renderNav() {
           'aria-current': state.view === v.id ? 'page' : 'false',
           onclick: () => {
             state.view = v.id;
+            closeTask();
             renderNav();
             void refresh(true);
           },
@@ -604,6 +765,9 @@ async function refresh(force) {
   const view = VIEWS.find((v) => v.id === state.view) || VIEWS[0];
   try {
     const data = await api('GET', view.path);
+    if (data.sinCambios && !force) return;
+    if (data.sinCambios) etags.delete(view.path);
+    if (data.sinCambios) return refresh(true);
     if (view.id === 'resumen') state.data = data[view.key];
     const app = document.getElementById('app');
     app.replaceChildren(...view.render(data[view.key], data).filter(Boolean));

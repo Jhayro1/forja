@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { TEXTOS } from '../i18n/textos.js';
+import { FeedBroadcaster, type FeedEvent } from './broadcaster.js';
 import { ApiError, cookie, readJson, SECURITY_HEADERS, send, sendError } from './http.js';
+import { type IdempotencyStore, MemoryIdempotencyStore } from './idempotency.js';
 import { type Session, SessionManager, safeEqual } from './session.js';
 
 /**
@@ -47,6 +50,8 @@ export type ApiOptions = {
   pollMs?: number;
   heartbeatMs?: number;
   maxStreams?: number;
+  /** Where answers by Idempotency-Key are kept (in memory by default). */
+  idempotency?: IdempotencyStore;
 };
 
 const PANEL_DIR = fileURLToPath(new URL('../../panel/', import.meta.url));
@@ -57,19 +62,21 @@ const STATIC: Record<string, [string, string]> = {
 };
 
 const SESSION_COOKIE = 'forja_sesion';
-const MAX_IDEMPOTENCY = 500;
 
 export class ApiServer {
   readonly sessions: SessionManager;
   private readonly server: Server;
   private readonly routes: Route[];
-  private readonly idempotency = new Map<string, { status: number; body: unknown }>();
+  private readonly idempotency: IdempotencyStore;
+  private readonly broadcaster: FeedBroadcaster;
   private streams = 0;
   private port = 0;
   private readonly timers = new Set<NodeJS.Timeout>();
 
   constructor(private readonly opts: ApiOptions) {
     this.sessions = opts.sessions ?? new SessionManager();
+    this.idempotency = opts.idempotency ?? new MemoryIdempotencyStore();
+    this.broadcaster = new FeedBroadcaster(opts.feed, opts.pollMs ?? 500);
     this.routes = opts.modules.flatMap((m) => m.routes);
     this.server = createServer((req, res) => {
       this.handle(req, res).catch((error: unknown) => {
@@ -97,6 +104,7 @@ export class ApiServer {
 
   async close(): Promise<void> {
     for (const t of this.timers) clearInterval(t);
+    this.broadcaster.close();
     this.server.closeAllConnections();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
@@ -157,12 +165,22 @@ export class ApiServer {
       const m = route.path.exec(url.pathname);
       if (!m) continue;
       const key = mutation ? req.headers['idempotency-key'] : undefined;
-      const cacheKey = typeof key === 'string' && key ? `${session.id}:${method}:${url.pathname}:${key}` : null;
-      if (cacheKey && this.idempotency.has(cacheKey)) {
-        const prev = this.idempotency.get(cacheKey)!;
-        return send(res, prev.status, prev.body as object, { 'Idempotent-Replayed': 'true' });
-      }
+      if (typeof key === 'string' && key.length > 200) throw new ApiError(422, 'idempotencia', 'Idempotency-Key demasiado larga');
+      // Scoped by method and path (not by session): a retry after restarting forja ui still replays.
+      const cacheKey = typeof key === 'string' && key ? `${method}:${url.pathname}:${key}` : null;
       let bodyCache: Promise<Record<string, unknown>> | null = null;
+      let requestHash = '';
+      if (cacheKey) {
+        bodyCache = readJson(req);
+        requestHash = createHash('sha256')
+          .update(JSON.stringify(await bodyCache))
+          .digest('hex');
+        const prev = this.idempotency.get(cacheKey);
+        if (prev) {
+          if (prev.requestHash !== requestHash) throw new ApiError(422, 'idempotencia', 'esta Idempotency-Key ya se usó con otro cuerpo');
+          return send(res, prev.status, prev.body as object, { 'Idempotent-Replayed': 'true' });
+        }
+      }
       const ctx: RouteContext = { req, res, params: m.slice(1).map(decodeURIComponent), query: url.searchParams, session, body: () => (bodyCache ??= readJson(req)) };
       let result: unknown;
       try {
@@ -175,9 +193,16 @@ export class ApiServer {
       }
       if (res.headersSent) return;
       const body = (result ?? {}) as object;
-      if (cacheKey) {
-        if (this.idempotency.size >= MAX_IDEMPOTENCY) this.idempotency.delete(this.idempotency.keys().next().value!);
-        this.idempotency.set(cacheKey, { status: 200, body });
+      if (cacheKey) this.idempotency.set(cacheKey, { status: 200, body, requestHash });
+      if (!mutation) {
+        // Reads carry an ETag: the panel asks with If-None-Match and skips re-rendering on 304 (MEJORAS 3.6).
+        const etag = `"${createHash('sha1').update(JSON.stringify(body)).digest('base64url').slice(0, 22)}"`;
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304, { ...SECURITY_HEADERS, ETag: etag });
+          res.end();
+          return;
+        }
+        return send(res, 200, body, { ETag: etag });
       }
       return send(res, 200, body);
     }
@@ -224,34 +249,41 @@ export class ApiServer {
     }
     res.write('retry: 2000\n\n');
     let paused = false;
-    const pump = () => {
-      if (paused) return;
+    const write = (e: FeedEvent): boolean => {
+      cursor = e.seq;
+      return res.write(`id: ${feed.checkoutId}:${e.seq}\nevent: evento\ndata: ${JSON.stringify(e)}\n\n`);
+    };
+    // Catch-up from this stream's own cursor (reconnections), then the shared broadcast.
+    const catchUp = () => {
       for (;;) {
         const batch = feed.after(cursor, 200);
         if (batch.length === 0) return;
         for (const e of batch) {
-          cursor = e.seq;
-          // Backpressure: a slow browser never slows the scheduler; we just stop reading.
-          if (!res.write(`id: ${feed.checkoutId}:${e.seq}\nevent: evento\ndata: ${JSON.stringify(e)}\n\n`)) {
-            paused = true;
-            res.once('drain', () => {
-              paused = false;
-              pump();
-            });
-            return;
-          }
+          if (!write(e)) return pause();
         }
       }
     };
-    pump();
-    const poll = setInterval(pump, this.opts.pollMs ?? 500);
+    // Backpressure: a slow browser never slows the scheduler; we stop writing and catch up on drain.
+    const pause = () => {
+      paused = true;
+      res.once('drain', () => {
+        paused = false;
+        catchUp();
+      });
+    };
+    catchUp();
+    const unsubscribe = this.broadcaster.subscribe((events) => {
+      if (paused) return;
+      for (const e of events) {
+        if (e.seq <= cursor) continue;
+        if (!write(e)) return pause();
+      }
+    });
     const beat = setInterval(() => res.write(': latido\n\n'), this.opts.heartbeatMs ?? 15_000);
-    this.timers.add(poll);
     this.timers.add(beat);
     req.on('close', () => {
-      clearInterval(poll);
+      unsubscribe();
       clearInterval(beat);
-      this.timers.delete(poll);
       this.timers.delete(beat);
       this.streams--;
     });

@@ -5,7 +5,7 @@
 | Qué | Por qué |
 |---|---|
 | Linux (x86_64 o arm64) | El aislamiento de los agentes usa bubblewrap, que sólo existe en Linux. En Windows, usa WSL2 |
-| Node.js ≥ 24.11 | Forja usa `node:sqlite` y APIs recientes de Node |
+| Node.js ≥ 22.13 (22 LTS o 24) | Forja usa `node:sqlite`, disponible sin bandera desde 22.13; el CI prueba Node 22 y 24 |
 | Git ≥ 2.40 | Worktrees por tarea y ramas de integración |
 | bubblewrap (`bwrap`) | Sandbox de cada agente: sin red salvo la API de su proveedor, sin tu HOME |
 | Claude Code y/o Codex con sesión iniciada | Forja usa tus suscripciones a través de los CLI oficiales; nunca te pide ni copia credenciales |

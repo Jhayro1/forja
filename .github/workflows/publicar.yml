@@ -1,0 +1,38 @@
+name: publicar
+# Publica @jhayro1/forja en npm con procedencia (provenance) al empujar una etiqueta vX.Y.Z.
+# Requiere el secreto NPM_TOKEN (token de automatización del dueño del scope @jhayro1).
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publicar:
+    runs-on: ubuntu-24.04
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: la etiqueta coincide con la versión del paquete
+        run: |
+          v="$(node -p 'require("./package.json").version')"
+          test "v$v" = "$GITHUB_REF_NAME" || { echo "etiqueta $GITHUB_REF_NAME ≠ versión $v"; exit 1; }
+      - run: npm ci
+      - name: sandbox (bubblewrap)
+        run: |
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - run: npm run probar:paquete
+      - name: publicar con procedencia
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

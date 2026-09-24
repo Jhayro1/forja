@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MemoryIdempotencyStore, SqliteIdempotencyStore } from '../../src/api/idempotency.js';
 import { memoryModule } from '../../src/api/modules/memory.js';
+import { planningModule } from '../../src/api/modules/planning.js';
 import { type RunsBackend, runsModule } from '../../src/api/modules/runs.js';
 import { ApiServer, type EventFeed } from '../../src/api/server.js';
 import { SessionManager } from '../../src/api/session.js';
@@ -197,6 +199,49 @@ describe('API local · sesión y protecciones', () => {
     for (const word of ["'agente trabajando'", "'pregunta de un agente'", "'espera tu aprobación'", "'Especificar'"]) expect(panel).not.toContain(word);
   });
 
+  it('la clave de idempotencia persiste entre reinicios y no sirve para otro cuerpo (MEJORAS 3.7)', async () => {
+    const { cookie, csrf } = await login();
+    const store = new MemoryIdempotencyStore();
+    const other = new ApiServer({ modules: [runsModule(backend)], feed, sessions: server.sessions, idempotency: store });
+    const { port: p } = await other.listen();
+    const h = { Cookie: cookie, Origin: `http://127.0.0.1:${p}`, Host: `127.0.0.1:${p}`, 'X-Forja-CSRF': csrf, 'Content-Type': 'application/json', 'Idempotency-Key': 'k-persistente' };
+    const post = (srv: number, body: object) =>
+      new Promise<Res>((resolve) => {
+        const req = request(
+          { host: '127.0.0.1', port: srv, method: 'POST', path: '/v1/tareas/T-001/respuesta', headers: { ...h, Host: `127.0.0.1:${srv}`, Origin: `http://127.0.0.1:${srv}` } },
+          (res) => {
+            let text = '';
+            res.on('data', (c) => (text += c));
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: JSON.parse(text), text }));
+          },
+        );
+        req.end(JSON.stringify(body));
+      });
+    expect((await post(p, { respuesta: 'uno' })).status).toBe(200);
+    await other.close();
+    // A new process with the same store (forja ui restarted) replays instead of repeating.
+    const again = new ApiServer({ modules: [runsModule(backend)], feed, sessions: server.sessions, idempotency: store });
+    const { port: p2 } = await again.listen();
+    const replay = await post(p2, { respuesta: 'uno' });
+    expect(replay.headers['idempotent-replayed']).toBe('true');
+    expect(backend.answers).toHaveLength(1);
+    const mismatch = await post(p2, { respuesta: 'otra' });
+    expect(mismatch.status).toBe(422);
+    expect(mismatch.body.error.codigo).toBe('idempotencia');
+    await again.close();
+  });
+
+  it('las lecturas llevan ETag y responden 304 si nada cambió (MEJORAS 3.6)', async () => {
+    const { cookie } = await login();
+    const first = await call('GET', '/v1/estado', { headers: { Cookie: cookie } });
+    const etag = String(first.headers.etag);
+    expect(etag).toMatch(/^".+"$/);
+    const same = await call('GET', '/v1/estado', { headers: { Cookie: cookie, 'If-None-Match': etag } });
+    expect(same.status).toBe(304);
+    expect(same.text).toBe('');
+    expect((await call('GET', '/v1/estado', { headers: { Cookie: cookie, 'If-None-Match': '"otro"' } })).status).toBe(200);
+  });
+
   it('la misma Idempotency-Key no repite el efecto', async () => {
     const { cookie, csrf } = await login();
     const h = { Cookie: cookie, ...origin(), 'X-Forja-CSRF': csrf, 'Content-Type': 'application/json', 'Idempotency-Key': 'k1' };
@@ -264,6 +309,20 @@ describe('API local · eventos (SSE)', () => {
     s3.close();
   });
 
+  it('varias conexiones comparten un solo sondeo del almacén (MEJORAS 3.5)', async () => {
+    const { cookie } = await login();
+    const reads = () => (server as unknown as { broadcaster: { reads: number } }).broadcaster.reads;
+    const streams = await Promise.all([stream(cookie), stream(cookie), stream(cookie)]);
+    await wait(40);
+    const before = reads();
+    feed.push('tarea.estado_cambiado');
+    await wait(120);
+    for (const s of streams) expect(s.text()).toContain('event: evento');
+    // ~6 ticks of 20 ms for the three connections together, not per connection.
+    expect(reads() - before).toBeLessThan(15);
+    for (const s of streams) s.close();
+  });
+
   it('limita las conexiones abiertas', async () => {
     const { cookie } = await login();
     const small = new ApiServer({ modules: [], feed, maxStreams: 1, sessions: server.sessions });
@@ -314,5 +373,59 @@ describe('API local · memoria', () => {
       port = prev;
       await mem.close();
     }
+  });
+});
+
+describe('idempotencia en SQLite', () => {
+  it('guarda, repite dentro del plazo y olvida lo vencido', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE api_idempotency (key TEXT PRIMARY KEY, status INTEGER NOT NULL, body TEXT NOT NULL, request_hash TEXT NOT NULL, created_at INTEGER NOT NULL)');
+    let now = 1_000;
+    const store = new SqliteIdempotencyStore(db as never, 100, () => now);
+    store.set('k', { status: 200, body: { ok: true }, requestHash: 'h' });
+    expect(store.get('k')).toEqual({ status: 200, body: { ok: true }, requestHash: 'h' });
+    now = 1_200;
+    expect(store.get('k')).toBeUndefined();
+    db.close();
+  });
+});
+
+describe('módulo de planeación (MEJORAS 3.4)', () => {
+  it('muestra la planeación y responde preguntas de la spec con los mismos controles', async () => {
+    const answered: [string, string][] = [];
+    const feed2 = new FakeFeed();
+    const srv = new ApiServer({
+      modules: [
+        planningModule({
+          overview: () => ({ cambio: { titulo: 'Fiados' }, plan: { olas: [['T-001']] } }),
+          answerSpecQuestion: (id, text) => {
+            answered.push([id, text]);
+            return `respuesta a ${id}`;
+          },
+          approveDiscovery: () => 'aprobado',
+        }),
+      ],
+      feed: feed2,
+    });
+    const { port: p } = await srv.listen();
+    const req = (method: string, path: string, headers: Record<string, string>, body?: object) =>
+      new Promise<Res>((resolve) => {
+        const r = request({ host: '127.0.0.1', port: p, method, path, headers: { Host: `127.0.0.1:${p}`, ...headers } }, (res) => {
+          let text = '';
+          res.on('data', (c) => (text += c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: text ? JSON.parse(text) : null, text }));
+        });
+        r.end(body ? JSON.stringify(body) : undefined);
+      });
+    const login2 = await req('POST', '/v1/sesion', { Origin: `http://127.0.0.1:${p}`, 'Content-Type': 'application/json' }, { codigo: srv.sessions.issueCode() });
+    const cookie = String(login2.headers['set-cookie']).split(';')[0]!;
+    const h = { Cookie: cookie, Origin: `http://127.0.0.1:${p}`, 'X-Forja-CSRF': login2.body.csrf, 'Content-Type': 'application/json' };
+    expect((await req('GET', '/v1/planeacion', { Cookie: cookie })).body.planeacion.plan.olas).toEqual([['T-001']]);
+    expect((await req('POST', '/v1/planeacion/preguntas/q-001/respuesta', h, { respuesta: ' sí ' })).body.mensaje).toBe('respuesta a Q-001');
+    expect(answered).toEqual([['Q-001', 'sí']]);
+    expect((await req('POST', '/v1/planeacion/preguntas/T-001/respuesta', h, { respuesta: 'x' })).status).toBe(404);
+    expect((await req('POST', '/v1/planeacion/descubrimiento/aprobar', { ...h, 'X-Forja-CSRF': 'otro' }, {})).status).toBe(403);
+    await srv.close();
   });
 });

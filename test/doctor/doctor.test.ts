@@ -53,6 +53,8 @@ describe('doctor', () => {
 
   it('Node viejo es un error', async () => {
     expect(overall(await runChecks(fakeExec(ALL_OK), LINUX, '22.3.0'))).toBe('error');
+    expect(overall(await runChecks(fakeExec(ALL_OK), LINUX, '22.13.0'))).toBe('ok');
+    expect(overall(await runChecks(fakeExec(ALL_OK), LINUX, '20.19.0'))).toBe('error');
   });
 
   it('detecta WSL por /proc/version', () => {

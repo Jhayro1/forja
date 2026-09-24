@@ -20,10 +20,10 @@
   ],
   "type": "module",
   "engines": {
-    "node": ">=24.11"
+    "node": ">=22.13"
   },
   "bin": {
-    "forja": "./dist/cli/main.js"
+    "forja": "./dist/cli/bin.js"
   },
   "files": [
     "dist/**/*.js",

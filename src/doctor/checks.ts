@@ -25,7 +25,8 @@ export function detectPlatform(readProcVersion: () => string = () => readFileSyn
   }
 }
 
-const MIN_NODE = [24, 11] as const;
+/** node:sqlite without a flag (22.13); CI runs Node 22 and 24 (MEJORAS 3.11). */
+const MIN_NODE = [22, 13] as const;
 
 export async function runChecks(exec: Exec = realExec, platform: Platform = detectPlatform(), nodeVersion = process.versions.node): Promise<Check[]> {
   const checks: Check[] = [];

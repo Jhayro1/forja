@@ -1,4 +1,3 @@
-#!/usr/bin/env -S node --disable-warning=ExperimentalWarning
 import { Command, CommanderError } from 'commander';
 import { type Level, overall, runChecks } from '../doctor/checks.js';
 import { ConfigError } from '../registry/config.js';

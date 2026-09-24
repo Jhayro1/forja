@@ -126,6 +126,42 @@ export function pilotReport(metrics: RunMetrics[]): PilotReport {
   };
 }
 
+/** Tasks a model must have completed before its first-pass rate is trusted for routing. */
+export const MIN_TASKS_FOR_ROUTING = 5;
+
+export type RoutingChange = { rol: 'trabajador' | 'complejo'; actual: string[]; propuesto: string[]; motivo: string };
+
+/**
+ * Routing recommendation (MEJORAS 3.12): per worker role, put first the model
+ * with the best first-pass rate when it beats the current first choice by more
+ * than the quality tolerance, with enough integrated tasks behind both numbers.
+ * Only models already allowed in that role are considered; nothing is invented.
+ */
+export function routingRecommendation(report: PilotReport, roles: { trabajador: string[]; complejo: string[] }): RoutingChange[] {
+  const rate = new Map(report.modelos.filter((m) => m.tareas >= MIN_TASKS_FOR_ROUTING).map((m) => [m.modelo, m]));
+  const out: RoutingChange[] = [];
+  for (const rol of ['trabajador', 'complejo'] as const) {
+    const actual = roles[rol];
+    const measured = actual.filter((m) => rate.has(m)).sort((a, b) => rate.get(b)!.tasa_primer_intento - rate.get(a)!.tasa_primer_intento);
+    const best = measured[0];
+    const current = actual[0];
+    if (!best || best === current) continue;
+    const bestRate = rate.get(best)!.tasa_primer_intento;
+    const currentRate = current ? rate.get(current)?.tasa_primer_intento : undefined;
+    if (currentRate !== undefined && bestRate - currentRate <= QUALITY_TOLERANCE) continue;
+    out.push({
+      rol,
+      actual,
+      propuesto: [best, ...actual.filter((m) => m !== best)],
+      motivo:
+        currentRate === undefined
+          ? `${best} acepta ${Math.round(bestRate * 100)}% al primer intento (${rate.get(best)!.tareas} tareas); ${current} no tiene datos suficientes`
+          : `${best} acepta ${Math.round(bestRate * 100)}% al primer intento frente a ${Math.round(currentRate * 100)}% de ${current}`,
+    });
+  }
+  return out;
+}
+
 const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`);
 const num = (x: number | null) => (x === null ? '—' : String(x));
 

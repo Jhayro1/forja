@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
 import { type RunMetrics, runMetrics } from '../../src/pilot/metrics.js';
-import { MIN_RUNS, pilotReport, renderPilotMarkdown } from '../../src/pilot/report.js';
+import { MIN_RUNS, type PilotReport, pilotReport, renderPilotMarkdown, routingRecommendation } from '../../src/pilot/report.js';
 import { answerTaskQuestion, getRun, Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { HAS_BWRAP, testEngine } from '../helpers/engine.js';
 import { FILES, seedApprovedPlan } from '../run/fixture.js';
@@ -106,5 +106,30 @@ describe('informe del piloto', () => {
   it('un costo con llamadas sin tarifa se marca como mínimo', () => {
     const r = pilotReport([run(3, 10, 9, { costo_completo: false })]);
     expect(renderPilotMarkdown(r)).toContain('mínimo: hay llamadas sin tarifa');
+  });
+
+  it('sugiere poner primero al modelo que acepta claramente más al primer intento, sólo con datos suficientes (MEJORAS 3.12)', () => {
+    const report = (modelos: PilotReport['modelos']): PilotReport => ({ condiciones: [], recomendacion: { paralelo: null, motivo: '' }, modelos, sin_aceptar: [] });
+    const roles = { trabajador: ['claude:haiku', 'codex:luna'], complejo: ['claude:sonnet', 'codex:sol'] };
+    const clear = routingRecommendation(
+      report([
+        { modelo: 'codex:luna', tareas: 12, tasa_primer_intento: 0.9 },
+        { modelo: 'claude:haiku', tareas: 10, tasa_primer_intento: 0.6 },
+        { modelo: 'codex:sol', tareas: 2, tasa_primer_intento: 1 },
+      ]),
+      roles,
+    );
+    expect(clear).toEqual([{ rol: 'trabajador', actual: roles.trabajador, propuesto: ['codex:luna', 'claude:haiku'], motivo: 'codex:luna acepta 90% al primer intento frente a 60% de claude:haiku' }]);
+    // A small difference, or too few tasks, changes nothing.
+    expect(
+      routingRecommendation(
+        report([
+          { modelo: 'codex:luna', tareas: 12, tasa_primer_intento: 0.7 },
+          { modelo: 'claude:haiku', tareas: 10, tasa_primer_intento: 0.65 },
+        ]),
+        roles,
+      ),
+    ).toEqual([]);
+    expect(routingRecommendation(report([{ modelo: 'codex:luna', tareas: 3, tasa_primer_intento: 1 }]), roles)).toEqual([]);
   });
 });

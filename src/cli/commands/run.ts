@@ -5,7 +5,7 @@ import { label, TEXTOS } from '../../i18n/textos.js';
 import { latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { activeChange, getChange } from '../../planner/session.js';
-import { ConformanceStore, conformanceProblems } from '../../providers/conformance.js';
+import { ConformanceStore, conformanceProblems, uncertifiedModels } from '../../providers/conformance.js';
 import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { readableLog } from '../../run/activity.js';
 import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine, taskDetailLines } from '../../run/describe.js';
@@ -25,6 +25,8 @@ import { type EngineContext, openEngine } from '../engine-context.js';
 import { gatewayForProject } from '../gateway-setup.js';
 import { showPlan } from '../plan-view.js';
 import { domainError, snapshotOrFail, taskOrFail } from '../run-selection.js';
+import { confirm } from '../secret-input.js';
+import { certifyModels } from './conformance.js';
 
 function showPending(s: RunSnapshot): void {
   if (s.pending.length === 0) return;
@@ -107,8 +109,9 @@ export function registerRunCommands(program: Command): void {
     .option('--sin-revisor', 'omite el revisor independiente (más barato, menos control)')
     .option('--tablero', 'muestra el tablero en vivo mientras ejecuta')
     .option('--sin-conformidad', 'permite modelos sin conformidad aprobada con la versión instalada de su CLI (queda registrado)')
+    .option('--probar-conformidad', 'si hay modelos sin conformidad (p. ej. tras actualizar su CLI), los prueba antes de ejecutar')
     .option('--solo <tarea>', 'ejecuta sólo esa tarea (para depurarla); sus dependencias deben estar integradas')
-    .action(async (opts: { paralelo?: number; estimar?: boolean; sinRevisor?: boolean; tablero?: boolean; sinConformidad?: boolean; solo?: string }, cmd: Command) => {
+    .action(async (opts: { paralelo?: number; estimar?: boolean; sinRevisor?: boolean; tablero?: boolean; sinConformidad?: boolean; probarConformidad?: boolean; solo?: string }, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       if (opts.paralelo !== undefined && (!Number.isInteger(opts.paralelo) || opts.paralelo < 1 || opts.paralelo > 16)) {
         throw new CliError('--paralelo debe ser un número entre 1 y 16');
@@ -130,10 +133,25 @@ export function registerRunCommands(program: Command): void {
 
         // V2-040: autonomous work only with models certified for the installed CLI version.
         const roles = ctx.config.roles;
-        const unverified = await conformanceProblems(ConformanceStore.in(ctx.home), [...roles.trabajador, ...roles.complejo, ...roles.revisor], FORJA_VERSION);
+        const refs = [...roles.trabajador, ...roles.complejo, ...roles.revisor];
+        const store = ConformanceStore.in(ctx.home);
+        let unverified = await conformanceProblems(store, refs, FORJA_VERSION);
+        if (unverified.length && !opts.sinConformidad) {
+          // A new CLI version (or an untested model) can be certified right here (MEJORAS 3.8).
+          const pending = await uncertifiedModels(store, refs, FORJA_VERSION);
+          print(`Modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}`);
+          if (opts.probarConformidad || (!g.json && (await confirm('¿Probarlos ahora? Consume un poco de cuota de cada uno.')))) {
+            await certifyModels(
+              ctx,
+              pending.map((p) => p.ref),
+              { quiet: g.json === true },
+            );
+            unverified = await conformanceProblems(store, refs, FORJA_VERSION);
+          }
+        }
         if (unverified.length && !opts.sinConformidad) {
           throw new CliError(
-            `modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}\nPruébalos con: forja conformidad (o, bajo tu responsabilidad, forja run --sin-conformidad)`,
+            `modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}\nPruébalos con: forja conformidad (o forja run --probar-conformidad; bajo tu responsabilidad, forja run --sin-conformidad)`,
             EXIT.precondition,
           );
         }

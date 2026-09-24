@@ -1,11 +1,13 @@
 import { createInterface } from 'node:readline';
 import type { Command } from 'commander';
+import { SqliteIdempotencyStore } from '../../api/idempotency.js';
 import { connectionsModule } from '../../api/modules/connections.js';
 import { memoryModule } from '../../api/modules/memory.js';
+import { planningModule } from '../../api/modules/planning.js';
 import { runsModule } from '../../api/modules/runs.js';
 import { type ApiModule, ApiServer } from '../../api/server.js';
 import { CliError, type GlobalOptions, print } from '../context.js';
-import { EngineConnectionsBackend, EngineEventFeed, EngineMemoryBackend, EngineRunsBackend } from '../engine-backend.js';
+import { EngineConnectionsBackend, EngineEventFeed, EngineMemoryBackend, EnginePlanningBackend, EngineRunsBackend } from '../engine-backend.js';
 import { type EngineContext, openEngine } from '../engine-context.js';
 
 /**
@@ -17,6 +19,7 @@ export const PANEL_MODULES: ModuleFactory[] = [
   (ctx) => runsModule(new EngineRunsBackend(ctx)),
   (ctx) => connectionsModule(new EngineConnectionsBackend(ctx)),
   (ctx) => memoryModule(new EngineMemoryBackend(ctx)),
+  (ctx) => planningModule(new EnginePlanningBackend(ctx)),
 ];
 
 export function registerUiCommands(program: Command): void {
@@ -28,7 +31,12 @@ export function registerUiCommands(program: Command): void {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       if (opts.puerto !== undefined && (!Number.isInteger(opts.puerto) || opts.puerto < 1 || opts.puerto > 65535)) throw new CliError('--puerto debe estar entre 1 y 65535');
       const ctx = openEngine(g);
-      const server = new ApiServer({ modules: PANEL_MODULES.map((f) => f(ctx)), feed: new EngineEventFeed(ctx), ...(opts.puerto ? { port: opts.puerto } : {}) });
+      const server = new ApiServer({
+        modules: PANEL_MODULES.map((f) => f(ctx)),
+        feed: new EngineEventFeed(ctx),
+        idempotency: new SqliteIdempotencyStore(ctx.store.db),
+        ...(opts.puerto ? { port: opts.puerto } : {}),
+      });
       try {
         const { url } = await server.listen();
         const link = () => `${url}/#codigo=${server.sessions.issueCode()}`;

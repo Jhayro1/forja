@@ -265,6 +265,16 @@ const MIGRATIONS: readonly string[] = [
     created_seq  INTEGER NOT NULL
   );
   `,
+  `
+  -- Respuestas de la API por Idempotency-Key, persistidas (MEJORAS 3.7). No es un evento de dominio.
+  CREATE TABLE api_idempotency (
+    key          TEXT PRIMARY KEY,
+    status       INTEGER NOT NULL,
+    body         TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    created_at   INTEGER NOT NULL
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

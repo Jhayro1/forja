@@ -15,9 +15,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: sudo apt-get install -y bubblewrap
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
+      - run: npm test
       - name: instalar el paquete y correr el CLI
         run: |
           npm pack --pack-destination "$RUNNER_TEMP"

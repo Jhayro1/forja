@@ -354,6 +354,10 @@ export class Orchestrator {
 
   async loop(): Promise<RunSummary> {
     await this.reconcile();
+    this.engine.store.execute({ request_id: newId('req'), type: 'parametros_run', input: { runId: this.run.run_id } }, () => ({
+      result: null,
+      events: [{ type: EV.runParams, aggregate_type: 'run', aggregate_id: this.run.run_id, run_id: this.run.run_id, payload: { paralelo: this.parallel, revisor: this.opts.review ?? true } }],
+    }));
     const pollMs = this.opts.pollMs ?? 1000;
     let stopping = false;
     this.opts.signal?.addEventListener('abort', () => {

@@ -12,7 +12,7 @@ Orquestador **open source** de agentes de código. Separa el trabajo en dos:
 Funciona con las **suscripciones** de Claude y Codex: maneja sus CLI oficiales
 (`claude -p`, `codex exec`) y nunca toca tus credenciales de esos servicios.
 
-> Estado: **M3 casi completo** (ejecución en paralelo usable desde la terminal). Bitácora en
+> Estado: **M4 completo** (beta candidata: terminal y panel web locales). Bitácora en
 > [PROGRESO.md](PROGRESO.md); mejoras y pendientes en [MEJORAS.md](MEJORAS.md).
 
 ## Estado del código
@@ -22,9 +22,11 @@ verificar → integrar → entregar en una rama `forja/entrega/<cambio>` (main n
 Falta la prueba de ejecución con Claude y Codex reales (hasta ahora con agentes simulados).
 
 ```bash
-npm install && npm run check   # typecheck + tests (Linux con bubblewrap)
-npm run build && node dist/cli/main.js doctor
+npm install -g @jhayro1/forja && forja doctor     # cuando esté publicado; guía: docs/guias/INSTALAR.md
+npm install && npm run check                      # desarrollo: typecheck + tests (Linux con bubblewrap)
 ```
+
+Guías: [instalar](docs/guias/INSTALAR.md) · [recuperación](docs/guias/RECUPERACION.md) · [seguridad](docs/guias/SEGURIDAD.md) · [limitaciones](docs/guias/LIMITACIONES.md).
 
 | Paso | Comandos |
 |---|---|
@@ -35,6 +37,9 @@ npm run build && node dist/cli/main.js doctor
 | Ejecutar | `forja run [--paralelo N] [--sin-revisor] [--tablero]`, `detener` (Ctrl-C = detener ordenado) |
 | Observar | `forja tablero`, `estado`, `preguntas`, `tarea T-001`, `logs T-001 -f`, `informe` (todos con `--json`) |
 | Decidir | `forja responder T-001 "…"`, `reintentar T-001 "nota"`; rehacer el plan a mitad: `detener` → `dividir` → `aprobar plan` → `run` |
+| Panel web | `forja ui` (sólo 127.0.0.1; entra con el enlace de un solo uso que imprime) |
+| Modelos | `forja conformidad [proveedor:modelo…]`, `forja conformidad --listar` |
+| Piloto | `forja piloto [--aplicar]`: mide los runs y recomienda N |
 | Operación | `forja backup crear/listar/verificar/restaurar` |
 
 Modo demo sin cuota: con los roles en `simulado:sim` y `FORJA_SIMULACION=guion.json`

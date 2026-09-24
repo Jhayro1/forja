@@ -1,10 +1,11 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --disable-warning=ExperimentalWarning
 import { Command, CommanderError } from 'commander';
 import { overall, runChecks, type Level } from '../doctor/checks.js';
 import { ConfigError } from '../registry/config.js';
 import { ProjectError } from '../registry/projects.js';
 import { registerConformanceCommands } from './commands/conformance.js';
 import { registerOpsCommands } from './commands/ops.js';
+import { registerPilotCommands } from './commands/pilot.js';
 import { registerPlanCommands } from './commands/plan.js';
 import { registerProjectCommands } from './commands/projects.js';
 import { registerRunCommands } from './commands/run.js';
@@ -58,6 +59,7 @@ registerPlanCommands(program);
 registerRunCommands(program);
 registerUiCommands(program);
 registerConformanceCommands(program);
+registerPilotCommands(program);
 
 try {
   await program.parseAsync();

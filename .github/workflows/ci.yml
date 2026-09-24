@@ -23,8 +23,5 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - name: instalar el paquete y correr el CLI
-        run: |
-          npm pack --pack-destination "$RUNNER_TEMP"
-          npm install -g --prefix "$RUNNER_TEMP/prefix" "$RUNNER_TEMP"/forja-*.tgz
-          "$RUNNER_TEMP/prefix/bin/forja" --version
+      - name: instalación limpia del paquete (V2-043)
+        run: npm run probar:paquete

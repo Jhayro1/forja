@@ -18,6 +18,8 @@ export const EV = {
   specAnswer: 'spec.pregunta_respondida',
   runStarted: 'run.iniciado',
   runState: 'run.estado_cambiado',
+  /** How a run segment was executed (N, reviewer): evidence for the pilot; no projection. */
+  runParams: 'run.parametros',
   taskExec: 'tarea.ejecucion_actualizada',
 } as const;
 

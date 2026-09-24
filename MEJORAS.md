@@ -12,7 +12,7 @@ Prioridad: **P1** bloquea cerrar el hito · **P2** calidad o costo importante ·
 |---|---|---|---|
 | 1.1 | P1 | **V2-038 · demo real**: correr las 25 tareas de la bodega con Claude y Codex a la vez | Es la prueba que falta: hasta ahora la ejecución sólo corrió con agentes simulados. Necesita tu máquina con las dos sesiones iniciadas. Medir: tareas que pasan al primer intento, reintentos por causa, tiempo real contra la estimación (~67 min con 3 agentes), consumo por rol. Guardar la evidencia (informe + `forja estado --json`) en `m3/` como se hizo con `m0/` |
 | 1.2 | P1 | **V2-030 · perfil y baseline al importar** | Hoy el perfil (instalar/build/test) lo propone el planeador al dividir. Falta: detectarlo de forma estática al importar, aprobarlo, y correr una línea base en sandbox (¿los tests del repo ya pasan antes de tocar nada?) para no culpar a los agentes de fallos previos |
-| 1.3 | P1 | **Versión instalable** | `npm pack` + `npm i -g` probado en una máquina limpia; `forja doctor` como primer paso; publicar requisitos (Linux con bubblewrap, Node ≥ 24.11) |
+| 1.3 | ✅ | **Versión instalable** | Hecho en M4 (V2-043): `npm run probar:paquete`. Falta publicar (ver 6.9) |
 | 1.4 | P2 | `forja run --solo <tarea>` | Está en el contrato de [v2/10](v2/10-cli-ui-y-api.md); útil para depurar una tarea sin lanzar el resto. No debe saltarse dependencias pendientes |
 | 1.5 | P2 | Control por tarea: `pausar`, `reanudar`, `reasignar` a otro modelo permitido | También en v2/10. El dominio ya tiene el estado `pausada`; falta el comando y respetar la política al reasignar |
 
@@ -32,6 +32,23 @@ Prioridad: **P1** bloquea cerrar el hito · **P2** calidad o costo importante ·
 | 2.10 | P3 | **Tokens y costo de Codex en vivo** | Codex informa uso al final del turno: el tablero muestra `?` mientras trabaja. Mostrar «medido / estimado / desconocido» como pide v2/10 |
 | 2.11 | P3 | **Modo demo más explícito** | `FORJA_SIMULACION` sólo afecta modelos `simulado:*`, así que no puede suplantar a Claude o Codex; aun así, mostrar un aviso visible en `run` y en el tablero cuando está activo |
 | 2.12 | P3 | Textos al usuario centralizados | Hoy los mensajes en español están junto al código. Un catálogo único facilita revisarlos y traducirlos |
+
+## 6. Mejoras detectadas en M4
+
+| # | Prioridad | Qué | Detalle |
+|---|---|---|---|
+| 6.1 | P1 | **Correr el piloto con datos reales** | El protocolo de v2/09 pide 12 cambios fijos × 3 repeticiones × N=2/3/4. La herramienta está (`forja piloto`); faltan los runs con Claude y Codex |
+| 6.2 | P2 | Comando que ejecute el corpus del piloto | `forja piloto correr --corpus corpus.yaml`: clona repos y SHAs fijos, alterna el orden y repite cada condición, sin intervención manual |
+| 6.3 | P2 | Aislamiento en la conformidad cuando el modelo se niega | Si el modelo rehúsa intentar leer/escribir fuera, la comprobación pasa sin haber puesto a prueba el sandbox. Registrar «el modelo se negó» y apoyarse en la prueba del runner (que ya ejerce el sandbox sin modelo) |
+| 6.4 | P2 | Vista de planeación en el panel | Hoy el panel cubre ejecución. Falta conversación del planeador, decisiones, preguntas de la spec y el plan por olas antes de aprobar |
+| 6.5 | P3 | Un solo sondeo de eventos para todas las conexiones SSE | Cada pestaña sondea SQLite cada 500 ms; un difusor compartido reduce lecturas |
+| 6.6 | P3 | Estado incremental en el panel | Cada evento vuelve a pedir el estado completo; usar ETag o diferencias |
+| 6.7 | P3 | Idempotencia persistente en la API | Las claves viven en memoria de `forja ui`. Las acciones actuales ya son seguras de repetir (una segunda respuesta devuelve 409), pero las de M5 no deben depender de eso |
+| 6.8 | P3 | Reprobar automáticamente al detectar una versión nueva del CLI | `forja run` bloquea y pide `forja conformidad`; podría ofrecer correrla ahí mismo |
+| 6.9 | P1 | Publicar en npm | Verificar que el scope `@jhayro1` exista en npm y sea tuyo; luego `npm publish` desde CI con provenance |
+| 6.10 | P3 | `env -S` en el shebang | Silencia el aviso experimental de SQLite; requiere coreutils ≥ 8.30 (no está en BusyBox/Alpine). Retirarlo cuando `node:sqlite` sea estable |
+| 6.11 | P3 | Node 22 vs 24 | `engines` exige 24.11 y `doctor` lo marca, pero la suite pasa en 22; decidir si se baja el mínimo o se usa algo exclusivo de 24 |
+| 6.12 | P3 | Aplicar el enrutamiento recomendado | El piloto informa la calidad por modelo pero no cambia `roles`; ofrecer `--aplicar-roles` con confirmación |
 
 ## 3. Tablero (siguientes versiones)
 

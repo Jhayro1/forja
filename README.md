@@ -12,17 +12,33 @@ Orquestador **open source** de agentes de código. Separa el trabajo en dos:
 Funciona con las **suscripciones** de Claude y Codex: maneja sus CLI oficiales
 (`claude -p`, `codex exec`) y nunca toca tus credenciales de esos servicios.
 
-> Estado: **definición**. Aquí sólo hay documentación; todavía no hay código.
-> El propio proyecto se especifica con el método que va a automatizar.
+> Estado: **M3 casi completo** (ejecución en paralelo usable desde la terminal). Bitácora en
+> [PROGRESO.md](PROGRESO.md); mejoras y pendientes en [MEJORAS.md](MEJORAS.md).
 
 ## Estado del código
 
-M1 en curso: dominio (ids, hash canónico, estados de tarea, aprobaciones), almacén de eventos en SQLite, parsers de Claude y Codex probados con salidas reales de [M0](m0/RESULTADOS.md), proveedor simulado y `forja doctor`.
+Funciona de punta a punta: planear → especificar → dividir → aprobar → ejecutar en paralelo →
+verificar → integrar → entregar en una rama `forja/entrega/<cambio>` (main nunca se toca).
+Falta la prueba de ejecución con Claude y Codex reales (hasta ahora con agentes simulados).
 
 ```bash
-npm install && npm run check   # typecheck + tests
+npm install && npm run check   # typecheck + tests (Linux con bubblewrap)
 npm run build && node dist/cli/main.js doctor
 ```
+
+| Paso | Comandos |
+|---|---|
+| Proyecto | `forja nuevo`, `importar`, `proyectos`, `usar`, `proyecto archivar/desarchivar/vincular` |
+| Planear | `forja planear`, `cambios`, `aprobar descubrimiento` |
+| Especificar | `forja especificar`, `responder Q-001 …` |
+| Dividir y aprobar | `forja dividir`, `plan`, `run --estimar`, `aprobar plan` |
+| Ejecutar | `forja run [--paralelo N] [--sin-revisor] [--tablero]`, `detener` (Ctrl-C = detener ordenado) |
+| Observar | `forja tablero`, `estado`, `preguntas`, `tarea T-001`, `logs T-001 -f`, `informe` (todos con `--json`) |
+| Decidir | `forja responder T-001 "…"`, `reintentar T-001 "nota"`; rehacer el plan a mitad: `detener` → `dividir` → `aprobar plan` → `run` |
+| Operación | `forja backup crear/listar/verificar/restaurar` |
+
+Modo demo sin cuota: con los roles en `simulado:sim` y `FORJA_SIMULACION=guion.json`
+(ver `src/providers/simulation-file.ts`), `forja run` usa agentes con guion dentro del mismo sandbox.
 
 ## Cómo leer esta carpeta
 

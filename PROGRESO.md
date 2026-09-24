@@ -5,7 +5,36 @@ Formato: fecha · punto · qué quedó · cómo se verificó · qué sigue.
 
 ## Dónde estoy
 
-**Último punto terminado:** fix M3 · verificación sobre la punta de integración · **Siguiente:** M3 · comandos forja run / estado / preguntas, V2-039 tablero de terminal, V2-030 perfil al importar, V2-037 cambio de plan (lógica hecha, falta probar), V2-038 demo real
+**Último punto terminado:** M3 · comandos de ejecución y observación, V2-039 tablero de terminal, V2-037 cambio de plan a mitad de run.
+**Siguiente:** V2-038 demo real con Claude y Codex (las 25 tareas de la bodega), V2-030 perfil y baseline al importar, versión instalable. Detalle en [MEJORAS.md](MEJORAS.md).
+
+## Resumen de lo terminado
+
+| Hito | Estado | Qué hay |
+|---|---|---|
+| M0 · Pruebas reales | ✅ | Modelos, esquema, reanudar, kill -9 y aislamiento probados con los CLI reales ([resultados](m0/RESULTADOS.md)) |
+| M1 · Núcleo | ✅ | Dominio, eventos en SQLite, parsers, redactor, registro de proyectos, runner con sandbox bwrap y filtro de red, copias, adaptadores Claude/Codex |
+| M2 · Planear | ✅ | Planeador conversacional, spec v2 con validación, documentos por plantillas, división en tareas con olas, estimación, aprobación ligada a hashes |
+| M3 · Ejecutar | 🟡 casi completo | Motor paralelo con verificación, reintentos, integración y entrega; CLI `run/estado/preguntas/tarea/logs/responder/reintentar/detener/informe/tablero`; tablero en vivo; cambio de plan a mitad de run. **Falta:** V2-038 (correr con Claude y Codex reales), V2-030 (perfil y baseline al importar) |
+| M4 · Panel web y empaquetado | Pendiente | — |
+| M5 · Bóveda y conexiones | Pendiente | — |
+| M6 · Memoria en grafo | Pendiente | — |
+
+### Qué se puede usar hoy (flujo completo en la terminal)
+
+```bash
+forja nuevo bodega && cd bodega
+forja planear "control de fiados de mi bodega"   # conversación; /aprobar al final
+forja especificar                                # spec + documentos; si pregunta: forja responder Q-001 "…"
+forja dividir && forja run --estimar             # tareas en olas, tiempo y consumo estimados
+forja aprobar plan
+forja run --tablero                              # agentes en paralelo, en vivo (Ctrl-C = detener ordenado)
+forja preguntas                                  # lo que espera tu decisión
+forja responder T-019 "sí, dos decimales"        # respuesta a un agente; luego forja run retoma
+forja informe                                    # rama entregada, verificación y consumo
+```
+
+Desde otra terminal, mientras corre: `forja tablero`, `forja estado`, `forja logs T-014 -f`, `forja detener`.
 
 ## Bitácora
 
@@ -26,3 +55,6 @@ Formato: fecha · punto · qué quedó · cómo se verificó · qué sigue.
 | 2026-09-24 | V2-021 · V2-022 · V2-023 · V2-024 · M2 completo | Spec v2 (esquema estricto + validación semántica: referencias, excepciones o justificación, cobertura de criterios, formatos de id) generada desde el descubrimiento con reparación; preguntas bloqueantes y forja responder; documentos por plantillas (índice, casos, .feature en español, reglas, modelo de datos Mermaid, glosario, trazabilidad, plan de pruebas) con manifiesto y protección de ediciones a mano; división: borrador por reglas + ajuste del planeador + validación (ciclos, dependencias, cobertura, pruebas protegidas, solapamientos → recurso exclusivo implícito, olas); estimación sin modelos (sin calibrar, precios opcionales); aprobación ligada a hashes de plan/spec/perfil/política. CLI: especificar, responder, dividir, plan, aprobar plan | 20 tests nuevos + recorrido real completo con Claude Opus: spec rev.1 (9 casos, 28 criterios, 3 preguntas reales) → respuestas → rev.2 (10 casos, 39 criterios) → plan de 25 tareas en 7 olas → aprobado |
 | 2026-09-24 | M3 parcial · V2-031 · V2-032 · V2-033 · V2-034 · V2-035 · V2-036 (núcleo de ejecución) | Orquestador determinista: run con rama de integración propia, worktree por tarea desde el SHA integrado, instalación de dependencias antes del agente, paquete de contexto por tarea con manifiesto, lanzamiento con intención persistida antes del proceso, N agentes en paralelo con recursos exclusivos y orden por camino crítico, captura segura (sólo sin escritores; rutas permitidas, protegidas, secretos), verificación (antitrampas, instalar, typecheck/build/lint, pruebas propias + las ya verdes, revisor independiente), escalera de modelos sólo por calidad, preguntas del agente, integración de a una con merge + pruebas + CAS, reconciliación al arrancar, detener y retomar, presupuesto que pausa, entrega en rama forja/entrega/<cambio> + informe; main nunca se toca | 4 pruebas de punta a punta con agentes simulados en sandbox (paralelo, reintento, archivos protegidos, pregunta, detener/retomar) · 127 tests en total |
 | 2026-09-24 | fix M3 · verificación sobre la punta de integración | Dos defectos encontrados bajo carga: (1) la verificación usaba la base vieja del candidato y exigía pruebas ya verdes cuyo código no tenía → ahora verifica el candidato fusionado con la punta actual de integración; (2) un reintento que reproducía el mismo contenido hacía fallar git commit → reutiliza el candidato | Suite completa 3 veces seguidas: 114 pasan, 6 omitidas (las que usan modelos reales sin FORJA_REAL=1) |
+| 2026-09-24 | fix M3 · pruebas ya verdes consistentes con la base | Tercer defecto de la misma familia, encontrado al correr la suite en otra máquina (otros tiempos de proceso): si otra tarea se integraba mientras se preparaba una verificación, se exigían sus pruebas sobre una base que todavía no tenía su código (fallo de calidad falso). Ahora sólo cuentan las tareas cuya integración está contenida en la base que se verifica (o integra) | Reproducido 2/2 antes del arreglo; después 3 corridas seguidas de la suite completa en verde |
+| 2026-09-24 | M3 · V2-039 y comandos de ejecución | Modelo de lectura único (`run/snapshot.ts`) que usan `estado`, `preguntas`, el tablero y, en M4, la API. CLI: `forja run` (bloqueo por proyecto, Ctrl-C = detener ordenado y doble Ctrl-C = salir ya, `--paralelo`, `--sin-revisor`, `--estimar`, `--tablero`, códigos de salida 0/3/4), `estado`, `preguntas`, `tarea`, `logs -f` (sigue al siguiente intento), `responder T-xxx`, `reintentar`, `detener` (desde otra terminal), `informe`. Registro del run en archivo para otras terminales. Tablero a pantalla completa sin dependencias nuevas: fases, agentes con tiempo, tokens y acción actual, tareas con estado en texto y color, «pendiente de ti», registro, consumo; detalle, logs en vivo, diff, instrucciones del agente, responder, reintentar y detener con confirmación; funciona en 80 columnas y por SSH; limpia secuencias de control de textos ajenos. Modo demo `FORJA_SIMULACION` (sólo afecta modelos `simulado:*`) | 15 tests del tablero (render a varios tamaños, teclado con fuente falsa) + 5 del modelo de lectura + 2 de punta a punta por el binario real en sandbox (pregunta → estado/preguntas → responder → entrega) + prueba manual: tablero en vivo en una pseudo-terminal, `detener` y retomar |
+| 2026-09-24 | M3 · V2-037 cambio de plan a mitad de run | `forja dividir` se permite en la fase ejecutar (toma el bloqueo del proyecto, así que exige detener antes); la revisión nueva vuelve a «aprobar», la aprobación vieja deja de valer y `forja run` crea un run nuevo que hereda sólo las tareas integradas con definición idéntica; las no terminadas del run anterior quedan invalidadas y el run anterior cancelado | 1 test de punta a punta: pregunta → replan (T-005 cambia) → rechazo sin nueva aprobación → aprobación → herencia de T-001/T-002/T-004 sin relanzar → entrega · suite completa 3 veces seguidas con sandbox: 137 pasan, 6 omitidas (modelos reales) |

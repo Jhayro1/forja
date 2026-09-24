@@ -53,6 +53,11 @@ export async function seedApprovedPlan(engine: Engine, dir: string, tasks: PlanT
   const repo = join(dir, 'repo');
   mkdirSync(repo, { recursive: true });
   sh(repo, 'init', '-q', '-b', 'main');
+  return seedApprovedPlanIn(engine, repo, tasks);
+}
+
+/** Same as seedApprovedPlan, on an existing Git repo (e.g. one created by `forja nuevo`). */
+export async function seedApprovedPlanIn(engine: Engine, repo: string, tasks: PlanTask[] = TASKS): Promise<{ repo: string; changeId: string; plan: Plan }> {
   writeFileSync(join(repo, 'README.md'), '# demo\n');
   writeFileSync(join(repo, 'package.json'), '{ "type": "module" }\n');
   sh(repo, 'add', '-A');

@@ -4,6 +4,8 @@ import type { Redactor } from '../security/redact.js';
 import { FORJA_AUTHOR, git, gitOut } from './git.js';
 
 export const runBranch = (prefix: string, runId: string) => `${prefix}run/${runId}/integracion`;
+/** Where a completed change is delivered; main is never touched. */
+export const deliveryBranch = (prefix: string, changeId: string) => `${prefix}entrega/${changeId}`;
 export const taskBranch = (prefix: string, runId: string, taskId: string) => `${prefix}run/${runId}/tareas/${taskId}`;
 
 /** Creates the run's integration branch at the approved base if it does not exist. */

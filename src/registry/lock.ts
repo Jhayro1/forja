@@ -32,6 +32,16 @@ export class LockHeldError extends Error {
   }
 }
 
+/** Live owner of a lock file, or null when it is free or its owner died. */
+export function lockHolder(path: string): (ProcessIdentity & { purpose?: string }) | null {
+  try {
+    const holder = JSON.parse(readFileSync(path, 'utf8')) as ProcessIdentity & { purpose?: string };
+    return isAlive(holder) ? holder : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Exclusive lock file; a stale lock (owner dead) is taken over, a live one is refused. */
 export class LockFile {
   private constructor(private readonly path: string) {}
@@ -45,13 +55,8 @@ export class LockFile {
         return new LockFile(path);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        let holder: (ProcessIdentity & { purpose?: string }) | null = null;
-        try {
-          holder = JSON.parse(readFileSync(path, 'utf8')) as ProcessIdentity & { purpose?: string };
-        } catch {
-          holder = null;
-        }
-        if (holder && isAlive(holder)) throw new LockHeldError(holder);
+        const holder = lockHolder(path);
+        if (holder) throw new LockHeldError(holder);
         unlinkSync(path);
       }
     }

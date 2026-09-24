@@ -7,6 +7,7 @@ import { ProjectError } from '../registry/projects.js';
 import { registerOpsCommands } from './commands/ops.js';
 import { registerPlanCommands } from './commands/plan.js';
 import { registerProjectCommands } from './commands/projects.js';
+import { registerRunCommands } from './commands/run.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from './context.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -47,6 +48,7 @@ program
 registerProjectCommands(program);
 registerOpsCommands(program);
 registerPlanCommands(program);
+registerRunCommands(program);
 
 try {
   await program.parseAsync();

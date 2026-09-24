@@ -16,13 +16,17 @@ import {
 } from '../../planner/session.js';
 import { approvePlan, currentApproval, gateProblems } from '../../plan/approve.js';
 import { dividePlan, latestPlan } from '../../plan/divide.js';
-import { estimatePlan, loadPrices, type Estimate } from '../../plan/estimate.js';
-import { waves, type Plan } from '../../plan/plan.js';
+import { estimatePlan, loadPrices } from '../../plan/estimate.js';
+import { waves } from '../../plan/plan.js';
+import { LockHeldError, type LockFile } from '../../registry/lock.js';
+import { acquireOrchestratorLock } from '../../run/process.js';
 import { renderDocs, writeDocs } from '../../spec/docs.js';
 import { answerSpecQuestion, changeDir, generateSpec, latestSpec } from '../../spec/generate.js';
 import { blockingQuestions } from '../../spec/spec.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
 import { hasProductCode, openEngine, repoEvidence, type EngineContext } from '../engine-context.js';
+import { showPlan } from '../plan-view.js';
+import { answerTaskFromCli } from './run.js';
 
 function spinner(label: string): () => void {
   if (!process.stderr.isTTY) return () => {};
@@ -260,11 +264,12 @@ export function registerPlanCommands(program: Command): void {
 
   program
     .command('responder <pregunta> <respuesta...>')
-    .description('responde una pregunta pendiente de la especificación (luego: forja especificar)')
+    .description('responde una pregunta pendiente: de la especificación (Q-001) o de un agente (T-001)')
     .action(async (questionId: string, words: string[], _o: unknown, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
       try {
+        if (/^T-\d+$/i.test(questionId)) return answerTaskFromCli(ctx, questionId, words.join(' '));
         const change = activeChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
         try {
@@ -288,9 +293,20 @@ export function registerPlanCommands(program: Command): void {
     .action(async (_o: unknown, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
+      let lock: LockFile | null = null;
       try {
         const change = activeChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
+        const replan = change.phase === 'ejecutar';
+        if (replan) {
+          // Re-planning mid-run: no orchestrator may be running on the old plan meanwhile.
+          try {
+            lock = acquireOrchestratorLock(ctx.dataDir, 'rehacer el plan');
+          } catch (error) {
+            if (error instanceof LockHeldError) throw new CliError(`${error.message}: detenlo con forja detener antes de rehacer el plan`, EXIT.precondition);
+            throw error;
+          }
+        }
         const stop = spinner(`dividiendo en tareas con ${ctx.config.roles.planeador[0]}…`);
         let result;
         try {
@@ -314,7 +330,9 @@ export function registerPlanCommands(program: Command): void {
         for (const w of result.issues.filter((i) => i.severity === 'aviso')) print(`  ! ${w.task ?? 'plan'}: ${w.message}`);
         showPlan(result.plan, estimate);
         print(errors.length ? '\nEl plan tiene errores: vuelve a ejecutar forja dividir.' : '\nRevisa el plan y apruébalo con: forja aprobar plan');
+        if (replan && !errors.length) print('Al aprobarlo, forja run crea un run nuevo que conserva las tareas ya integradas cuya definición no cambió.');
       } finally {
+        lock?.release();
         ctx.close();
       }
     });
@@ -362,20 +380,4 @@ export function registerPlanCommands(program: Command): void {
         ctx.close();
       }
     });
-}
-
-function showPlan(plan: Plan, e: Estimate): void {
-  print(`  Stack: ${plan.perfil.stack.join(', ')} (${plan.perfil.gestor}) · test: ${plan.perfil.comandos.test ? [plan.perfil.comandos.test.executable, ...plan.perfil.comandos.test.args].join(' ') : '—'}`);
-  const byId = new Map(plan.tareas.map((t) => [t.id, t]));
-  waves(plan.tareas).forEach((w, i) => {
-    print(`  Ola ${i + 1}:`);
-    for (const id of w) {
-      const t = byId.get(id)!;
-      print(`    ${t.id} [${t.tipo}, ${t.complejidad}] ${t.titulo}${t.depende_de.length ? `  ← ${t.depende_de.join(', ')}` : ''}`);
-    }
-  });
-  print('  Estimación (sin calibrar):');
-  for (const [role, r] of Object.entries(e.por_rol)) print(`    ${role.padEnd(11)} ${r.modelo.padEnd(20)} ~${r.llamadas} llamadas · ${Math.round(r.entrada / 1000)}k entrada · ${Math.round(r.salida / 1000)}k salida`);
-  print(`    Tiempo: ~${e.minutos_en_paralelo} min con ${e.paralelo} en paralelo (≈${e.minutos_en_serie} min en serie)`);
-  print(`    Costo: ${e.costo_equivalente_usd === null ? 'desconocido' : `~US$ ${e.costo_equivalente_usd}`} — ${e.costo_nota}`);
 }

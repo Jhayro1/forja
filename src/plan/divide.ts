@@ -30,7 +30,11 @@ export async function dividePlan(
   input: { changeId: string; repoPath: string; workspace: string; hasCode: boolean; evidence?: object },
 ): Promise<DivideResult> {
   const change = getChange(engine, input.changeId);
-  if (change.phase !== 'dividir' && change.phase !== 'aprobar') throw new PlannerError(`el cambio está en la fase «${change.phase}»; primero genera una especificación válida`);
+  // «ejecutar» = re-plan mid-run (V2-037): the new revision goes back to «aprobar»
+  // and the next run inherits the tasks already integrated with an identical definition.
+  if (change.phase !== 'dividir' && change.phase !== 'aprobar' && change.phase !== 'ejecutar') {
+    throw new PlannerError(`el cambio está en la fase «${change.phase}»; primero genera una especificación válida`);
+  }
   const spec = latestSpec(engine, input.changeId);
   if (!spec) throw new PlannerError('no hay especificación');
   const pending = blockingQuestions(spec.spec);
@@ -103,8 +107,8 @@ export async function dividePlan(
     result: null,
     events: [
       { type: EV.planProposed, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { plan_id: plan.plan_id, revision, hash, plan: plan as unknown as Record<string, unknown> } },
-      ...(valid && change.phase === 'dividir'
-        ? [{ type: EV.changePhase, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { from: 'dividir', to: 'aprobar' } }]
+      ...(valid && (change.phase === 'dividir' || change.phase === 'ejecutar')
+        ? [{ type: EV.changePhase, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { from: change.phase, to: 'aprobar' } }]
         : []),
     ],
   }));

@@ -9,6 +9,7 @@ import { pauseProvider, pickCandidate, recordUsage, type Engine, type Role } fro
 import { git } from '../git/git.js';
 import {
   captureTask,
+  deliveryBranch as deliveryBranchName,
   detachedWorktree,
   ensureIntegrationBranch,
   isAncestor,
@@ -260,14 +261,22 @@ export class Orchestrator {
     return join(this.engine.dataDir, 'worktrees', this.run.run_id, ...parts);
   }
 
-  /** Test files already green on the integration branch: regression suite for later tasks. */
-  private greenTests(): string[] {
+  /**
+   * Test files already green at `tip`: the regression suite for later tasks. Only
+   * tasks whose integration is contained in `tip` count — another task may be
+   * integrated while this verification is being prepared, and its tests must not
+   * be demanded from a base that does not have its code yet. Inherited tasks
+   * (no integrated SHA in this run) are in the run's base by construction.
+   */
+  private async greenTests(tip: string): Promise<string[]> {
     const out = new Set<string>();
     for (const t of this.tasks().filter((x) => x.state === 'integrada')) {
       const def = this.task(t.task_id);
       if (!def || def.tipo === 'pruebas') continue;
+      const exec = getExec(this.engine, this.run.run_id, t.task_id);
+      if (exec.integrated_sha && !(await isAncestor(this.repoPath, exec.integrated_sha, tip))) continue;
       for (const f of acceptanceFilesFor(this.plan, def)) out.add(f);
-      for (const f of JSON.parse(getExec(this.engine, this.run.run_id, t.task_id).files ?? '[]') as string[]) if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(f)) out.add(f);
+      for (const f of JSON.parse(exec.files ?? '[]') as string[]) if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(f)) out.add(f);
     }
     return [...out];
   }
@@ -570,7 +579,7 @@ export class Orchestrator {
       baseSha: tip,
       candidateSha: merged.sha,
       changedFiles: JSON.parse(exec.files ?? '[]') as string[],
-      greenTests: this.greenTests(),
+      greenTests: await this.greenTests(tip),
       cmd: this.cmd,
       runId: this.run.run_id,
       review: this.opts.review ?? true,
@@ -630,7 +639,7 @@ export class Orchestrator {
       }
       if (c.test && def.tipo !== 'pruebas') {
         const own = [...acceptanceFilesFor(this.plan, def), ...(JSON.parse(exec.files ?? '[]') as string[]).filter((f) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(f))];
-        const selection = [...new Set([...this.greenTests(), ...own])].filter((f) => existsSync(join(wtPath, f)));
+        const selection = [...new Set([...(await this.greenTests(target)), ...own])].filter((f) => existsSync(join(wtPath, f)));
         if (selection.length) {
           const r = await runCommand(this.cmd, wtPath, c.test, selection);
           if (!r.ok) {
@@ -658,7 +667,7 @@ export class Orchestrator {
     for (const t of this.tasks()) counts[t.state] = (counts[t.state] ?? 0) + 1;
     let deliveryBranch: string | null = null;
     if (state === 'completado') {
-      deliveryBranch = `${this.engine.config.git.prefijo}entrega/${this.run.change_id}`;
+      deliveryBranch = deliveryBranchName(this.engine.config.git.prefijo, this.run.change_id);
       const tip = await refSha(this.repoPath, this.run.branch);
       await git(this.repoPath, ['branch', '-f', deliveryBranch, tip]);
       const change = getChange(this.engine, this.run.change_id);

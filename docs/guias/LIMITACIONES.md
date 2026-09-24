@@ -12,3 +12,7 @@ Se publican para que decidas con información (v2/11 · M4). Se actualizan en ca
 - **Cambiar la especificación a mitad de run** no está soportado: sí cambiar el plan (`forja dividir`).
 - **El panel web es local** (127.0.0.1): no hay acceso remoto ni multiusuario.
 - El consumo de Codex se conoce al final de cada llamada; mientras trabaja se muestra como desconocido.
+- **El gateway MCP con Claude y Codex reales** no se probó todavía (sí con el agente simulado dentro del sandbox).
+- **Las acciones externas** se ejecutan desde la terminal (necesitan la bóveda); el panel sólo aprueba o descarta.
+  Hay una operación de referencia (`http.json`); correo, DNS y otras llegarán como operaciones tipadas.
+- **El ejecutor de acciones** es un proceso separado con entorno vacío, pero todavía no corre dentro de bubblewrap.

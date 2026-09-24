@@ -17,6 +17,7 @@ import { snapshotJson } from '../../run/snapshot-json.js';
 import { compactTokens, currentChange, runSnapshot, type RunSnapshot, type TaskView } from '../../run/snapshot.js';
 import { runBoard } from '../../tui/app.js';
 import { EngineBoardSource, taskLogLines } from '../board-source.js';
+import { gatewayForProject } from '../gateway-setup.js';
 import { CliError, EXIT, print, printJson, type GlobalOptions } from '../context.js';
 import { openEngine, type EngineContext } from '../engine-context.js';
 import { showPlan } from '../plan-view.js';
@@ -170,7 +171,10 @@ export function registerRunCommands(program: Command): void {
         process.on('SIGINT', onSignal);
         process.on('SIGTERM', onSignal);
 
+        const gateway = await gatewayForProject(ctx, say);
+        if (gateway) say(`· gateway MCP activo: conexiones vinculadas${gateway.externals.length ? ` y ${gateway.externals.map((e) => e.def.name).join(', ')}` : ''} (los agentes sólo proponen; nada se ejecuta sin tu aprobación)`);
         const orchestrator = new Orchestrator(ctx.engine, ctx.checkout.path, runId, {
+          ...(gateway ? { gateway } : {}),
           ...(opts.paralelo ? { parallel: opts.paralelo } : {}),
           review: !opts.sinRevisor,
           signal: controller.signal,
@@ -189,6 +193,7 @@ export function registerRunCommands(program: Command): void {
         } finally {
           process.off('SIGINT', onSignal);
           process.off('SIGTERM', onSignal);
+          gateway?.close();
         }
 
         // Re-read the change: the run moved its phase (aprobar → ejecutar → entregado).

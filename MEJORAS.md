@@ -50,6 +50,21 @@ Prioridad: **P1** bloquea cerrar el hito · **P2** calidad o costo importante ·
 | 6.11 | P3 | Node 22 vs 24 | `engines` exige 24.11 y `doctor` lo marca, pero la suite pasa en 22; decidir si se baja el mínimo o se usa algo exclusivo de 24 |
 | 6.12 | P3 | Aplicar el enrutamiento recomendado | El piloto informa la calidad por modelo pero no cambia `roles`; ofrecer `--aplicar-roles` con confirmación |
 
+## 7. Mejoras detectadas en M5
+
+| # | Prioridad | Qué | Detalle |
+|---|---|---|---|
+| 7.1 | P1 | **Probar el gateway MCP con Claude y Codex reales** | La configuración (`--mcp-config` en Claude, `-c mcp_servers.forja…` en Codex) está hecha y probada con el agente simulado dentro del sandbox, no con los CLI reales. Agregarlo a `forja conformidad` |
+| 7.2 | P2 | Ejecutor de acciones dentro de bwrap | Hoy es un proceso aparte con entorno y directorio vacíos, DNS fijado y destinos internos bloqueados, pero sin aislamiento de disco. Llevarlo al sandbox con red sólo al host de la conexión |
+| 7.3 | P2 | Llavero del sistema para la clave de la bóveda | libsecret/Keychain en vez de prompt o `FORJA_BOVEDA_CLAVE` (visible a otros procesos del mismo usuario) |
+| 7.4 | P2 | Ejecutar acciones desde el panel | Hoy el panel aprueba y descarta; ejecutar exige la bóveda y se hace en la terminal. Opción: `forja ui --boveda` con cierre por inactividad |
+| 7.5 | P2 | Más operaciones tipadas | Correo (sin idempotencia: conciliación humana obligatoria), DNS, webhooks; «deshacer» como acción nueva con su propia aprobación |
+| 7.6 | P2 | Reintentos de entorno acotados en todas partes | Se acotó el lanzamiento (3 intentos → bloqueada). Revisar el mismo patrón en la instalación de dependencias y la integración |
+| 7.7 | P3 | Gateway tras reiniciar `forja run` | Un agente que siguió trabajando en segundo plano pierde su socket y sus llamadas MCP fallan hasta su siguiente intento; ofrecer sockets estables por lanzamiento |
+| 7.8 | P3 | Conciliación automática por consulta | Para servicios no idempotentes pero consultables (`GET /pedidos?clave=`), comprobar el efecto antes de pedir una decisión humana |
+| 7.9 | P3 | Rotar copias viejas de la bóveda | `boveda/copias` crece y conserva valores borrados (cifrados); ofrecer purga explícita |
+| 7.10 | P3 | Esquemas de salida de herramientas MCP externas | Hoy se reenvía texto; validar `outputSchema` cuando el servidor lo declare |
+
 ## 3. Tablero (siguientes versiones)
 
 | # | Prioridad | Qué |

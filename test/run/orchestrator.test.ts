@@ -123,4 +123,16 @@ describe('orquestador de punta a punta (agentes simulados)', () => {
     expect(failures.every((f) => f === 0)).toBe(true);
     expect(existsSync(join(repo, '.forja/cambios', changeId, 'informe.md'))).toBe(true);
   }, 300_000);
+
+  it('un agente que no se puede lanzar se bloquea tras 3 intentos en vez de reintentar sin fin', async () => {
+    const t = testEngine(agents());
+    cleanup = t.cleanup;
+    t.engine.adapters.simulado = { id: 'simulado', parser: 'claude', buildOrder: () => { throw new Error('CLI roto'); } } as unknown as typeof t.engine.adapters.simulado;
+    const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
+    const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
+    const summary = await new Orchestrator(t.engine, repo, runId, { sandbox: HAS_BWRAP, pollMs: 20 }).loop();
+    expect(summary.state).toBe('bloqueado');
+    expect(summary.counts.bloqueada).toBe(1);
+    expect(getExec(t.engine, runId, 'T-001').last_error).toMatch(/CLI roto/);
+  }, 60_000);
 });

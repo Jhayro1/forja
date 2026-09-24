@@ -228,8 +228,86 @@ function closeTask() {
   document.getElementById('detalle').hidden = true;
 }
 
-// Módulos opcionales (M5/M6) registran su vista aquí; el menú sólo muestra los que el servidor tiene.
-const VIEWS = [{ id: 'resumen', title: 'Flujo', module: 'runs', path: '/v1/estado', key: 'estado', render: renderResumen }];
+// ---------- M5: conexiones, acciones y auditoría ----------
+
+const ACTION_TEXT = {
+  propuesta: 'espera tu aprobación', aprobada: 'aprobada, sin ejecutar', caducada: 'caducada', descartada: 'descartada', ejecutando: 'ejecutándose',
+  confirmada: 'confirmada', rechazada: 'rechazada (sin efecto)', desconocido: 'resultado desconocido: concíliala', sin_efecto: 'no se envió',
+};
+
+function renderConexiones(d) {
+  const linkOf = (name) => d.vinculos.find((l) => l.connection === name && l.active);
+  const out = [h('h1', {}, 'Conexiones'), h('p', { class: 'muted' }, 'Los secretos viven en la bóveda de esta máquina; aquí sólo aparecen sus nombres. Crear y vincular se hace en la terminal.')];
+  out.push(d.conexiones.length
+    ? h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Conexión'), h('th', {}, 'URL'), h('th', {}, 'Secreto'), h('th', {}, 'Idempotente'), h('th', {}, 'En este proyecto'))),
+      h('tbody', {}, d.conexiones.map((c) => {
+        const l = linkOf(c.name);
+        return h('tr', {}, h('td', {}, h('strong', {}, c.name), ` v${c.version}`), h('td', { class: 'mono' }, c.base_url), h('td', { class: 'mono' }, c.secret || '—'), h('td', {}, c.idempotent ? 'sí' : 'no'),
+          h('td', {}, !l ? 'sin vincular' : l.version !== c.version ? 'cambió: vuelve a vincular' : l.operations.join(', ')));
+      })))
+    : h('p', { class: 'muted' }, 'No hay conexiones. En la terminal: forja conexion nueva <nombre> --url https://…'));
+  out.push(h('h2', {}, 'Servidores MCP'));
+  out.push(d.mcp.length
+    ? h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Servidor'), h('th', {}, 'Versión'), h('th', {}, 'Herramientas autorizadas'), h('th', {}, 'En este proyecto'))),
+      h('tbody', {}, d.mcp.map((m) => {
+        const l = linkOf(`mcp:${m.name}`);
+        return h('tr', {}, h('td', {}, h('strong', {}, m.name), h('div', { class: 'muted mono' }, m.command)), h('td', {}, m.declared_version), h('td', {}, m.tools.join(', ')),
+          h('td', {}, !l ? 'sin vincular' : l.version !== m.version ? 'cambió: vuelve a vincular' : l.operations.join(', ')));
+      })))
+    : h('p', { class: 'muted' }, 'No hay servidores MCP registrados.'));
+  return out;
+}
+
+function actionCard(a) {
+  const pending = a.view_state === 'propuesta';
+  const card = h('div', { class: `card${pending ? ' pending' : a.view_state === 'desconocido' ? ' pending bad' : ''}` },
+    h('strong', {}, `${a.action_id} · ${a.type} en «${a.connection}»`),
+    h('div', { class: `state ${a.view_state === 'confirmada' ? 's-integrada' : a.view_state === 'desconocido' ? 's-bloqueada' : pending ? 's-esperando_respuesta' : ''}` }, ACTION_TEXT[a.view_state] || a.view_state),
+    h('dl', { class: 'kv' }, Object.entries(a.preview).flatMap(([k, v]) => [h('dt', {}, k), h('dd', { class: 'mono' }, typeof v === 'string' ? v : JSON.stringify(v))]), h('dt', {}, 'origen'), h('dd', {}, a.origin), h('dt', {}, 'hash'), h('dd', { class: 'mono' }, a.hash)),
+    a.result ? h('p', {}, a.result.detail || '') : null,
+  );
+  if (pending) {
+    card.append(
+      h('button', { class: 'act', onclick: () => confirm(`¿Aprobar EXACTAMENTE esta acción?\n\n${a.preview.peticion || ''}\n\nSe ejecuta después en la terminal (necesita la bóveda).`) && mutate('POST', `/v1/acciones/${a.action_id}/aprobar`, { hash: a.hash }) }, 'Aprobar'),
+      ' ',
+      h('button', { class: 'sec', onclick: () => mutate('POST', `/v1/acciones/${a.action_id}/descartar`, { motivo: 'descartada desde el panel' }) }, 'Descartar'),
+    );
+  }
+  if (a.view_state === 'aprobada') card.append(h('p', { class: 'muted mono' }, `forja accion ejecutar ${a.action_id}`));
+  if (a.view_state === 'desconocido') card.append(h('p', { class: 'muted mono' }, `forja accion ejecutar ${a.action_id}  (si el servicio es idempotente)  ·  forja accion conciliar ${a.action_id} --efecto si|no --nota "…"`));
+  return card;
+}
+
+function renderAcciones(list) {
+  const waiting = list.filter((a) => a.view_state === 'propuesta');
+  return [
+    h('h1', {}, 'Acciones externas'),
+    h('p', { class: 'muted' }, 'Los agentes sólo proponen. Cada acción se aprueba sobre su vista previa exacta (hash) y vence si no se ejecuta.'),
+    waiting.length ? h('h2', {}, `Esperan tu aprobación (${waiting.length})`) : null,
+    h('div', { class: 'grid' }, waiting.map(actionCard)),
+    h('h2', {}, 'Todas'),
+    list.length ? h('div', { class: 'grid' }, list.filter((a) => a.view_state !== 'propuesta').map(actionCard)) : h('p', { class: 'muted' }, 'No hay acciones.'),
+  ];
+}
+
+function renderAuditoria(rows) {
+  return [
+    h('h1', {}, 'Auditoría'),
+    h('p', { class: 'muted' }, 'Conexiones, servidores MCP y acciones externas de este proyecto, en orden.'),
+    rows.length
+      ? h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Cuándo (UTC)'), h('th', {}, 'Qué'), h('th', {}, 'Sobre'), h('th', {}, 'Detalle'))),
+        h('tbody', {}, rows.map((r) => h('tr', {}, h('td', { class: 'mono' }, r.cuando), h('td', {}, r.que), h('td', { class: 'mono' }, r.sobre), h('td', {}, r.detalle)))))
+      : h('p', { class: 'muted' }, 'Sin registros.'),
+  ];
+}
+
+// Módulos opcionales registran su vista aquí; el menú sólo muestra los que el servidor tiene.
+const VIEWS = [
+  { id: 'resumen', title: 'Flujo', module: 'runs', path: '/v1/estado', key: 'estado', render: renderResumen },
+  { id: 'acciones', title: 'Acciones', module: 'conexiones', path: '/v1/acciones', key: 'acciones', render: renderAcciones },
+  { id: 'conexiones', title: 'Conexiones', module: 'conexiones', path: '/v1/conexiones', key: 'conexiones', render: renderConexiones },
+  { id: 'auditoria', title: 'Auditoría', module: 'conexiones', path: '/v1/auditoria', key: 'auditoria', render: renderAuditoria },
+];
 window.forjaViews = VIEWS;
 
 function renderNav() {

@@ -1,9 +1,10 @@
 import { createInterface } from 'node:readline';
 import type { Command } from 'commander';
+import { connectionsModule } from '../../api/modules/connections.js';
 import { runsModule } from '../../api/modules/runs.js';
 import { ApiServer, type ApiModule } from '../../api/server.js';
 import { CliError, print, type GlobalOptions } from '../context.js';
-import { EngineEventFeed, EngineRunsBackend } from '../engine-backend.js';
+import { EngineConnectionsBackend, EngineEventFeed, EngineRunsBackend } from '../engine-backend.js';
 import { openEngine, type EngineContext } from '../engine-context.js';
 
 /**
@@ -11,7 +12,7 @@ import { openEngine, type EngineContext } from '../engine-context.js';
  * here (connections in M5, memory in M6) without touching the server.
  */
 export type ModuleFactory = (ctx: EngineContext) => ApiModule;
-export const PANEL_MODULES: ModuleFactory[] = [(ctx) => runsModule(new EngineRunsBackend(ctx))];
+export const PANEL_MODULES: ModuleFactory[] = [(ctx) => runsModule(new EngineRunsBackend(ctx)), (ctx) => connectionsModule(new EngineConnectionsBackend(ctx))];
 
 export function registerUiCommands(program: Command): void {
   program

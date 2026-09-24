@@ -12,7 +12,7 @@ Orquestador **open source** de agentes de código. Separa el trabajo en dos:
 Funciona con las **suscripciones** de Claude y Codex: maneja sus CLI oficiales
 (`claude -p`, `codex exec`) y nunca toca tus credenciales de esos servicios.
 
-> Estado: **M4 completo** (beta candidata: terminal y panel web locales). Bitácora en
+> Estado: **M5 completo** (beta candidata con bóveda, acciones externas y gateway MCP). Bitácora en
 > [PROGRESO.md](PROGRESO.md); mejoras y pendientes en [MEJORAS.md](MEJORAS.md).
 
 ## Estado del código
@@ -40,6 +40,8 @@ Guías: [instalar](docs/guias/INSTALAR.md) · [recuperación](docs/guias/RECUPER
 | Panel web | `forja ui` (sólo 127.0.0.1; entra con el enlace de un solo uso que imprime) |
 | Modelos | `forja conformidad [proveedor:modelo…]`, `forja conformidad --listar` |
 | Piloto | `forja piloto [--aplicar]`: mide los runs y recomienda N |
+| Secretos | `forja boveda iniciar/guardar/listar/cambiar-clave/verificar/restaurar` |
+| Servicios externos | `forja conexion nueva/vincular/probar`, `forja accion proponer/aprobar/ejecutar/conciliar`, `forja acciones`, `forja mcp registrar/vincular`, `forja auditoria` |
 | Operación | `forja backup crear/listar/verificar/restaurar` |
 
 Modo demo sin cuota: con los roles en `simulado:sim` y `FORJA_SIMULACION=guion.json`

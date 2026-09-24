@@ -13,6 +13,20 @@
 | Un modelo o versión de CLI nueva se comporta distinto | `forja conformidad`: sin conformidad aprobada para esa versión, `forja run` no lo usa |
 | Ejecutar algo que no aprobaste | La aprobación queda ligada al hash de especificación, plan, perfil y política: cualquier cambio la invalida |
 
+## Secretos, servicios externos y MCP
+
+- **Bóveda** (`~/.forja/boveda`): AES-256-GCM + scrypt, cabecera autenticada, detección de copia vieja
+  repuesta, cierre por inactividad. Los agentes nunca reciben secretos: ni en el prompt, ni en el entorno
+  (las variables con forma de credencial y las `FORJA_*` se rechazan), ni montados.
+- **Acciones externas**: el agente sólo *propone*. Tú apruebas la vista previa exacta (hash) antes de
+  que venza; la ejecuta un proceso aparte con entorno vacío, que bloquea destinos internos y no sigue
+  redirecciones. Un resultado incierto nunca se reintenta a ciegas.
+- **MCP**: el único servidor MCP del agente es el gateway de Forja; los servidores externos se
+  registran con ruta y versión fijas (sin `npx -y`), sólo exponen las herramientas que autorizas y
+  corren sin tu HOME y con sólo sus secretos.
+- **Conexiones**: nombrarlas en `forja.yaml` no las concede; cada proyecto las vincula explícitamente
+  y cualquier edición invalida vínculos y aprobaciones.
+
 ## Panel web (`forja ui`)
 
 - Escucha sólo en `127.0.0.1`. No hay acceso remoto ni túneles.
@@ -28,6 +42,7 @@
   El peor caso ante una inyección de prompt es el uso de tu suscripción hasta que cierres sesión.
   Mitigaciones: sin red para herramientas, revisión de diffs y redacción.
 - `forja run --sin-conformidad` permite modelos sin certificar; queda registrado en el run.
+- `FORJA_BOVEDA_CLAVE` es cómodo para scripts, pero otros procesos de tu usuario pueden leerlo.
 - `FORJA_SIMULACION` (modo demo) sólo afecta modelos `simulado:*`; nunca reemplaza a Claude o Codex.
 
 ## Reportar un problema de seguridad

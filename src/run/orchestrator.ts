@@ -37,6 +37,7 @@ import { getTask, listTasks, type TaskRow } from '../store/projections.js';
 import { EV, type RunState } from '../store/planning-projections.js';
 import { runCommand, type CommandContext } from '../verify/commands.js';
 import { acceptanceFilesFor, verifyTask } from '../verify/verify.js';
+import type { GatewayHost } from '../mcp/gateway.js';
 import { buildWorkerPrompt, extractQuestion } from './context.js';
 
 export class RunError extends Error {}
@@ -196,6 +197,8 @@ export type OrchestratorOptions = {
   pollMs?: number;
   signal?: AbortSignal;
   onLog?: (line: string) => void;
+  /** MCP gateway for workers (M5): only when the project linked connections or MCP servers. */
+  gateway?: GatewayHost;
 };
 
 export type RunSummary = { runId: string; state: RunState; counts: Record<string, number>; branch: string; deliveryBranch: string | null };
@@ -468,12 +471,16 @@ export class Orchestrator {
         if (!r.ok) throw new Error(`no se pudieron instalar dependencias: ${r.output.split('\n').slice(-3).join(' ')}`);
       }
       const fresh = getExec(this.engine, this.run.run_id, taskId);
-      const { prompt } = await buildWorkerPrompt({ plan: this.plan, spec: this.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer });
+      const built = await buildWorkerPrompt({ plan: this.plan, spec: this.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer });
+      const prompt = this.opts.gateway
+        ? `${built.prompt}\n\n<herramientas_externas>\nSi la tarea necesita un efecto fuera del repositorio (un servicio, una API), usa la herramienta MCP «forja» proponer_accion: queda pendiente de aprobación humana y NO se ejecuta. No intentes llegar al servicio de otra forma.\n</herramientas_externas>`
+        : built.prompt;
       const launchId = newId('lan');
       const dir = launchDir(this.engine.dataDir, launchId);
       // Intent before effect: the launch id is durable before the runner exists.
       this.exec(taskId, { launch_id: launchId, launch_dir: dir });
       const adapter = this.engine.adapters[candidate.provider];
+      const mcpSocket = this.opts.gateway ? await this.opts.gateway.socketFor(`agente ${taskId} · ${this.run.run_id}`) : undefined;
       startLaunch(
         this.engine.dataDir,
         adapter,
@@ -491,17 +498,31 @@ export class Orchestrator {
           timeoutMs: this.engine.config.ejecucion.timeout_min * 60_000,
           ...(task.red ? { extraHosts: this.plan.perfil.red_instalar } : {}),
           ...(candidate.provider === 'simulado' && this.engine.simulation ? { simulationScript: this.engine.simulation({ role, prompt, attempt, taskId }) } : {}),
+          ...(mcpSocket ? { mcpSocket } : {}),
         },
         this.engine.runnerScript,
       );
       this.move(taskId, 'ejecutando', 'lanzamiento_iniciado');
+      this.launchErrors.delete(taskId);
       this.log(`▶ ${taskId} ${task.titulo} · ${candidate.ref} (intento ${attempt})`);
     } catch (error) {
-      this.exec(taskId, { last_error: (error as Error).message.slice(0, 500) });
-      this.move(taskId, 'lista', 'fallo_entorno', (error as Error).message);
-      this.log(`⚠ ${taskId}: ${(error as Error).message}`);
+      const message = (error as Error).message;
+      this.exec(taskId, { last_error: message.slice(0, 500) });
+      // A launch that cannot even start will not fix itself: stop after a few tries instead of looping.
+      const n = (this.launchErrors.get(taskId) ?? 0) + 1;
+      this.launchErrors.set(taskId, n);
+      if (n >= 3) {
+        this.launchErrors.delete(taskId);
+        this.move(taskId, 'bloqueada', 'bloqueo', `no se pudo lanzar el agente ${n} veces: ${message}`);
+        this.log(`✘ ${taskId} bloqueada: no se pudo lanzar el agente (${message})`);
+      } else {
+        this.move(taskId, 'lista', 'fallo_entorno', message);
+        this.log(`⚠ ${taskId}: ${message}`);
+      }
     }
   }
+
+  private readonly launchErrors = new Map<string, number>();
 
   private async pollLaunch(taskId: string): Promise<void> {
     const exec = getExec(this.engine, this.run.run_id, taskId);

@@ -1,4 +1,9 @@
+import { auditTrail } from '../actions/audit.js';
+import { ConnectionStore } from '../actions/connections.js';
+import type { ConnectionsBackend } from '../api/modules/connections.js';
 import type { RunsBackend } from '../api/modules/runs.js';
+import { McpRegistry } from '../mcp/registry.js';
+import { actionService } from './commands/actions.js';
 import type { EventFeed } from '../api/server.js';
 import { approvePlan } from '../plan/approve.js';
 import { activeChange } from '../planner/session.js';
@@ -79,5 +84,35 @@ export class EngineEventFeed implements EventFeed {
   after(seq: number, limit: number) {
     // Only ids and types go to the browser: it refetches the state it needs.
     return this.ctx.store.events(seq, limit).map((e) => ({ seq: e.seq, type: e.type, aggregate_id: e.aggregate_id, run_id: e.run_id, task_id: e.task_id, recorded_at: e.recorded_at }));
+  }
+}
+
+export class EngineConnectionsBackend implements ConnectionsBackend {
+  constructor(private readonly ctx: EngineContext) {}
+
+  private service() {
+    return actionService(this.ctx);
+  }
+
+  overview(): object {
+    return { conexiones: ConnectionStore.in(this.ctx.home).all(), mcp: McpRegistry.in(this.ctx.home).all(), vinculos: this.service().links() };
+  }
+
+  actions(): object[] {
+    const svc = this.service();
+    svc.recoverInterrupted();
+    return svc.list();
+  }
+
+  audit(limit: number): object[] {
+    return auditTrail(this.ctx.store.db, limit);
+  }
+
+  approve(id: string, hash: string): object {
+    return this.service().approve(id, hash, 'panel');
+  }
+
+  discard(id: string, reason: string): object {
+    return this.service().discard(id, 'panel', reason);
   }
 }

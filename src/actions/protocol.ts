@@ -83,8 +83,13 @@ export class ActionService {
   link(name: string, operations: string[]): LinkRow {
     const conn = this.connections.get(name);
     for (const op of operations) operation(op);
+    return this.linkResource(name, conn.version, operations);
+  }
+
+  /** Records an explicit authorization of a versioned resource (connection or `mcp:<server>`) in this checkout. */
+  linkResource(name: string, version: number, operations: string[]): LinkRow {
     if (!operations.length) throw new ActionError('indica al menos una operación permitida');
-    this.emit(AEV.linked, name, { connection: name, version: conn.version, operations: [...new Set(operations)].sort() });
+    this.emit(AEV.linked, name, { connection: name, version, operations: [...new Set(operations)].sort() });
     return this.links().find((l) => l.connection === name)!;
   }
 

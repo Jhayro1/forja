@@ -6,6 +6,7 @@ import type { RunSnapshot } from './snapshot.js';
  */
 export function snapshotJson(s: RunSnapshot, runner: { pid: number } | null) {
   return {
+    modo_demo: s.demo,
     cambio: { id: s.change.change_id, titulo: s.change.title, fase: s.change.phase },
     run: s.run ? { id: s.run.run_id, estado: s.run.state, detalle: s.run.detail, rama: s.run.branch, base: s.run.base_sha, activo: runner !== null } : null,
     entrega: s.deliveryBranch,

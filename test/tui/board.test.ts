@@ -69,16 +69,17 @@ function snapshot(tasks: TaskView[]): RunSnapshot {
     pending: tasks
       .filter((t) => t.state === 'esperando_respuesta')
       .map((t) => ({ kind: 'pregunta_tarea' as const, id: t.id, text: t.exec.question ?? '', action: `forja responder ${t.id} "<respuesta>"` })),
-    usage: [{ role: 'trabajador', calls: 4, tokens: 96_000, costMicro: null }],
+    usage: [{ role: 'trabajador', calls: 4, tokens: 96_000, costMicro: null, costKind: 'desconocido' }],
     deliveryBranch: null,
     providerPauses: [],
+    demo: false,
     nextStep: 'mira el avance con forja tablero',
   };
 }
 
 const TASKS = [
   task('T-001', 'integrada', { integrated_sha: 'abcdef1234567' }),
-  task('T-002', 'ejecutando', {}, { current: 'Write src/api.ts', startedAt: '2026-09-24T11:57:46Z', lastAt: null, tokens: 8100 }),
+  task('T-002', 'ejecutando', {}, { current: 'Write src/api.ts', startedAt: '2026-09-24T11:57:46Z', lastAt: null, tokens: 8100, tokensKind: 'medido' }),
   task('T-003', 'esperando_respuesta', { question: '¿Redondeo a dos decimales?' }),
   task('T-004', 'bloqueada', { last_error: 'falló 3 veces: pruebas' }),
   ...Array.from({ length: 30 }, (_, i) => task(`T-${String(10 + i).padStart(3, '0')}`, 'pendiente')),

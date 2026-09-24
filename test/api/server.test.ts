@@ -187,6 +187,16 @@ describe('API local · sesión y protecciones', () => {
     expect((await call('POST', '/v1/proveedores/..%2Fx/reanudar', { headers: h, body: {} })).status).toBe(404);
   });
 
+  it('sirve el catálogo de textos y el panel no repite vocabulario propio (MEJORAS 2.12)', async () => {
+    const { cookie } = await login();
+    const r = await call('GET', '/v1/textos', { headers: { Cookie: cookie } });
+    expect(r.body.textos.estadoTarea.ejecutando).toBe('agente trabajando');
+    expect(r.body.textos.fases[2]).toEqual(['dividir', 'Plan']);
+    expect((await call('GET', '/v1/textos')).status).toBe(401);
+    const panel = readFileSync(join(ROOT, 'panel/panel.js'), 'utf8');
+    for (const word of ["'agente trabajando'", "'pregunta de un agente'", "'espera tu aprobación'", "'Especificar'"]) expect(panel).not.toContain(word);
+  });
+
   it('la misma Idempotency-Key no repite el efecto', async () => {
     const { cookie, csrf } = await login();
     const h = { Cookie: cookie, ...origin(), 'X-Forja-CSRF': csrf, 'Content-Type': 'application/json', 'Idempotency-Key': 'k1' };

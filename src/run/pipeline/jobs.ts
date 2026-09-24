@@ -8,7 +8,7 @@ export class JobRunner {
   private readonly errors = new Map<string, number>();
 
   constructor(
-    private readonly hooks: { onError: (key: string, message: string) => void; onGiveUp: (key: string, message: string) => void },
+    private readonly hooks: { onError: (key: string, message: string) => void; onGiveUp: (key: string, message: string) => void; onSettled?: () => void },
     private readonly maxErrors = 3,
   ) {}
 
@@ -28,7 +28,10 @@ export class JobRunner {
           this.hooks.onGiveUp(key, message);
         }
       })
-      .finally(() => this.jobs.delete(key));
+      .finally(() => {
+        this.jobs.delete(key);
+        this.hooks.onSettled?.();
+      });
     this.jobs.set(key, p);
   }
 

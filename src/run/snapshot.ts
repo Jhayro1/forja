@@ -30,7 +30,12 @@ export type PendingKind = 'pregunta_tarea' | 'tarea_bloqueada' | 'tarea_pausada'
 
 export type PendingItem = { kind: PendingKind; id: string; text: string; action: string };
 
-export type UsageByRole = { role: string; calls: number; tokens: number | null; costMicro: number | null };
+/**
+ * Consumption of one role in a run. `costKind` says where `costMicro` comes from
+ * (v2/10): «medido» when the provider reported it, «estimado» from the token
+ * counts and ~/.forja/precios.yaml, «mixto» when both, «desconocido» otherwise.
+ */
+export type UsageByRole = { role: string; calls: number; tokens: number | null; costMicro: number | null; costKind: 'medido' | 'estimado' | 'mixto' | 'desconocido' };
 
 export type RunSnapshot = {
   change: ChangeRow;
@@ -47,6 +52,8 @@ export type RunSnapshot = {
   deliveryBranch: string | null;
   /** Providers skipped for quota or session, persisted so every process sees them (MEJORAS 2.2). */
   providerPauses: ProviderPause[];
+  /** Scripted agents are active (FORJA_SIMULACION): shown everywhere so a demo is never taken for real work. */
+  demo: boolean;
   nextStep: string;
 };
 
@@ -107,11 +114,31 @@ export function pendingItems(engine: Engine, change: ChangeRow, tasks: TaskView[
   return out;
 }
 
-function usageByRole(engine: Engine, runId: string): UsageByRole[] {
+export function usageByRole(engine: Engine, runId: string): UsageByRole[] {
   const rows = engine.store.db
-    .prepare('SELECT role, COUNT(*) n, SUM(input) i, SUM(output) o, SUM(cost_micro) c, COUNT(input) ni FROM usage WHERE run_id = ? GROUP BY role ORDER BY role')
-    .all(runId) as { role: string; n: number; i: number | null; o: number | null; c: number | null; ni: number }[];
-  return rows.map((r) => ({ role: r.role, calls: r.n, tokens: r.ni === 0 ? null : (r.i ?? 0) + (r.o ?? 0), costMicro: r.c }));
+    .prepare(
+      'SELECT role, provider, model, COUNT(*) n, SUM(input) i, SUM(output) o, SUM(cost_micro) c, COUNT(cost_micro) nc, COUNT(input) ni FROM usage WHERE run_id = ? GROUP BY role, provider, model ORDER BY role',
+    )
+    .all(runId) as { role: string; provider: string; model: string | null; n: number; i: number | null; o: number | null; c: number | null; nc: number; ni: number }[];
+  const byRole = new Map<string, UsageByRole & { measured: boolean; estimated: boolean }>();
+  for (const r of rows) {
+    const acc = byRole.get(r.role) ?? { role: r.role, calls: 0, tokens: null, costMicro: null, costKind: 'desconocido', measured: false, estimated: false };
+    acc.calls += r.n;
+    if (r.ni > 0) acc.tokens = (acc.tokens ?? 0) + (r.i ?? 0) + (r.o ?? 0);
+    if (r.nc > 0) {
+      acc.costMicro = (acc.costMicro ?? 0) + (r.c ?? 0);
+      acc.measured = true;
+    }
+    // Calls without a reported cost: estimate from tokens and the configured prices (USD per million = micro-USD per token).
+    const price = engine.prices?.[`${r.provider}:${r.model ?? ''}`];
+    if (r.nc < r.n && price && r.ni > 0) {
+      const share = (r.n - r.nc) / r.n;
+      acc.costMicro = (acc.costMicro ?? 0) + Math.round(share * ((r.i ?? 0) * price.entrada + (r.o ?? 0) * price.salida));
+      acc.estimated = true;
+    }
+    byRole.set(r.role, acc);
+  }
+  return [...byRole.values()].map(({ measured, estimated, ...u }) => ({ ...u, costKind: measured && estimated ? 'mixto' : measured ? 'medido' : estimated ? 'estimado' : 'desconocido' }));
 }
 
 function nextStep(change: ChangeRow, run: RunRow | null, approved: boolean, pending: PendingItem[], deliveryBranch: string | null): string {
@@ -159,6 +186,7 @@ export function runSnapshot(engine: Engine, change: ChangeRow): RunSnapshot {
     usage: run ? usageByRole(engine, run.run_id) : [],
     deliveryBranch: delivered,
     providerPauses: activePauses(engine),
+    demo: engine.simulation !== undefined,
     nextStep: nextStep(change, run, approved, pending, delivered),
   };
 }
@@ -174,6 +202,13 @@ export function elapsed(fromIso: string | null, now = Date.now()): string {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m${String(s % 60).padStart(2, '0')}s`;
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
+}
+
+/** «US$ 0.42», «≈US$ 0.42 (estimado)» or nothing when the cost is unknown. */
+export function costLabel(u: Pick<UsageByRole, 'costMicro' | 'costKind'>): string {
+  if (u.costMicro === null) return '';
+  const usd = `US$ ${(u.costMicro / 1e6).toFixed(2)}`;
+  return u.costKind === 'medido' ? usd : `≈${usd} (${u.costKind})`;
 }
 
 export function compactTokens(n: number | null): string {

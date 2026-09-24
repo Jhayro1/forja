@@ -112,29 +112,10 @@ function showLogin(message) {
 
 // ---------- vistas ----------
 
-const PHASES = [
-  ['descubrir', 'Descubrir'],
-  ['especificar', 'Especificar'],
-  ['dividir', 'Plan'],
-  ['aprobar', 'Aprobar'],
-  ['ejecutar', 'Ejecutar'],
-  ['entregado', 'Entregado'],
-];
-const LABEL = {
-  pendiente: 'espera dependencias',
-  lista: 'lista',
-  reservada: 'reservada',
-  ejecutando: 'agente trabajando',
-  verificando: 'verificando',
-  verificada: 'verificada',
-  integrando: 'integrando',
-  integrada: 'integrada',
-  esperando_respuesta: 'pregunta para ti',
-  pausada: 'pausada',
-  bloqueada: 'bloqueada',
-  invalidada: 'invalidada',
-  cancelada: 'cancelada',
-};
+// Vocabulario compartido con la terminal: llega de GET /v1/textos (un solo catálogo).
+const T = { estadoTarea: {}, fases: [], pendiente: {}, estadoAccion: {}, origenDato: {}, modoDemo: '' };
+const PHASES = () => T.fases;
+const LABEL = new Proxy({}, { get: (_o, k) => T.estadoTarea[k] });
 
 function elapsed(iso) {
   if (!iso) return '—';
@@ -146,7 +127,8 @@ const tokens = (n) => (n === null || n === undefined ? '?' : n < 1000 ? String(n
 function activityText(t) {
   if (t.estado === 'ejecutando' || t.estado === 'reservada') {
     const a = t.actividad || {};
-    return `${elapsed(a.startedAt)} · ${tokens(a.tokens)} tok · ${a.current || 'arrancando'}`;
+    const tk = a.tokensKind === 'estimado' ? `≈${tokens(a.tokens)} tok (estimado)` : a.tokensKind === 'medido' ? `${tokens(a.tokens)} tok` : '? tok';
+    return `${elapsed(a.startedAt)} · ${tk} · ${a.current || 'arrancando'}`;
   }
   if (t.estado === 'esperando_respuesta') return t.pregunta || '';
   if (t.estado === 'bloqueada') return t.error || '';
@@ -155,16 +137,7 @@ function activityText(t) {
 
 function pendingCard(p) {
   const bad = p.kind === 'tarea_bloqueada';
-  const body = h(
-    'div',
-    { class: `card pending${bad ? ' bad' : ''}` },
-    h(
-      'strong',
-      {},
-      `${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', tarea_pausada: 'tarea pausada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind] || p.kind}`,
-    ),
-    h('p', {}, p.text),
-  );
+  const body = h('div', { class: `card pending${bad ? ' bad' : ''}` }, h('strong', {}, `${p.id} · ${T.pendiente[p.kind] || p.kind}`), h('p', {}, p.text));
   if (p.kind === 'pregunta_tarea') {
     const area = h('textarea', { rows: 2, 'aria-label': `Respuesta para ${p.id}` });
     body.append(
@@ -199,10 +172,11 @@ function pendingCard(p) {
 function renderResumen(d) {
   if (!d.cambio)
     return [h('div', { class: 'card' }, h('h1', {}, 'Sin cambios todavía'), h('p', {}, 'Empieza en la terminal con ', h('span', { class: 'mono' }, 'forja planear "lo que quieres construir"')))];
-  const phaseIdx = PHASES.findIndex(([p]) => p === d.cambio.fase);
+  const phaseIdx = PHASES().findIndex(([p]) => p === d.cambio.fase);
   const pct = d.progreso.total ? Math.round((100 * d.progreso.integradas) / d.progreso.total) : 0;
   const agents = d.tareas.filter((t) => t.estado === 'ejecutando' || t.estado === 'reservada');
   const out = [
+    d.modo_demo ? h('div', { class: 'card pending', role: 'status' }, h('strong', {}, 'Modo demo'), h('p', {}, T.modoDemo)) : null,
     h(
       'div',
       { class: 'card' },
@@ -210,7 +184,7 @@ function renderResumen(d) {
       h(
         'div',
         { class: 'phases' },
-        PHASES.map(([_p, label], i) => h('span', { class: `phase${d.cambio.fase === 'entregado' || i < phaseIdx ? ' done' : i === phaseIdx ? ' now' : ''}` }, label)),
+        PHASES().map(([_p, label], i) => h('span', { class: `phase${d.cambio.fase === 'entregado' || i < phaseIdx ? ' done' : i === phaseIdx ? ' now' : ''}` }, label)),
       ),
       d.run
         ? h(
@@ -302,7 +276,7 @@ function renderResumen(d) {
                 h('td', {}, u.role),
                 h('td', {}, String(u.calls)),
                 h('td', {}, u.tokens === null ? 'desconocido' : tokens(u.tokens)),
-                h('td', {}, u.costMicro === null ? 'desconocido' : `US$ ${(u.costMicro / 1e6).toFixed(2)} (medido)`),
+                h('td', {}, u.costMicro === null ? 'desconocido' : `${u.costKind === 'medido' ? '' : '≈'}US$ ${(u.costMicro / 1e6).toFixed(2)} (${u.costKind})`),
               ),
             ),
           ),
@@ -375,17 +349,7 @@ function closeTask() {
 
 // ---------- M5: conexiones, acciones y auditoría ----------
 
-const ACTION_TEXT = {
-  propuesta: 'espera tu aprobación',
-  aprobada: 'aprobada, sin ejecutar',
-  caducada: 'caducada',
-  descartada: 'descartada',
-  ejecutando: 'ejecutándose',
-  confirmada: 'confirmada',
-  rechazada: 'rechazada (sin efecto)',
-  desconocido: 'resultado desconocido: concíliala',
-  sin_efecto: 'no se envió',
-};
+const ACTION_TEXT = new Proxy({}, { get: (_o, k) => T.estadoAccion[k] });
 
 function renderConexiones(d) {
   const linkOf = (name) => d.vinculos.find((l) => l.connection === name && l.active);
@@ -642,7 +606,7 @@ async function refresh(force) {
     const data = await api('GET', view.path);
     if (view.id === 'resumen') state.data = data[view.key];
     const app = document.getElementById('app');
-    app.replaceChildren(...view.render(data[view.key], data));
+    app.replaceChildren(...view.render(data[view.key], data).filter(Boolean));
     if (state.taskOpen && view.id === 'resumen' && state.taskTab === 'registro') void openTask(state.taskOpen);
   } catch (e) {
     if (e.status === 401) return showLogin('La sesión venció.');
@@ -667,6 +631,7 @@ function connectEvents() {
 
 async function main() {
   if (!(await login())) return;
+  Object.assign(T, (await api('GET', '/v1/textos')).textos);
   state.modules = (await api('GET', '/v1/modulos')).modulos;
   renderNav();
   await refresh(true);

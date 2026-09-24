@@ -2,7 +2,7 @@ import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } fr
 import { join } from 'node:path';
 import { parseClaudeLine } from '../providers/claude-parser.js';
 import { CodexParser } from '../providers/codex-parser.js';
-import type { ProviderEvent, Usage } from '../providers/normalized.js';
+import type { ProviderEvent } from '../providers/normalized.js';
 import { FILES, type SpoolRecord } from '../runtime/order.js';
 
 /**
@@ -15,6 +15,12 @@ export type AgentActivity = {
   startedAt: string | null;
   lastAt: string | null;
   tokens: number | null;
+  /**
+   * Where `tokens` comes from (v2/10): «medido» when the provider reported usage,
+   * «estimado» from the text exchanged so far (Codex only reports at the end of a
+   * turn), «desconocido» when there is nothing to go on yet.
+   */
+  tokensKind: 'medido' | 'estimado' | 'desconocido';
 };
 
 /** Last `maxBytes` of the spool, whole records only (a cut first line is dropped). */
@@ -40,22 +46,6 @@ export function readSpoolTail(dir: string, maxBytes = 64 * 1024): SpoolRecord[] 
       }
     }
     return out;
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function firstRecord(dir: string): SpoolRecord | null {
-  const path = join(dir, FILES.spool);
-  if (!existsSync(path)) return null;
-  const fd = openSync(path, 'r');
-  try {
-    const buffer = Buffer.alloc(4096);
-    const n = readSync(fd, buffer, 0, buffer.length, 0);
-    const line = buffer.subarray(0, n).toString('utf8').split('\n')[0];
-    return line ? (JSON.parse(line) as SpoolRecord) : null;
-  } catch {
-    return null;
   } finally {
     closeSync(fd);
   }
@@ -103,26 +93,122 @@ function describe(e: ProviderEvent): string | null {
   }
 }
 
-function totalTokens(usage: Usage[]): number | null {
-  const tokens = (u: Usage) => (u.inputTokens ?? 0) + (u.outputTokens ?? 0);
-  if (usage.length === 0) return null;
-  if (usage.at(-1)!.semantics === 'acumulado_sesion') return tokens(usage.at(-1)!);
-  return usage.reduce((a, u) => a + tokens(u), 0);
-}
+/** Rough token estimate from characters (≈4 per token): only shown as «estimado». */
+const estimateTokens = (chars: number) => Math.round(chars / 4);
 
-export function agentActivity(dir: string | null, provider: string | null): AgentActivity {
-  if (!dir) return { current: null, startedAt: null, lastAt: null, tokens: null };
-  const parsed = eventsOf(readSpoolTail(dir), provider);
-  let current: string | null = null;
-  const usage: Usage[] = [];
-  for (const { events } of parsed) {
+/**
+ * Incremental reader of one launch spool (MEJORAS 2.7): it keeps its byte
+ * offset and the parser state, so a refresh reads only what was appended since
+ * the last one — and a stateful parser (Codex) sees the whole stream in order.
+ */
+export class SpoolFollower {
+  private offset = 0;
+  private carry = '';
+  private readonly parse: Parser;
+  private current: string | null = null;
+  private startedAt: string | null = null;
+  private lastAt: string | null = null;
+  private measured: number | null = null;
+  private summed = 0;
+  private chars = 0;
+
+  constructor(
+    private readonly dir: string,
+    provider: string | null,
+  ) {
+    this.parse = parserFor(provider);
+    const prompt = launchPrompt(dir);
+    this.chars = prompt?.length ?? 0;
+  }
+
+  /** Reads what was appended since the last call and returns the updated activity. */
+  poll(): AgentActivity {
+    const path = join(this.dir, FILES.spool);
+    if (existsSync(path)) {
+      const fd = openSync(path, 'r');
+      try {
+        const size = fstatSync(fd).size;
+        if (size < this.offset) this.reset();
+        if (size > this.offset) {
+          const buffer = Buffer.alloc(size - this.offset);
+          readSync(fd, buffer, 0, buffer.length, this.offset);
+          this.offset = size;
+          const text = this.carry + buffer.toString('utf8');
+          const cut = text.lastIndexOf('\n');
+          this.carry = text.slice(cut + 1);
+          for (const line of text.slice(0, cut + 1).split('\n')) if (line) this.consume(line);
+        }
+      } finally {
+        closeSync(fd);
+      }
+    }
+    return this.activity();
+  }
+
+  private reset(): void {
+    this.offset = 0;
+    this.carry = '';
+    this.current = null;
+    this.startedAt = null;
+    this.lastAt = null;
+    this.measured = null;
+    this.summed = 0;
+  }
+
+  private consume(line: string): void {
+    let record: SpoolRecord;
+    try {
+      record = JSON.parse(line) as SpoolRecord;
+    } catch {
+      return;
+    }
+    this.startedAt ??= record.ts;
+    this.lastAt = record.ts;
+    if (record.stream !== 'stdout') return;
+    let events: ProviderEvent[] = [];
+    try {
+      events = this.parse(JSON.parse(record.line));
+    } catch {
+      return;
+    }
     for (const e of events) {
       const d = describe(e);
-      if (d) current = d;
-      if (e.t === 'uso') usage.push(e.usage);
+      if (d) this.current = d;
+      if (e.t === 'texto') this.chars += e.text.length;
+      if (e.t === 'herramienta') this.chars += e.summary.length;
+      if (e.t === 'uso') {
+        const n = (e.usage.inputTokens ?? 0) + (e.usage.outputTokens ?? 0);
+        if (e.usage.semantics === 'acumulado_sesion') this.measured = n;
+        else {
+          this.summed += n;
+          this.measured = this.summed;
+        }
+      }
     }
   }
-  return { current, startedAt: firstRecord(dir)?.ts ?? null, lastAt: parsed.at(-1)?.record.ts ?? null, tokens: totalTokens(usage) };
+
+  private activity(): AgentActivity {
+    const base = { current: this.current, startedAt: this.startedAt, lastAt: this.lastAt };
+    if (this.measured !== null) return { ...base, tokens: this.measured, tokensKind: 'medido' };
+    if (this.chars > 0 && this.startedAt) return { ...base, tokens: estimateTokens(this.chars), tokensKind: 'estimado' };
+    return { ...base, tokens: null, tokensKind: 'desconocido' };
+  }
+}
+
+/** Followers per launch, shared by every refresh of this process (bounded). */
+const followers = new Map<string, SpoolFollower>();
+const MAX_FOLLOWERS = 128;
+
+export function agentActivity(dir: string | null, provider: string | null): AgentActivity {
+  if (!dir) return { current: null, startedAt: null, lastAt: null, tokens: null, tokensKind: 'desconocido' };
+  const key = `${dir}|${provider ?? ''}`;
+  let f = followers.get(key);
+  if (!f) {
+    if (followers.size >= MAX_FOLLOWERS) followers.delete(followers.keys().next().value!);
+    f = new SpoolFollower(dir, provider);
+    followers.set(key, f);
+  }
+  return f.poll();
 }
 
 /** Human-readable log of a launch: provider events translated, runner lines kept. */

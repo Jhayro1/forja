@@ -2,7 +2,9 @@ import type { Engine } from '../core/engine.js';
 import { tasksReadyToUnblock } from '../core/task-commands.js';
 import { newId } from '../domain/ids.js';
 import type { GatewayHost } from '../mcp/gateway.js';
+import { FILES } from '../runtime/order.js';
 import { EV, type RunState } from '../store/planning-projections.js';
+import { DirWatchSet, Waker } from '../util/waker.js';
 import { Delivery } from './pipeline/delivery.js';
 import { Integrator } from './pipeline/integrator.js';
 import { JobRunner } from './pipeline/jobs.js';
@@ -25,6 +27,7 @@ export type OrchestratorOptions = {
   /** false only in Forja's own tests on machines without bubblewrap. */
   sandbox?: boolean;
   review?: boolean;
+  /** Fallback interval; the loop normally wakes on job completion and file events. */
   pollMs?: number;
   signal?: AbortSignal;
   onLog?: (line: string) => void;
@@ -36,6 +39,7 @@ export type OrchestratorOptions = {
 
 export type RunSummary = { runId: string; state: RunState; counts: Record<string, number>; branch: string; deliveryBranch: string | null };
 
+const MIN_GAP_MS = 50;
 const DONE = new Set(['integrada', 'invalidada', 'cancelada']);
 const NEEDS_USER = new Set(['bloqueada', 'esperando_respuesta', 'pausada']);
 
@@ -57,6 +61,9 @@ export class Orchestrator {
   private readonly parallel: number;
   private readonly dependents: Map<string, number>;
   private integrating: string | null = null;
+  private readonly waker = new Waker();
+  private readonly launchWatch: DirWatchSet;
+  private readonly storeWatch: DirWatchSet;
 
   constructor(
     private readonly engine: Engine,
@@ -81,7 +88,18 @@ export class Orchestrator {
           this.ctx.move(taskId, 'bloqueada', 'bloqueo', `error interno repetido: ${message}`);
         }
       },
+      onSettled: () => this.waker.notify(),
     });
+    // A launch finishing (result or runner file) and writes from other processes
+    // (an answer, a pause) wake the loop at once instead of waiting for the next poll.
+    this.launchWatch = new DirWatchSet(
+      () => this.waker.notify(),
+      (f) => f === FILES.result || f === FILES.runner,
+    );
+    this.storeWatch = new DirWatchSet(
+      () => this.waker.notify(),
+      (f) => f.startsWith('estado.db'),
+    );
   }
 
   private get runId(): string {
@@ -102,7 +120,8 @@ export class Orchestrator {
         },
       ],
     }));
-    const pollMs = this.opts.pollMs ?? 1000;
+    const pollMs = this.opts.pollMs ?? 2000;
+    this.storeWatch.sync([this.engine.dataDir]);
     let stopping = false;
     this.opts.signal?.addEventListener('abort', () => {
       stopping = true;
@@ -122,8 +141,21 @@ export class Orchestrator {
 
       const settled = this.settledOutcome(stopping);
       if (settled) return settled;
-      await new Promise((r) => setTimeout(r, pollMs));
+      this.launchWatch.sync(this.runningLaunchDirs());
+      const tickStart = Date.now();
+      await this.waker.wait(pollMs);
+      // Our own writes also touch the store: never spin faster than MIN_GAP_MS.
+      const gap = MIN_GAP_MS - (Date.now() - tickStart);
+      if (gap > 0) await new Promise((r) => setTimeout(r, gap));
     }
+  }
+
+  private runningLaunchDirs(): string[] {
+    return this.ctx
+      .tasks()
+      .filter((t) => t.state === 'ejecutando')
+      .map((t) => this.ctx.execOf(t.task_id).launch_dir)
+      .filter((d): d is string => d !== null);
   }
 
   /** One scheduling round. Returns a summary promise when the run left `ejecutando`. */
@@ -184,6 +216,8 @@ export class Orchestrator {
 
   private async finish(state: RunState, detail: string | null = null): Promise<RunSummary> {
     await this.jobs.settle();
+    this.launchWatch.close();
+    this.storeWatch.close();
     setRunState(this.engine, this.runId, state, detail);
     const counts: Record<string, number> = {};
     for (const t of this.ctx.tasks()) counts[t.state] = (counts[t.state] ?? 0) + 1;

@@ -3,23 +3,14 @@ import type { Command } from 'commander';
 import { ConnectionError, ConnectionStore } from '../../actions/connections.js';
 import { OperationError } from '../../actions/operations.js';
 import { ActionError, type ActionRow, ActionService, type SecretResolver } from '../../actions/protocol.js';
+import { TEXTOS } from '../../i18n/textos.js';
 import { forjaHome } from '../../registry/home.js';
 import { Vault, VaultError, vaultPaths } from '../../vault/vault.js';
 import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { type EngineContext, openEngine } from '../engine-context.js';
 import { readSecret, vaultPassphrase } from '../secret-input.js';
 
-const STATE_TEXT: Record<string, string> = {
-  propuesta: 'espera tu aprobación',
-  aprobada: 'aprobada, sin ejecutar',
-  caducada: 'caducada',
-  descartada: 'descartada',
-  ejecutando: 'ejecutándose',
-  confirmada: 'confirmada',
-  rechazada: 'rechazada (sin efecto)',
-  desconocido: 'RESULTADO DESCONOCIDO: concíliala',
-  sin_efecto: 'no se envió (sin efecto)',
-};
+const STATE_TEXT: Record<string, string> = { ...TEXTOS.estadoAccion, desconocido: TEXTOS.estadoAccion.desconocido.toUpperCase() };
 
 export function actionService(ctx: EngineContext): ActionService {
   return new ActionService(ctx.store, ConnectionStore.in(ctx.home));

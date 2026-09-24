@@ -1,3 +1,4 @@
+import { TEXTOS } from '../i18n/textos.js';
 import type { PlanTask } from '../plan/plan.js';
 import { compactTokens, elapsed, type RunSnapshot, type TaskView } from './snapshot.js';
 
@@ -6,37 +7,8 @@ import { compactTokens, elapsed, type RunSnapshot, type TaskView } from './snaps
  * show the same words for the same state.
  */
 
-export const STATE_LABEL: Record<string, string> = {
-  pendiente: 'espera dependencias',
-  lista: 'lista',
-  reservada: 'reservada',
-  ejecutando: 'agente trabajando',
-  verificando: 'verificando',
-  verificada: 'verificada',
-  integrando: 'integrando',
-  integrada: 'integrada',
-  esperando_respuesta: 'pregunta para ti',
-  pausada: 'pausada',
-  bloqueada: 'bloqueada',
-  invalidada: 'invalidada',
-  cancelada: 'cancelada',
-};
-
-export const STATE_ICON: Record<string, string> = {
-  pendiente: '·',
-  lista: '○',
-  reservada: '◔',
-  ejecutando: '▶',
-  verificando: '◑',
-  verificada: '◕',
-  integrando: '⇪',
-  integrada: '✔',
-  esperando_respuesta: '?',
-  pausada: '⏸',
-  bloqueada: '✘',
-  invalidada: '⊘',
-  cancelada: '⊘',
-};
+export const STATE_LABEL: Record<string, string> = TEXTOS.estadoTarea;
+export const STATE_ICON: Record<string, string> = TEXTOS.iconoEstado;
 
 export const modelOf = (t: TaskView): string => (t.exec.provider ? `${t.exec.provider}:${t.exec.model ?? '?'}` : '—');
 
@@ -44,7 +16,8 @@ export const modelOf = (t: TaskView): string => (t.exec.provider ? `${t.exec.pro
 export function taskActivityLine(t: TaskView, now = Date.now()): string {
   if (t.state === 'ejecutando' || t.state === 'reservada') {
     const a = t.activity;
-    return `${elapsed(a?.startedAt ?? null, now)} ${compactTokens(a?.tokens ?? null)} tok › ${a?.current ?? 'arrancando'}`;
+    const tokens = a?.tokensKind === 'estimado' ? `≈${compactTokens(a.tokens)}` : compactTokens(a?.tokens ?? null);
+    return `${elapsed(a?.startedAt ?? null, now)} ${tokens} tok › ${a?.current ?? 'arrancando'}`;
   }
   if (t.state === 'esperando_respuesta') return t.exec.question?.split('\n')[0] ?? '';
   if (t.state === 'bloqueada') return t.exec.last_error ?? '';

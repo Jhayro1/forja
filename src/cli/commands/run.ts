@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import { label, TEXTOS } from '../../i18n/textos.js';
 import { latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { activeChange, getChange } from '../../planner/session.js';
@@ -11,11 +12,12 @@ import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine, taskD
 import { answerTaskQuestion, getExec, Orchestrator, RunError, type RunSummary, startOrResumeRun, unblockTask } from '../../run/orchestrator.js';
 import { acquireOrchestratorLock, RUN_PURPOSE, requestStop, runningOrchestrator } from '../../run/process.js';
 import { RunLog } from '../../run/run-log.js';
-import { compactTokens, currentChange, type RunSnapshot, runSnapshot } from '../../run/snapshot.js';
+import { compactTokens, costLabel, currentChange, type RunSnapshot, runSnapshot } from '../../run/snapshot.js';
 import { snapshotJson } from '../../run/snapshot-json.js';
 import { readSpool } from '../../runtime/launcher.js';
 import { listTasks } from '../../store/projections.js';
 import { runBoard } from '../../tui/app.js';
+import { DirWatchSet, Waker } from '../../util/waker.js';
 import { FORJA_VERSION } from '../../version.js';
 import { EngineBoardSource, taskLogLines } from '../board-source.js';
 import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
@@ -34,6 +36,7 @@ function showPending(s: RunSnapshot): void {
 }
 
 function showSnapshot(s: RunSnapshot, runner: { pid: number } | null): void {
+  if (s.demo) print(DEMO_NOTICE);
   print(`Cambio: ${s.change.title} · fase ${s.change.phase}`);
   if (!s.run) {
     print(`Plan: ${s.plan ? `${s.plan.tareas.length} tareas${s.approved ? ' · aprobado' : ' · sin aprobar'}` : 'todavía no hay'}`);
@@ -47,7 +50,7 @@ function showSnapshot(s: RunSnapshot, runner: { pid: number } | null): void {
     }
     if (s.usage.length) {
       print();
-      print(`Consumo: ${s.usage.map((u) => `${u.role} ${compactTokens(u.tokens)} tok en ${u.calls} llamada(s)${u.costMicro !== null ? ` ≈US$ ${(u.costMicro / 1e6).toFixed(2)}` : ''}`).join(' · ')}`);
+      print(`Consumo: ${s.usage.map((u) => `${u.role} ${compactTokens(u.tokens)} tok en ${u.calls} llamada(s)${u.costMicro !== null ? ` ${costLabel(u)}` : ''}`).join(' · ')}`);
     }
   }
   for (const p of s.providerPauses) print(`⏸ ${p.key}: en pausa hasta ${new Date(p.until).toLocaleTimeString()} (${p.reason})`);
@@ -72,6 +75,8 @@ function soloTarget(ctx: EngineContext, runId: string, id: string): string {
   }
   return task.task_id;
 }
+
+const DEMO_NOTICE = `⚠ ${TEXTOS.modoDemo}`;
 
 function exitCodeFor(summary: RunSummary, stoppedByUser: boolean): number {
   if (summary.state === 'completado') return EXIT.ok;
@@ -158,6 +163,7 @@ export function registerRunCommands(program: Command): void {
           const entry = log.append(line);
           if (echo) print(entry);
         };
+        if (ctx.engine.simulation) say(DEMO_NOTICE);
         say(started.resumed ? `↺ se retoma el run ${runId}` : `▶ run ${runId} iniciado sobre ${ctx.checkout.path}`);
         if (unverified.length) say(`⚠ se ejecuta con modelos sin conformidad aprobada (--sin-conformidad): ${unverified.join('; ')}`);
         if (only) say(`· modo --solo: sólo se lanza ${only}`);
@@ -269,9 +275,7 @@ export function registerRunCommands(program: Command): void {
           return;
         }
         for (const p of s.pending) {
-          print(
-            `${p.kind === 'tarea_bloqueada' ? '✘' : '?'} ${p.id} · ${{ pregunta_tarea: 'pregunta de un agente', tarea_bloqueada: 'tarea bloqueada', tarea_pausada: 'tarea pausada', pregunta_spec: 'pregunta de la especificación', aprobacion: 'aprobación' }[p.kind]}`,
-          );
+          print(`${p.kind === 'tarea_bloqueada' ? '✘' : '?'} ${p.id} · ${label('pendiente', p.kind)}`);
           for (const l of p.text.split('\n')) print(`  ${l}`);
           print(`  → ${p.action}`);
           print();
@@ -315,11 +319,21 @@ export function registerRunCommands(program: Command): void {
         let launchDir = task.exec.launch_dir;
         let lastSeq = launchDir ? (readSpool(launchDir).at(-1)?.seq ?? 0) : 0;
         const stop = new AbortController();
-        const onSignal = () => stop.abort();
+        const waker = new Waker();
+        const onSignal = () => {
+          stop.abort();
+          waker.notify();
+        };
         process.once('SIGINT', onSignal);
+        // New spool lines or a new attempt (a store write) wake the loop; the timer is a fallback.
+        const watch = new DirWatchSet(
+          () => waker.notify(),
+          (f) => f === 'spool.jsonl' || f.startsWith('estado.db'),
+        );
         try {
           while (!stop.signal.aborted) {
-            await new Promise((r) => setTimeout(r, 500));
+            watch.sync([ctx.dataDir, ...(launchDir ? [launchDir] : [])]);
+            await waker.wait(2000);
             const exec = getExec(ctx.engine, runId, task.id);
             if (exec.launch_dir !== launchDir) {
               launchDir = exec.launch_dir;
@@ -332,6 +346,7 @@ export function registerRunCommands(program: Command): void {
             for (const l of readableLog(records, exec.provider)) print(`${l.ts.slice(11, 19)} ${l.text}`);
           }
         } finally {
+          watch.close();
           process.off('SIGINT', onSignal);
         }
       } finally {

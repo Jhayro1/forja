@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EngineBoardSource, taskLogLines } from '../../src/cli/board-source.js';
 import type { Simulation } from '../../src/core/engine.js';
-import { agentActivity, launchPrompt, readableLog, readSpoolTail } from '../../src/run/activity.js';
+import { agentActivity, launchPrompt, readableLog, readSpoolTail, SpoolFollower } from '../../src/run/activity.js';
 import { taskDetailLines } from '../../src/run/describe.js';
 import { answerTaskQuestion, Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { RunLog } from '../../src/run/run-log.js';
@@ -109,6 +109,43 @@ describe('lectura de registros', () => {
       expect(act.current).toBe('Bash npm test');
       expect(act.startedAt).toBe('2026-09-24T10:00:01Z');
       expect(readableLog(readSpoolTail(d), 'claude').map((l) => l.text)).toEqual(['⚙ Bash npm test', '⚙ Bash npm test']);
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it('el seguidor lee sólo lo nuevo, completa líneas cortadas y distingue tokens medidos de estimados', () => {
+    const d = dir();
+    try {
+      const rec = (seq: number, line: string) => `${JSON.stringify({ seq, ts: `2026-09-24T10:00:0${seq}Z`, stream: 'stdout', line })}\n`;
+      const text = (t: string) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: t }] } });
+      const spool = join(d, 'spool.jsonl');
+      const first = rec(1, text('x'.repeat(400)));
+      writeFileSync(spool, first.slice(0, 50));
+      const f = new SpoolFollower(d, 'claude');
+      expect(f.poll()).toMatchObject({ current: null, tokens: null, tokensKind: 'desconocido' });
+      appendFileSync(spool, first.slice(50));
+      expect(f.poll()).toMatchObject({ tokens: 100, tokensKind: 'estimado', startedAt: '2026-09-24T10:00:01Z' });
+      appendFileSync(spool, rec(2, JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', usage: { input_tokens: 1200, output_tokens: 34 } })));
+      expect(f.poll()).toMatchObject({ current: 'terminó', tokens: 1234, tokensKind: 'medido', lastAt: '2026-09-24T10:00:02Z' });
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it('el registro del run rota por tamaño, conserva N generaciones y la cola sigue en la anterior', () => {
+    const d = dir();
+    try {
+      const log = RunLog.of(d, 'run_r', { maxBytes: 200, keep: 2 });
+      for (let i = 0; i < 40; i++) log.append(`línea ${String(i).padStart(2, '0')} ${'x'.repeat(20)}`, new Date('2026-09-24T12:00:00Z'));
+      expect(existsSync(log.generation(1))).toBe(true);
+      expect(existsSync(log.generation(2))).toBe(true);
+      expect(existsSync(log.generation(3))).toBe(false);
+      expect(statSync(log.path).size).toBeLessThanOrEqual(200);
+      const tail = log.tail(8);
+      expect(tail).toHaveLength(8);
+      expect(tail.at(-1)).toContain('línea 39');
+      expect(tail[0]).toContain('línea 32');
     } finally {
       rmSync(d, { recursive: true, force: true });
     }

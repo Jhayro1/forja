@@ -106,11 +106,13 @@ describe.skipIf(!HAS_BWRAP)('forja run por el CLI (agentes simulados en sandbox)
     expect(first.code, `${first.out}\n${first.err}`).toBe(3);
     expect(first.out).toMatch(/\? T-003 pregunta: ¿Se permiten montos con decimales\?/);
     expect(first.out).toContain('Pendiente de ti (1)');
+    expect(first.out).toContain('⚠ MODO DEMO: FORJA_SIMULACION está activo');
     expect(first.out).toContain('forja responder T-003');
     expect(first.out).toContain('Siguiente paso: atiende lo pendiente (forja preguntas)');
 
     const st = json(forja('--json', 'estado'));
     expect(st.run.estado).toBe('bloqueado');
+    expect(st.modo_demo).toBe(true);
     expect(st.run.activo).toBe(false);
     expect(st.progreso.por_estado).toEqual({ integrada: 4, esperando_respuesta: 1 });
     expect(st.tareas.find((t: { id: string }) => t.id === 'T-003').pregunta).toBe('¿Se permiten montos con decimales?');

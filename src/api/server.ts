@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { TEXTOS } from '../i18n/textos.js';
 import { ApiError, cookie, readJson, SECURITY_HEADERS, send, sendError } from './http.js';
 import { type Session, SessionManager, safeEqual } from './session.js';
 
@@ -149,6 +150,7 @@ export class ApiServer {
 
     if (method === 'GET' && url.pathname === '/v1/eventos') return this.stream(req, res);
     if (method === 'GET' && url.pathname === '/v1/modulos') return send(res, 200, { modulos: this.opts.modules.map((m) => m.name) });
+    if (method === 'GET' && url.pathname === '/v1/textos') return send(res, 200, { textos: TEXTOS });
 
     for (const route of this.routes) {
       if (route.method !== method) continue;

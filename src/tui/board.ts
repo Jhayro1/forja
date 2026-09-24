@@ -1,5 +1,6 @@
+import { TEXTOS } from '../i18n/textos.js';
 import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine } from '../run/describe.js';
-import { agentTasks, compactTokens, type RunSnapshot, type TaskView } from '../run/snapshot.js';
+import { agentTasks, compactTokens, costLabel, type RunSnapshot, type TaskView } from '../run/snapshot.js';
 import type { ChangePhase } from '../store/planning-projections.js';
 import { fit, type Paint, type Style, sanitize } from './ansi.js';
 
@@ -70,14 +71,7 @@ const STATE_STYLE: Partial<Record<string, Style>> = {
   pendiente: 'dim',
 };
 
-const PHASES: { phase: ChangePhase; label: string }[] = [
-  { phase: 'descubrir', label: 'Descubrir' },
-  { phase: 'especificar', label: 'Especificar' },
-  { phase: 'dividir', label: 'Plan' },
-  { phase: 'aprobar', label: 'Aprobar' },
-  { phase: 'ejecutar', label: 'Ejecutar' },
-  { phase: 'entregado', label: 'Entregado' },
-];
+const PHASES: { phase: ChangePhase; label: string }[] = TEXTOS.fases.map(([phase, label]) => ({ phase: phase as ChangePhase, label }));
 
 function phaseLine(s: RunSnapshot, paint: Paint): string {
   const current = PHASES.findIndex((p) => p.phase === s.change.phase);
@@ -121,6 +115,7 @@ function renderMain(m: BoardModel, width: number, height: number, paint: Paint):
   }
   const runLabel = s.run ? `run ${s.run.run_id.slice(-8)} · ${s.run.state}${m.runnerAlive ? ' ●' : ''}` : 'sin run';
   out.push(rule(`Forja · ${m.project} · ${sanitize(s.change.title)}`, width, runLabel, ['┌', '┐']));
+  if (s.demo) out.push(row(paint(TEXTOS.modoDemo, 'yellow'), width));
   out.push(row(phaseLine(s, paint), width));
   if (s.run) out.push(row(`${progressLine(s)}${s.run.detail ? ` · ${sanitize(s.run.detail)}` : ''}`, width));
   else out.push(row(`Siguiente paso: ${s.nextStep}`, width));
@@ -136,7 +131,7 @@ function renderMain(m: BoardModel, width: number, height: number, paint: Paint):
     ...s.pending.map((p) => `${icon(p.kind)} ${p.id}: ${sanitize(p.text.split('\n')[0]!)}  → ${p.action}`),
   ].slice(0, 4);
   const usage = s.usage.length
-    ? s.usage.map((u) => `${u.role} ${compactTokens(u.tokens)} tok (${u.calls})${u.costMicro !== null ? ` ≈US$ ${(u.costMicro / 1e6).toFixed(2)}` : ''}`).join(' · ')
+    ? s.usage.map((u) => `${u.role} ${compactTokens(u.tokens)} tok (${u.calls})${u.costMicro !== null ? ` ${costLabel(u)}` : ''}`).join(' · ')
     : 'sin consumo registrado en este run';
   const logLines = m.runLog.map(sanitize);
 

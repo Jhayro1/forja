@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
+import type { Prices } from '../plan/estimate.js';
 import { AdapterError, ClaudeAdapter, CodexAdapter, type LaunchParams, type ProviderAdapter, SimulatedAdapter, type ToolProfile } from '../providers/adapters.js';
 import type { ForjaConfig } from '../registry/config.js';
 import { type LaunchOutcome, runToCompletion } from '../runtime/launch-service.js';
@@ -18,9 +19,19 @@ export type Engine = {
   adapters: Record<'claude' | 'codex' | 'simulado', ProviderAdapter>;
   runnerScript?: string;
   simulation?: Simulation;
+  /** USD per million tokens per `proveedor:modelo` (~/.forja/precios.yaml), to estimate costs a provider does not report. */
+  prices?: Prices;
 };
 
-export function createEngine(opts: { store: EventStore; dataDir: string; config: ForjaConfig; runnerScript?: string; simulation?: Simulation; adapters?: Partial<Engine['adapters']> }): Engine {
+export function createEngine(opts: {
+  store: EventStore;
+  dataDir: string;
+  config: ForjaConfig;
+  runnerScript?: string;
+  simulation?: Simulation;
+  adapters?: Partial<Engine['adapters']>;
+  prices?: Prices | null;
+}): Engine {
   return {
     store: opts.store,
     dataDir: opts.dataDir,
@@ -32,6 +43,7 @@ export function createEngine(opts: { store: EventStore; dataDir: string; config:
     },
     ...(opts.runnerScript ? { runnerScript: opts.runnerScript } : {}),
     ...(opts.simulation ? { simulation: opts.simulation } : {}),
+    ...(opts.prices ? { prices: opts.prices } : {}),
   };
 }
 

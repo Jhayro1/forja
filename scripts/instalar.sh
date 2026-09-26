@@ -100,7 +100,21 @@ if [[ "$NODE_BIN" != /usr/bin && "$NODE_BIN" != /usr/local/bin ]]; then
   sudo chmod 755 /usr/local/bin/forja
 fi
 
+# --- Claude Code: el agente que Forja lanza ---------------------------------------------
+# Forja no trae su propio modelo: ejecuta el CLI oficial de Claude con tu suscripcion. Tiene
+# que estar en este Linux (aunque ya lo tengas en Windows) y con la sesion iniciada.
+if ! command -v claude >/dev/null; then
+  log "instalando Claude Code"
+  npm install -g --no-audit --no-fund --loglevel=error @anthropic-ai/claude-code
+fi
+if claude auth status 2>/dev/null | grep -q '"loggedIn": *true'; then
+  log "Claude Code ya tiene sesion iniciada"
+elif [[ -t 0 ]]; then
+  log "iniciando sesion en Claude Code (si no se abre el navegador, copia el enlace que aparece)"
+  claude auth login || log "no se completo el inicio de sesion; puedes hacerlo despues con: claude auth login"
+else
+  log "falta iniciar sesion en Claude Code: corre 'claude auth login' en Ubuntu"
+fi
+
 echo "OK: Forja instalado."
 forja doctor || true
-echo
-echo "Siguiente paso: cd a tu proyecto y corre 'forja importar .' (o 'forja nuevo <nombre>')."

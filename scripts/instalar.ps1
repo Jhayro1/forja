@@ -109,14 +109,15 @@ Set-Content -Path $shim -Value $shimContent -Encoding ASCII -NoNewline
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ($userPath -notlike "*$binDir*") {
   [Environment]::SetEnvironmentVariable('Path', "$userPath;$binDir", 'User')
-  Write-Host "  agregado $binDir a tu PATH de usuario (abre una terminal nueva para que aplique)"
 }
+# Tambien en esta misma ventana, para no tener que abrir otra PowerShell.
+if ($env:Path -notlike "*$binDir*") { $env:Path = "$env:Path;$binDir" }
 
 Write-Host ""
-Write-Host "OK: Listo. Abre una PowerShell NUEVA (para que tome el PATH actualizado) y corre:"
-Write-Host "    forja doctor"
+Write-Host "OK: Listo. Desde esta misma PowerShell, en la carpeta de tu proyecto:"
 Write-Host ""
-Write-Host "Nota: por debajo sigue corriendo dentro de WSL2/$distro, no nativo en Windows"
-Write-Host "(el aislamiento nativo de Windows todavia es un prototipo, ver ADR-011)."
-Write-Host "Rutas de Windows tipo C:\... dentro de argumentos de forja: usa la ruta estilo"
-Write-Host "Linux (/mnt/c/...) o trabaja parado en tu proyecto con 'forja importar .'"
+Write-Host "    forja importar .                      (una vez por proyecto)"
+Write-Host "    forja planear `"lo que quieres hacer`""
+Write-Host ""
+Write-Host "Por debajo corre dentro de WSL2/$distro; forja entra solo a la carpeta en la que"
+Write-Host "estas. Si pasas rutas como argumento, usa el estilo /mnt/c/... en vez de C:\..."

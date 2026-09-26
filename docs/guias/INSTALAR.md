@@ -23,7 +23,7 @@ forja doctor
 El paquete todavía no está en el registro de npm, así que el comando de arriba no funciona
 todavía. Hasta que se publique, este script hace lo mismo en un solo paso, dentro de Linux
 o de tu distro WSL2 (nunca en PowerShell/CMD): instala lo que falte (git, bubblewrap y
-Node 22 vía nvm; puede pedirte tu contraseña de Linux), clona, compila, empaqueta e
+Node 22 vía nvm; si falta algo del sistema te pide tu contraseña de Linux una sola vez), clona, compila, empaqueta e
 instala global, y deja un lanzador en `/usr/local/bin/forja` para que `forja` funcione
 también fuera de una terminal interactiva.
 

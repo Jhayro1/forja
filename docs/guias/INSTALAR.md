@@ -32,6 +32,24 @@ curl -fsSL https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar
 Revisa el script antes de correrlo si prefieres no hacer `curl | bash` a ciegas:
 [`scripts/instalar.sh`](../../scripts/instalar.sh).
 
+## Windows: un solo comando en PowerShell
+
+Forja no corre nativo en Windows (el aislamiento depende de bubblewrap, sólo Linux; ver
+[ADR-011](../decisiones/ADR-011-aislamiento-windows.md)). Este comando, corrido en una
+PowerShell normal, activa WSL2 e instala Ubuntu si hace falta, instala Forja adentro y deja
+un `forja.cmd` en tu PATH de Windows que reenvía cada comando a esa Ubuntu — para que puedas
+escribir `forja ...` directo en PowerShell aunque por debajo siga siendo Linux:
+
+```powershell
+irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.ps1 | iex
+```
+
+Si es la primera vez que activas WSL en esa máquina, Windows puede pedirte reiniciar; cuando
+reinicies, abre la app **Ubuntu** una vez para crear tu usuario y contraseña de Linux, y
+vuelve a correr el mismo comando — retoma solo desde ahí.
+
+Revisa el script antes si prefieres: [`scripts/instalar.ps1`](../../scripts/instalar.ps1).
+
 En Ubuntu 24.04 o posterior, AppArmor puede bloquear los *user namespaces* que usa
 bubblewrap. Si `forja doctor` marca el sandbox con error, sigue la indicación que muestra
 (no desactives la protección en una máquina compartida).

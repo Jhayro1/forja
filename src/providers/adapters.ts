@@ -4,6 +4,7 @@ import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds, type Mount } from '../runtime/sandbox.js';
+import { activeSandboxMode } from '../runtime/sandbox-mode.js';
 import { buildAgentEnv } from '../security/env.js';
 import type { ProviderKind } from './stream.js';
 
@@ -171,7 +172,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         DISABLE_AUTOUPDATER: '1',
       }),
       sandbox: {
-        mode: 'bwrap',
+        mode: activeSandboxMode(),
         home: SANDBOX_HOME,
         mounts: commonMounts(p, cred, '.credentials.json'),
         read_only: binaryBinds([this.executable, process.execPath]),
@@ -224,7 +225,7 @@ export class CodexAdapter implements ProviderAdapter {
       argv,
       env: baseEnv({ CODEX_HOME: STATE_IN_SANDBOX }),
       sandbox: {
-        mode: 'bwrap',
+        mode: activeSandboxMode(),
         home: SANDBOX_HOME,
         mounts: commonMounts(p, cred, 'auth.json'),
         read_only: binaryBinds([this.executable, process.execPath]),
@@ -261,7 +262,7 @@ export class SimulatedAdapter implements ProviderAdapter {
       env: baseEnv(p.mcpSocket ? { MCP_PASARELA: sandboxed ? MCP_SOCKET_IN_SANDBOX : p.mcpSocket } : {}),
       sandbox: sandboxed
         ? {
-            mode: 'bwrap',
+            mode: activeSandboxMode(),
             home: SANDBOX_HOME,
             mounts: [
               { src: p.inputsDir, dest: INPUTS_IN_SANDBOX, rw: false },

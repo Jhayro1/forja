@@ -29,6 +29,22 @@ export const LaunchOrder = z
           workspace_read_only: z.boolean().default(false),
         })
         .strict(),
+      /**
+       * Same contract as `bwrap` (ADR-012): the runner starts the task inside a
+       * container instead of a bubblewrap namespace. Used when the host isn't Linux,
+       * or on Linux when bwrap itself isn't usable (e.g. AppArmor blocking user
+       * namespaces).
+       */
+      z
+        .object({
+          mode: z.literal('docker'),
+          home: z.string(),
+          mounts: z.array(z.object({ src: z.string(), dest: z.string(), rw: z.boolean() }).strict()),
+          read_only: z.array(z.string()),
+          network_hosts: z.array(z.string()).nullable(),
+          workspace_read_only: z.boolean().default(false),
+        })
+        .strict(),
       /** Only for Forja's own tests: runs the command without isolation. */
       z.object({ mode: z.literal('ninguno') }).strict(),
     ]),

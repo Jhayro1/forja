@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dockerArgs } from '../runtime/docker-sandbox.js';
 import { binaryBinds, bwrapArgs, SANDBOX_HELPER_DIR, SANDBOX_PROXY_SOCKET } from '../runtime/sandbox.js';
 import { DestinationError, hostOf, pinDestination, portOf } from './destination.js';
 import type { ExecutorOrder, ExecutorResult } from './executor-main.js';
@@ -100,10 +101,44 @@ export class SandboxedExecutorRunner implements ExecutorRunner {
   }
 }
 
-let bwrapWorks: boolean | null = null;
+/** Same isolation as `SandboxedExecutorRunner`, inside a container instead of bwrap (ADR-012). */
+export class DockerExecutorRunner implements ExecutorRunner {
+  constructor(
+    private readonly script = DEFAULT_EXECUTOR,
+    private readonly image?: string,
+  ) {}
 
-/** Bubblewrap when it works on this machine; otherwise the plain isolated process (doctor already warns). */
+  async run(order: ExecutorOrder): Promise<ExecutorResult> {
+    const urls = [new URL(order.request.url), ...(order.request.precondition ? [new URL(order.request.precondition.url)] : [])];
+    const pins = new Map<string, string>();
+    try {
+      for (const u of urls) pins.set(`${hostOf(u).toLowerCase()}:${portOf(u)}`, await pinDestination(u, order.allowLocal));
+    } catch (e) {
+      if (e instanceof DestinationError) return { phase: e.kind, detail: e.message };
+      throw e;
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'forja-ejecutor-'));
+    const work = join(dir, 'trabajo');
+    const socket = join(dir, 't.sock');
+    const tunnel = new PinnedTunnelProxy(socket, pins);
+    await tunnel.start();
+    mkdirSync(work);
+    const args = dockerArgs({ workspace: work, home: work, mounts: [], readOnly: binaryBinds([process.execPath]), proxySocket: socket, helperDir: dirname(this.script) }, {}, this.image);
+    const child = spawn('docker', [...args, process.execPath, `${SANDBOX_HELPER_DIR}/${this.script.split('/').pop()}`], { cwd: work, env: {}, stdio: ['pipe', 'pipe', 'pipe'] });
+    return collect(child, { ...order, tunnel: SANDBOX_PROXY_SOCKET }, async () => {
+      await tunnel.stop();
+      rmSync(dir, { recursive: true, force: true });
+    });
+  }
+}
+
+let bwrapWorks: boolean | null = null;
+let dockerWorks: boolean | null = null;
+
+/** bwrap when it works on this machine; else Docker when its sandbox image exists; else the plain isolated process (doctor already warns). */
 export function defaultExecutorRunner(): ExecutorRunner {
   bwrapWorks ??= spawnSync('bwrap', ['--ro-bind', '/', '/', 'true'], { stdio: 'ignore' }).status === 0;
-  return bwrapWorks ? new SandboxedExecutorRunner() : new ProcessExecutorRunner();
+  if (bwrapWorks) return new SandboxedExecutorRunner();
+  dockerWorks ??= spawnSync('docker', ['image', 'inspect', 'forja-sandbox:latest'], { stdio: 'ignore' }).status === 0;
+  return dockerWorks ? new DockerExecutorRunner() : new ProcessExecutorRunner();
 }

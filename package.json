@@ -29,6 +29,7 @@
     "dist/**/*.js",
     "panel",
     "prompts",
+    "docker",
     "LICENSE",
     "NOTICE",
     "README.md",

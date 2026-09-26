@@ -34,8 +34,12 @@ Revisa el script antes de correrlo si prefieres no hacer `curl | bash` a ciegas:
 
 ## Windows: un solo comando en PowerShell
 
-Forja no corre nativo en Windows (el aislamiento depende de bubblewrap, sólo Linux; ver
-[ADR-011](../decisiones/ADR-011-aislamiento-windows.md)). Este comando, corrido en una
+Forja no corre nativo en Windows todavía. Hay un segundo backend de aislamiento real con
+Docker ([ADR-012](../decisiones/ADR-012-aislamiento-docker.md)), pero sólo sirve hoy en hosts
+Linux: un contenedor Docker corre Linux por dentro incluso en Windows, así que no puede
+ejecutar el `claude`/`node` de un Windows nativo. Falta una imagen que traiga esos CLI
+instalados adentro (no probado, ver el ADR) — mientras tanto sigue el prototipo sin conectar
+de [ADR-011](../decisiones/ADR-011-aislamiento-windows.md). Este comando, corrido en una
 PowerShell normal, activa WSL2 e instala Ubuntu si hace falta, instala Forja adentro y deja
 un `forja.cmd` en tu PATH de Windows que reenvía cada comando a esa Ubuntu — para que puedas
 escribir `forja ...` directo en PowerShell aunque por debajo siga siendo Linux:
@@ -51,8 +55,12 @@ vuelve a correr el mismo comando — retoma solo desde ahí.
 Revisa el script antes si prefieres: [`scripts/instalar.ps1`](../../scripts/instalar.ps1).
 
 En Ubuntu 24.04 o posterior, AppArmor puede bloquear los *user namespaces* que usa
-bubblewrap. Si `forja doctor` marca el sandbox con error, sigue la indicación que muestra
-(no desactives la protección en una máquina compartida).
+bubblewrap. Si `forja doctor` marca el sandbox con error, primero prueba instalando Docker
+(`sudo apt install docker.io` o Docker Engine) y corre `forja doctor` de nuevo: si bwrap no
+funciona, Docker es un segundo backend real (mismas garantías de aislamiento, probado en
+[ADR-012](../decisiones/ADR-012-aislamiento-docker.md)) que `forja doctor` detecta y prepara
+solo, sin que cambies nada más. No desactives la protección de AppArmor en una máquina
+compartida.
 
 ## Primer uso
 

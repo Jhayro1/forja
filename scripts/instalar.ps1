@@ -52,7 +52,26 @@ if (-not $whoami) {
 }
 
 Write-Host "- instalando Forja dentro de $distro (clona, compila e instala)..."
-wsl -d $distro -- bash -lc "curl -fsSL https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.sh | bash"
+# Si este script corre desde una copia ya clonada (el caso normal: git clone en Windows y
+# .\scripts\instalar.ps1 desde ahi), reusamos esa copia como fuente en vez de bajarla de
+# internet: mas rapido y no depende de que el repo sea publico. Si corrio via "irm | iex"
+# no hay copia local, y ahi si hace falta bajarla de GitHub.
+$repoRoot = $null
+if ($PSScriptRoot) {
+  $candidate = Split-Path -Parent $PSScriptRoot
+  if (Test-Path (Join-Path $candidate '.git')) { $repoRoot = $candidate }
+}
+
+if ($repoRoot) {
+  $wslRepoPath = (wsl -d $distro -- wslpath -u $repoRoot).Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $wslRepoPath) { throw "no se pudo traducir la ruta '$repoRoot' a una ruta de WSL." }
+  Write-Host "  usando la copia local ya clonada ($repoRoot) en vez de bajarla de internet"
+  wsl -d $distro -- bash -lc "FORJA_SOURCE=`"$wslRepoPath`" bash `"$wslRepoPath/scripts/instalar.sh`""
+} else {
+  # "curl ... | bash" no basta: si curl falla (p. ej. 404), bash recibe stdin vacio y sale
+  # con exito igual, tapando el error. Bajar a un archivo primero y correrlo aparte.
+  wsl -d $distro -- bash -lc "curl -fsSL https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.sh -o /tmp/forja-instalar.sh && bash /tmp/forja-instalar.sh"
+}
 if ($LASTEXITCODE -ne 0) { throw "el instalador dentro de $distro fallo (codigo $LASTEXITCODE); revisa el mensaje de arriba." }
 
 Write-Host "- dejando 'forja' disponible en PowerShell..."

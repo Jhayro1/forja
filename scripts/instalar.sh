@@ -9,6 +9,10 @@
 # Variables opcionales:
 #   FORJA_REPO_DIR   dónde clonar/usar el repo (por defecto ~/forja)
 #   FORJA_REF        rama o etiqueta a instalar (por defecto la default del remoto)
+#   FORJA_SOURCE     de dónde clonar (URL git o ruta local); por defecto GitHub.
+#                    Si ya tienes el repo clonado (p. ej. en Windows, visible en WSL como
+#                    /mnt/c/...), pásalo aquí: es una copia local, no depende de que el
+#                    repo sea público ni de red.
 set -euo pipefail
 
 log() { echo "· $*" >&2; }
@@ -36,8 +40,9 @@ if [[ -d "$REPO_DIR/.git" ]]; then
   git -C "$REPO_DIR" checkout --quiet "${FORJA_REF:-main}"
   git -C "$REPO_DIR" pull --quiet origin "${FORJA_REF:-main}"
 else
-  log "clonando en $REPO_DIR"
-  git clone --quiet https://github.com/Jhayro1/forja.git "$REPO_DIR"
+  SOURCE="${FORJA_SOURCE:-https://github.com/Jhayro1/forja.git}"
+  log "clonando desde $SOURCE en $REPO_DIR"
+  git clone --quiet "$SOURCE" "$REPO_DIR"
   [[ -n "${FORJA_REF:-}" ]] && git -C "$REPO_DIR" checkout --quiet "$FORJA_REF"
 fi
 

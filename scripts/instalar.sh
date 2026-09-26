@@ -118,3 +118,5 @@ fi
 
 echo "OK: Forja instalado."
 forja doctor || true
+echo
+echo "Para abrir Forja escribe: forja   (se abre en tu navegador; todo corre en tu PC)"

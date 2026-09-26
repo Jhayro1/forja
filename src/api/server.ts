@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -41,9 +41,27 @@ export interface EventFeed {
   after(seq: number, limit: number): { seq: number; type: string; aggregate_id: string; run_id: string | null; task_id: string | null; recorded_at: string }[];
 }
 
+/** What the panel sees for one project: its screens and its event feed. */
+export type ProjectScope = { readonly modules: ApiModule[]; readonly feed: EventFeed };
+
+/**
+ * The project the panel is looking at, switchable at runtime (multi-project panel).
+ * `null` when no project is chosen yet: global modules still work.
+ */
+export interface ProjectHost {
+  current(): ProjectScope | null;
+  /** Called before a scope stops being current (and before its store closes). */
+  onLeave?(listener: (scope: ProjectScope) => void): void;
+}
+
 export type ApiOptions = {
-  modules: ApiModule[];
-  feed: EventFeed;
+  /** Always available, with or without a project (system, providers, projects). */
+  global?: ApiModule[];
+  /** A switchable project; takes precedence over `modules` + `feed`. */
+  project?: ProjectHost;
+  /** A single fixed project (kept for embedding and tests). */
+  modules?: ApiModule[];
+  feed?: EventFeed;
   sessions?: SessionManager;
   host?: string;
   port?: number;
@@ -55,20 +73,27 @@ export type ApiOptions = {
 };
 
 const PANEL_DIR = fileURLToPath(new URL('../../panel/', import.meta.url));
-const STATIC: Record<string, [string, string]> = {
-  '/': ['index.html', 'text/html; charset=utf-8'],
-  '/panel.js': ['panel.js', 'text/javascript; charset=utf-8'],
-  '/panel.css': ['panel.css', 'text/css; charset=utf-8'],
-};
+const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', html: 'text/html; charset=utf-8' };
+/** A flat, plain file name inside panel/: no slashes or dots to escape the folder. */
+const PANEL_FILE = /^\/([a-z0-9-]+)\.(js|css)$/;
+
+function staticFile(pathname: string): [string, string] | null {
+  if (pathname === '/') return ['index.html', TYPES.html!];
+  const m = PANEL_FILE.exec(pathname);
+  return m && existsSync(`${PANEL_DIR}${m[1]}.${m[2]}`) ? [`${m[1]}.${m[2]}`, TYPES[m[2]!]!] : null;
+}
 
 const SESSION_COOKIE = 'forja_sesion';
 
 export class ApiServer {
   readonly sessions: SessionManager;
   private readonly server: Server;
-  private readonly routes: Route[];
+  private readonly global: ApiModule[];
+  private readonly project: ProjectHost;
   private readonly idempotency: IdempotencyStore;
-  private readonly broadcaster: FeedBroadcaster;
+  private readonly broadcasters = new Map<EventFeed, FeedBroadcaster>();
+  /** Open SSE streams per feed, so leaving a project ends them before its store closes. */
+  private readonly openStreams = new Map<EventFeed, Set<() => void>>();
   private streams = 0;
   private port = 0;
   private readonly timers = new Set<NodeJS.Timeout>();
@@ -76,8 +101,13 @@ export class ApiServer {
   constructor(private readonly opts: ApiOptions) {
     this.sessions = opts.sessions ?? new SessionManager();
     this.idempotency = opts.idempotency ?? new MemoryIdempotencyStore();
-    this.broadcaster = new FeedBroadcaster(opts.feed, opts.pollMs ?? 500);
-    this.routes = opts.modules.flatMap((m) => m.routes);
+    this.global = opts.global ?? [];
+    if (opts.project) this.project = opts.project;
+    else if (opts.feed) {
+      const fixed: ProjectScope = { modules: opts.modules ?? [], feed: opts.feed };
+      this.project = { current: () => fixed };
+    } else this.project = { current: () => null };
+    this.project.onLeave?.((scope) => this.leave(scope.feed));
     this.server = createServer((req, res) => {
       this.handle(req, res).catch((error: unknown) => {
         if (res.headersSent) {
@@ -104,9 +134,31 @@ export class ApiServer {
 
   async close(): Promise<void> {
     for (const t of this.timers) clearInterval(t);
-    this.broadcaster.close();
+    for (const b of this.broadcasters.values()) b.close();
+    this.broadcasters.clear();
     this.server.closeAllConnections();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
+  }
+
+  /** Ends every stream of a feed and forgets its broadcaster (the browser reconnects to the new project). */
+  private leave(feed: EventFeed): void {
+    for (const end of [...(this.openStreams.get(feed) ?? [])]) end();
+    this.openStreams.delete(feed);
+    this.broadcasters.get(feed)?.close();
+    this.broadcasters.delete(feed);
+  }
+
+  private broadcasterFor(feed: EventFeed): FeedBroadcaster {
+    let b = this.broadcasters.get(feed);
+    if (!b) {
+      b = new FeedBroadcaster(feed, this.opts.pollMs ?? 500);
+      this.broadcasters.set(feed, b);
+    }
+    return b;
+  }
+
+  private routes(): Route[] {
+    return [...this.global, ...(this.project.current()?.modules ?? [])].flatMap((m) => m.routes);
   }
 
   private allowedHosts(): string[] {
@@ -137,8 +189,9 @@ export class ApiServer {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${this.port}`);
     const method = req.method ?? 'GET';
 
-    if (method === 'GET' && STATIC[url.pathname]) {
-      const [file, type] = STATIC[url.pathname]!;
+    const asset = method === 'GET' ? staticFile(url.pathname) : null;
+    if (asset) {
+      const [file, type] = asset;
       res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': type });
       res.end(readFileSync(`${PANEL_DIR}${file}`));
       return;
@@ -157,10 +210,13 @@ export class ApiServer {
     }
 
     if (method === 'GET' && url.pathname === '/v1/eventos') return this.stream(req, res);
-    if (method === 'GET' && url.pathname === '/v1/modulos') return send(res, 200, { modulos: this.opts.modules.map((m) => m.name) });
+    if (method === 'GET' && url.pathname === '/v1/modulos') {
+      const scope = this.project.current();
+      return send(res, 200, { modulos: [...this.global, ...(scope?.modules ?? [])].map((m) => m.name), proyecto: scope ? scope.feed.checkoutId : null });
+    }
     if (method === 'GET' && url.pathname === '/v1/textos') return send(res, 200, { textos: TEXTOS });
 
-    for (const route of this.routes) {
+    for (const route of this.routes()) {
       if (route.method !== method) continue;
       const m = route.path.exec(url.pathname);
       if (!m) continue;
@@ -206,6 +262,7 @@ export class ApiServer {
       }
       return send(res, 200, body);
     }
+    if (!this.project.current() && url.pathname.startsWith('/v1/')) throw new ApiError(409, 'sin_proyecto', 'elige o importa un proyecto primero', false);
     throw new ApiError(404, 'no_encontrado', 'recurso no encontrado');
   }
 
@@ -236,7 +293,9 @@ export class ApiServer {
    */
   private stream(req: IncomingMessage, res: ServerResponse): void {
     if (this.streams >= (this.opts.maxStreams ?? 8)) throw new ApiError(429, 'demasiadas_conexiones', 'demasiadas conexiones de eventos abiertas', true);
-    const feed = this.opts.feed;
+    const scope = this.project.current();
+    if (!scope) throw new ApiError(409, 'sin_proyecto', 'elige o importa un proyecto primero', false);
+    const feed = scope.feed;
     const raw = String(req.headers['last-event-id'] ?? new URL(req.url ?? '/', 'http://x').searchParams.get('desde') ?? '');
     const [checkout, seqText] = raw.split(':');
     const last = feed.lastSeq();
@@ -272,7 +331,7 @@ export class ApiServer {
       });
     };
     catchUp();
-    const unsubscribe = this.broadcaster.subscribe((events) => {
+    const unsubscribe = this.broadcasterFor(feed).subscribe((events) => {
       if (paused) return;
       for (const e of events) {
         if (e.seq <= cursor) continue;
@@ -281,11 +340,23 @@ export class ApiServer {
     });
     const beat = setInterval(() => res.write(': latido\n\n'), this.opts.heartbeatMs ?? 15_000);
     this.timers.add(beat);
-    req.on('close', () => {
+    let ended = false;
+    const cleanup = () => {
+      if (ended) return;
+      ended = true;
       unsubscribe();
       clearInterval(beat);
       this.timers.delete(beat);
+      this.openStreams.get(feed)?.delete(end);
       this.streams--;
-    });
+    };
+    // Leaving the project ends the stream; EventSource reconnects and lands on the new one.
+    const end = () => {
+      cleanup();
+      res.end();
+    };
+    if (!this.openStreams.has(feed)) this.openStreams.set(feed, new Set());
+    this.openStreams.get(feed)!.add(end);
+    req.on('close', cleanup);
   }
 }

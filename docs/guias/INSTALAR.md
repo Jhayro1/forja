@@ -52,6 +52,10 @@ escribir `forja ...` directo en PowerShell aunque por debajo siga siendo Linux:
 irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.ps1 | iex
 ```
 
+Instala lo que falte (Node, Forja, Claude Code; te pide tu contraseña de Linux e iniciar
+sesión en Claude), crea un acceso directo **Forja** en tu escritorio y abre el panel en tu
+navegador. La próxima vez, doble clic en ese acceso directo (o escribe `forja`).
+
 Si es la primera vez que activas WSL en esa máquina, Windows puede pedirte reiniciar; cuando
 reinicies, abre la app **Ubuntu** una vez para crear tu usuario y contraseña de Linux, y
 vuelve a correr el mismo comando — retoma solo desde ahí.
@@ -67,6 +71,20 @@ solo, sin que cambies nada más. No desactives la protección de AppArmor en una
 compartida.
 
 ## Primer uso
+
+Todo corre en tu PC: el panel escucha sólo en `127.0.0.1` y tus proyectos se quedan en sus
+carpetas. Escribe `forja` (o doble clic en el acceso directo del escritorio en Windows) y se
+abre el panel en tu navegador:
+
+1. **Configuración**: Claude Code (y Codex, opcional) instalados y con sesión; los modelos
+   de cada rol del proyecto.
+2. **Proyectos**: pega la ruta de tu carpeta (`C:\Users\…` sirve tal cual) o búscala; tiene
+   que ser un repositorio git.
+3. **Inicio**: cuéntale al planeador qué quieres, apruébalo y sigue los botones:
+   especificar → dividir en tareas → aprobar el plan → ejecutar. El resultado queda en la
+   rama `forja/entrega/…`; tu rama principal no se toca.
+
+Lo mismo por terminal, si lo prefieres:
 
 ```bash
 forja nuevo mi-proyecto && cd mi-proyecto      # o: forja importar ./repo-existente

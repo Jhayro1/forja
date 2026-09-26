@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { parse, stringify } from 'yaml';
+import { type Document, parse, parseDocument, stringify } from 'yaml';
 import { z } from 'zod';
 import { hashJson } from '../domain/hash.js';
 
@@ -112,6 +112,20 @@ export function readConfig(repoRoot: string): ForjaConfig {
 export function writeConfig(repoRoot: string, config: ForjaConfig): void {
   const header = '# Configuración de Forja. Sin secretos: las credenciales viven en la bóveda local.\n';
   writeFileSync(join(repoRoot, CONFIG_FILE), header + stringify(config, { lineWidth: 0 }));
+}
+
+/**
+ * Edits forja.yaml in place (comments and key order survive) and writes it only if
+ * the result is still a valid configuration.
+ */
+export function updateConfig(repoRoot: string, edit: (doc: Document) => void): ForjaConfig {
+  const path = join(repoRoot, CONFIG_FILE);
+  const doc = parseDocument(readFileSync(path, 'utf8'));
+  edit(doc);
+  const result = ForjaConfig.safeParse(doc.toJS());
+  if (!result.success) throw new ConfigError(result.error.issues.map((i) => `${i.path.join('.') || '(raíz)'}: ${i.message}`).join('; '));
+  writeFileSync(path, doc.toString({ lineWidth: 0 }));
+  return result.data;
 }
 
 export function configHash(config: ForjaConfig): string {

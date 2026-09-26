@@ -73,8 +73,12 @@ registerActionCommands(program);
 registerMcpCommands(program);
 registerMemoryCommands(program);
 
+// `forja` alone opens the panel in the browser (the simple way in); in a pipe or a
+// script it keeps showing the help, as before.
+const argv = process.argv.length <= 2 && process.stdin.isTTY && process.stdout.isTTY ? [...process.argv, 'ui'] : process.argv;
+
 try {
-  await program.parseAsync();
+  await program.parseAsync(argv);
 } catch (error) {
   if (error instanceof CommanderError) {
     process.exitCode = error.exitCode === 0 ? 0 : EXIT.input;

@@ -15,7 +15,7 @@ import { latestPlan } from '../plan/divide.js';
 import { estimatePlan } from '../plan/estimate.js';
 import { waves } from '../plan/plan.js';
 import { closureBlockers, openQuestions } from '../planner/discovery.js';
-import { activeChange, approveDiscovery, getDiscovery, transcript } from '../planner/session.js';
+import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, plannerScratch, runPlannerTurn, transcript } from '../planner/session.js';
 import { runningOrchestrator } from '../run/process.js';
 import type { TaskView } from '../run/snapshot.js';
 import { currentChange } from '../run/snapshot.js';
@@ -25,7 +25,7 @@ import { validateSpec } from '../spec/spec.js';
 import type { Vault } from '../vault/vault.js';
 import { EngineBoardSource } from './board-source.js';
 import { actionService } from './commands/actions.js';
-import type { EngineContext } from './engine-context.js';
+import { type EngineContext, hasProductCode, repoEvidence } from './engine-context.js';
 
 /**
  * Engine-backed implementation of the API ports. It delegates to the same read
@@ -202,19 +202,69 @@ export class EngineMemoryBackend implements MemoryBackend {
   }
 }
 
+/** Lets a backend hold the project open (no switching) while in-process work uses its store. */
+export type BusyFlag = { set(reason: string | null): void };
+
 /** Planning read model for the panel: the same data `forja planear`, `forja plan` and `forja preguntas` show. */
 export class EnginePlanningBackend implements PlanningBackend {
-  constructor(private readonly ctx: EngineContext) {}
+  private thinking: { texto: string; desde: string } | null = null;
+  private lastError: string | null = null;
+
+  constructor(
+    private readonly ctx: EngineContext,
+    private readonly busy: BusyFlag = { set: () => {} },
+  ) {}
+
+  private chat(): object {
+    return { pensando: this.thinking, error: this.lastError, planeador: this.ctx.config.roles.planeador[0] };
+  }
+
+  /** Same as `forja planear`: creates the change if needed and runs one planner turn, here in the background. */
+  send(text: string, opts: { nuevo: boolean; cerrar: boolean }): string {
+    if (this.thinking) throw new Error('el planeador todavía está respondiendo');
+    const engine = this.ctx.engine;
+    let change = opts.nuevo ? undefined : activeChange(engine);
+    if (change && change.phase !== 'descubrir') throw new Error(`el cambio «${change.title}» ya pasó la conversación (fase ${change.phase}); empieza uno nuevo cuando termine`);
+    let userText: string | null = opts.cerrar ? 'Quiero cerrar el descubrimiento: revisa huecos y prepara el resumen para aprobar.' : text;
+    let created = false;
+    if (!change) {
+      if (!text) throw new Error('escribe qué quieres construir o mejorar');
+      created = true;
+      // The title keeps the first 120 characters (as the CLI); a longer idea also goes as the first message.
+      userText = text.length > 120 ? text : null;
+    }
+    this.thinking = { texto: opts.cerrar ? 'Cerrar el descubrimiento' : text, desde: new Date().toISOString() };
+    this.lastError = null;
+    this.busy.set('el planeador está respondiendo');
+    void (async () => {
+      try {
+        if (!change) {
+          const mode = (await hasProductCode(this.ctx.checkout.path)) ? 'mejora' : 'idea';
+          const id = createChange(engine, `cambio:${Date.now()}`, text.slice(0, 120), mode);
+          change = listChanges(engine).find((c) => c.change_id === id)!;
+        }
+        const inputs = change.mode === 'mejora' ? { workspace: this.ctx.checkout.path, evidence: await repoEvidence(this.ctx.checkout.path) } : { workspace: plannerScratch(engine) };
+        await runPlannerTurn(engine, { changeId: change.change_id, userText, ...inputs, closing: opts.cerrar });
+      } catch (error) {
+        this.lastError = (error as Error).message;
+      } finally {
+        this.thinking = null;
+        this.busy.set(null);
+      }
+    })();
+    return created ? 'cambio creado: el planeador está pensando…' : 'el planeador está pensando…';
+  }
 
   overview(): object {
     const change = currentChange(this.ctx.engine);
-    if (!change) return { cambio: null };
+    if (!change) return { cambio: null, chat: this.chat() };
     const id = change.change_id;
     const { state, approvedRevision, revision } = getDiscovery(this.ctx.engine, id);
     const spec = latestSpec(this.ctx.engine, id);
     const answers = new Map(specAnswers(this.ctx.engine, id).map((a) => [a.question_id, a.answer]));
     const plan = latestPlan(this.ctx.engine, id);
     return {
+      chat: this.chat(),
       cambio: { id, titulo: change.title, fase: change.phase, modo: change.mode },
       conversacion: transcript(this.ctx.engine, id)
         .slice(-30)

@@ -6,14 +6,14 @@ import { MemoryIdempotencyStore, SqliteIdempotencyStore } from '../../src/api/id
 import { memoryModule } from '../../src/api/modules/memory.js';
 import { planningModule } from '../../src/api/modules/planning.js';
 import { type RunsBackend, runsModule } from '../../src/api/modules/runs.js';
-import { ApiServer, type EventFeed } from '../../src/api/server.js';
+import { type ApiModule, ApiServer, type EventFeed, type ProjectHost, type ProjectScope } from '../../src/api/server.js';
 import { SessionManager } from '../../src/api/session.js';
 import { ROOT } from '../helpers/engine.js';
 
 type Ev = ReturnType<EventFeed['after']>[number];
 
 class FakeFeed implements EventFeed {
-  readonly checkoutId = 'chk_1';
+  constructor(readonly checkoutId = 'chk_1') {}
   events: Ev[] = [];
   push(type: string) {
     this.events.push({ seq: this.events.length + 1, type, aggregate_id: 'x', run_id: 'run_1', task_id: null, recorded_at: new Date().toISOString() });
@@ -264,6 +264,15 @@ describe('API local · sesión y protecciones', () => {
     expect(js).not.toMatch(/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/);
     expect(js).not.toMatch(/setAttribute\('style'/);
     expect((await call('GET', '/panel.js')).headers['content-type']).toMatch(/javascript/);
+    expect((await call('GET', '/pantallas.js')).status).toBe(200);
+    const pantallas = readFileSync(join(ROOT, 'panel/pantallas.js'), 'utf8');
+    expect(pantallas).not.toMatch(/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/);
+  });
+
+  it('sólo sirve archivos planos de panel/: nada fuera de la carpeta', async () => {
+    for (const path of ['/../package.json', '/%2e%2e/package.json', '/panel/../../package.json', '/no-existe.js', '/package.json', '/src.ts', '/.env']) {
+      expect((await call('GET', path)).status, path).not.toBe(200);
+    }
   });
 });
 
@@ -311,9 +320,11 @@ describe('API local · eventos (SSE)', () => {
 
   it('varias conexiones comparten un solo sondeo del almacén (MEJORAS 3.5)', async () => {
     const { cookie } = await login();
-    const reads = () => (server as unknown as { broadcaster: { reads: number } }).broadcaster.reads;
+    const broadcasters = () => [...(server as unknown as { broadcasters: Map<unknown, { reads: number }> }).broadcasters.values()];
+    const reads = () => broadcasters().reduce((n, b) => n + b.reads, 0);
     const streams = await Promise.all([stream(cookie), stream(cookie), stream(cookie)]);
     await wait(40);
+    expect(broadcasters()).toHaveLength(1);
     const before = reads();
     feed.push('tarea.estado_cambiado');
     await wait(120);
@@ -399,6 +410,7 @@ describe('módulo de planeación (MEJORAS 3.4)', () => {
       modules: [
         planningModule({
           overview: () => ({ cambio: { titulo: 'Fiados' }, plan: { olas: [['T-001']] } }),
+          send: () => 'pensando',
           answerSpecQuestion: (id, text) => {
             answered.push([id, text]);
             return `respuesta a ${id}`;
@@ -426,6 +438,92 @@ describe('módulo de planeación (MEJORAS 3.4)', () => {
     expect(answered).toEqual([['Q-001', 'sí']]);
     expect((await req('POST', '/v1/planeacion/preguntas/T-001/respuesta', h, { respuesta: 'x' })).status).toBe(404);
     expect((await req('POST', '/v1/planeacion/descubrimiento/aprobar', { ...h, 'X-Forja-CSRF': 'otro' }, {})).status).toBe(403);
+    await srv.close();
+  });
+});
+
+describe('API local · panel multi-proyecto', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  class Host implements ProjectHost {
+    scope: ProjectScope | null = null;
+    private listeners: ((s: ProjectScope) => void)[] = [];
+    current() {
+      return this.scope;
+    }
+    onLeave(l: (s: ProjectScope) => void) {
+      this.listeners.push(l);
+    }
+    select(next: ProjectScope | null) {
+      if (this.scope) for (const l of this.listeners) l(this.scope);
+      this.scope = next;
+    }
+  }
+
+  const sistema: ApiModule = { name: 'sistema', routes: [{ method: 'GET', path: /^\/v1\/sistema$/, handler: () => ({ ok: true }) }] };
+
+  async function open(host: Host) {
+    const srv = new ApiServer({ global: [sistema], project: host, pollMs: 20, heartbeatMs: 50 });
+    const { port: p } = await srv.listen();
+    const get = (path: string, cookie: string) =>
+      new Promise<{ status: number; body: any }>((resolve, reject) => {
+        const r = request({ host: '127.0.0.1', port: p, path, headers: { Host: `127.0.0.1:${p}`, Cookie: cookie } }, (res) => {
+          let t = '';
+          res.on('data', (c) => (t += c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: t ? JSON.parse(t) : null }));
+        });
+        r.on('error', reject);
+        r.end();
+      });
+    const code = srv.sessions.issueCode();
+    const cookie = await new Promise<string>((resolve, reject) => {
+      const r = request(
+        { host: '127.0.0.1', port: p, method: 'POST', path: '/v1/sesion', headers: { Host: `127.0.0.1:${p}`, Origin: `http://127.0.0.1:${p}`, 'Content-Type': 'application/json' } },
+        (res) => {
+          res.resume();
+          resolve(String(res.headers['set-cookie']).split(';')[0]!);
+        },
+      );
+      r.on('error', reject);
+      r.end(JSON.stringify({ codigo: code }));
+    });
+    return { srv, p, get, cookie };
+  }
+
+  it('sin proyecto: lo global responde y lo del proyecto pide elegir uno', async () => {
+    const host = new Host();
+    const { srv, get, cookie } = await open(host);
+    expect((await get('/v1/sistema', cookie)).status).toBe(200);
+    expect(await get('/v1/modulos', cookie)).toMatchObject({ status: 200, body: { modulos: ['sistema'], proyecto: null } });
+    const estado = await get('/v1/estado', cookie);
+    expect(estado).toMatchObject({ status: 409, body: { error: { codigo: 'sin_proyecto' } } });
+    expect((await get('/v1/eventos', cookie)).status).toBe(409);
+    await srv.close();
+  });
+
+  it('al cambiar de proyecto cambian las rutas y se cierran los eventos del anterior', async () => {
+    const host = new Host();
+    const a = new FakeFeed('chk_a');
+    const b = new FakeFeed('chk_b');
+    host.select({ modules: [runsModule(new FakeBackend())], feed: a });
+    const { srv, p, get, cookie } = await open(host);
+    expect(await get('/v1/modulos', cookie)).toMatchObject({ body: { modulos: ['sistema', 'runs'], proyecto: 'chk_a' } });
+
+    let text = '';
+    let ended = false;
+    const req = request({ host: '127.0.0.1', port: p, path: '/v1/eventos', headers: { Host: `127.0.0.1:${p}`, Cookie: cookie } }, (res) => {
+      res.on('data', (c) => (text += c));
+      res.on('end', () => (ended = true));
+    });
+    req.end();
+    await wait(60);
+    expect(text).toContain('chk_a:0');
+
+    host.select({ modules: [], feed: b });
+    await wait(30);
+    expect(ended).toBe(true);
+    expect(await get('/v1/modulos', cookie)).toMatchObject({ body: { modulos: ['sistema'], proyecto: 'chk_b' } });
+    expect((await get('/v1/estado', cookie)).status).toBe(404);
     await srv.close();
   });
 });

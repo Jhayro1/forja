@@ -21,8 +21,15 @@ Funciona de punta a punta: planear → especificar → dividir → aprobar → e
 verificar → integrar → entregar en una rama `forja/entrega/<cambio>` (main nunca se toca).
 Falta la prueba de ejecución con Claude y Codex reales (hasta ahora con agentes simulados).
 
+Windows (PowerShell), un solo comando: instala todo, crea el acceso directo **Forja** en el
+escritorio y abre el panel en tu navegador. Todo corre en tu PC (sólo `127.0.0.1`).
+
+```powershell
+irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.ps1 | iex
+```
+
 ```bash
-npm install -g @jhayro1/forja && forja doctor     # cuando esté publicado; guía: docs/guias/INSTALAR.md
+forja                                             # abre el panel en el navegador (Linux/WSL)
 npm install && npm run check                      # desarrollo: typecheck + tests (Linux con bubblewrap)
 ```
 
@@ -39,7 +46,7 @@ Guías: [instalar](docs/guias/INSTALAR.md) · [recuperación](docs/guias/RECUPER
 | Perfil | `forja perfil ver/aprobar/linea-base` |
 | Observar | `forja tablero`, `estado`, `preguntas`, `tarea T-001`, `logs T-001 -f`, `informe` (todos con `--json`) |
 | Decidir | `forja responder T-001 "…"`, `reintentar T-001 "nota"`; rehacer el plan a mitad: `detener` → `dividir` → `aprobar plan` → `run` |
-| Panel web | `forja ui` (sólo 127.0.0.1; entra con el enlace de un solo uso que imprime) |
+| Panel web | `forja` (o `forja ui`): se abre en el navegador; elige proyecto, configura Claude/Codex, conversa con el planeador y ejecuta todo con botones. Sólo 127.0.0.1 |
 | Modelos | `forja conformidad [proveedor:modelo…]`, `forja conformidad --listar` |
 | Piloto | `forja piloto [--aplicar]`: mide los runs y recomienda N |
 | Secretos | `forja boveda iniciar/guardar/listar/cambiar-clave/verificar/restaurar` |

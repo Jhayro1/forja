@@ -2,6 +2,8 @@ import { existsSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { detectProfile } from '../../profile/detect.js';
+import { trustRepo, UntrustedRepoError } from '../../registry/inspect.js';
+import { fromUserPath } from '../../registry/paths.js';
 import { createProject, importProject, ProjectError, resolveCheckout } from '../../registry/projects.js';
 import { CliError, EXIT, type GlobalOptions, print, printJson, withRegistry } from '../context.js';
 import { showDetected } from './profile.js';
@@ -29,12 +31,22 @@ export function registerProjectCommands(program: Command): void {
   program
     .command('importar <ruta>')
     .description('registra un repositorio existente (sólo lo lee: no ejecuta nada del repo)')
-    .action(async (dir: string, _opts: unknown, cmd: Command) => {
+    .option('--confiar', 'si git no confía en la carpeta (otro dueño, típico de C:\\ en WSL), la marca como confiable (safe.directory)')
+    .action(async (input: string, opts: { confiar?: boolean }, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
+      const dir = fromUserPath(input);
       await withRegistry(async (registry) => {
-        const { checkout, inspection, createdConfig } = await importProject(registry, dir).catch((error: Error) => {
-          throw new CliError(error.message, EXIT.input);
-        });
+        const attempt = () => importProject(registry, dir);
+        const { checkout, inspection, createdConfig } = await attempt()
+          .catch(async (error: Error) => {
+            if (!(error instanceof UntrustedRepoError) || !opts.confiar) throw error;
+            await trustRepo(error.root);
+            print(`✔ ${error.root} marcada como confiable para git`);
+            return attempt();
+          })
+          .catch((error: Error) => {
+            throw new CliError(error instanceof UntrustedRepoError ? `${error.message}\n  O vuelve a correrlo con: forja importar "${input}" --confiar` : error.message, EXIT.input);
+          });
         const detected = detectProfile(checkout.path);
         if (g.json) return printJson({ proyecto: checkout, inspeccion: inspection, forja_yaml_creado: createdConfig, perfil_detectado: detected });
         print(`✔ Proyecto «${checkout.name}» registrado (${checkout.path})`);

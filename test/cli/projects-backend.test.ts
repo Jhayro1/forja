@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -91,5 +91,32 @@ describe('panel · proyectos', () => {
     expect(docs.carpetas.map((c) => c.nombre)).toEqual(['sub']);
     expect(() => backend.browse('/etc')).toThrow(/sólo se pueden explorar/);
     expect(() => backend.browse(join(user, '..'))).toThrow(/sólo se pueden explorar/);
+  });
+});
+
+describe.skipIf(process.getuid?.() !== 0)('panel · carpeta en la que git no confía (otro dueño, típico de C:\\ en WSL)', () => {
+  it('pide confianza, y con ella la marca en safe.directory e importa', async () => {
+    const gitconfig = join(dir, 'gitconfig');
+    writeFileSync(gitconfig, '');
+    const prev = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = gitconfig;
+    try {
+      const path = repo(join(user, 'erp-windows'));
+      execFileSync('chown', ['-R', 'nobody', path]);
+      const first = (await backend.importFolder(path, false)) as { requiere_confianza: boolean; ruta: string; mensaje: string };
+      expect(first).toMatchObject({ requiere_confianza: true, ruta: path });
+      expect(first.mensaje).toMatch(/Git no confía/);
+      expect(host.context()).toBeNull();
+
+      const r = (await backend.importFolder(path, true)) as { proyecto: { nombre: string } };
+      expect(r.proyecto.nombre).toBe('erp-windows');
+      expect(readFileSync(gitconfig, 'utf8')).toContain(`directory = ${path}`);
+      // Trusting twice does not add it twice.
+      await backend.importFolder(path, true);
+      expect(readFileSync(gitconfig, 'utf8').split(`directory = ${path}`).length).toBe(2);
+    } finally {
+      if (prev === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = prev;
+    }
   });
 });

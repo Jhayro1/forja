@@ -2,6 +2,7 @@ import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import type { ProjectsBackend } from '../api/modules/projects.js';
+import { trustRepo, UntrustedRepoError } from '../registry/inspect.js';
 import { browseRoots, fromUserPath, isWsl, toWindowsPath } from '../registry/paths.js';
 import { createProject, importProject } from '../registry/projects.js';
 import { Registry } from '../registry/registry.js';
@@ -51,10 +52,19 @@ export class RegistryProjectsBackend implements ProjectsBackend {
     return { proyecto: { id: ctx.checkout.checkout_id, nombre: ctx.config.nombre, ...this.view(ctx.checkout.path) }, mensaje: `trabajando en «${ctx.config.nombre}»` };
   }
 
-  async importFolder(input: string): Promise<object> {
+  async importFolder(input: string, trust = false): Promise<object> {
     const path = this.resolve(input);
     if (!existsSync(path)) throw new Error(`no existe la carpeta ${path}`);
-    const result = await this.withRegistryAsync((r) => importProject(r, path));
+    let result: Awaited<ReturnType<typeof importProject>>;
+    try {
+      result = await this.withRegistryAsync((r) => importProject(r, path));
+    } catch (error) {
+      if (!(error instanceof UntrustedRepoError)) throw error;
+      // Git's ownership check: only the user can decide to trust this folder.
+      if (!trust) return { requiere_confianza: true, ...this.view(error.root), mensaje: error.message };
+      await trustRepo(error.root);
+      result = await this.withRegistryAsync((r) => importProject(r, path));
+    }
     const { checkout, inspection, createdConfig } = result;
     this.projects.select(checkout.checkout_id);
     return {

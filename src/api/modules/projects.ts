@@ -5,8 +5,11 @@ import type { ApiModule } from '../server.js';
 export interface ProjectsBackend {
   list(): object;
   select(checkoutId: string): object;
-  /** `path` as the user typed it (Windows paths are accepted on WSL). */
-  importFolder(path: string): Promise<object>;
+  /**
+   * `path` as the user typed it (Windows paths are accepted on WSL). If git does not
+   * trust the folder (another owner), answers `requiere_confianza` unless `trust` is set.
+   */
+  importFolder(path: string, trust: boolean): Promise<object>;
   create(name: string, parent: string | null): Promise<object>;
   archive(checkoutId: string): object;
   /** Subfolders to pick from, limited to the allowed roots. */
@@ -30,7 +33,10 @@ export function projectsModule(backend: ProjectsBackend): ApiModule {
       {
         method: 'POST',
         path: /^\/v1\/proyectos\/importar$/,
-        handler: async ({ body }) => ({ ok: true, ...(await backend.importFolder(stringField(await body(), 'ruta', { max: 1000 })!)) }),
+        handler: async ({ body }) => {
+          const b = await body();
+          return { ok: true, ...(await backend.importFolder(stringField(b, 'ruta', { max: 1000 })!, b.confiar === true)) };
+        },
       },
       {
         method: 'POST',

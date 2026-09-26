@@ -18,6 +18,20 @@ npm install -g @jhayro1/forja
 forja doctor
 ```
 
+## Instalación de un solo comando (mientras no esté publicado en npm)
+
+El paquete todavía no está en el registro de npm, así que el comando de arriba no funciona
+todavía. Hasta que se publique, este script hace lo mismo (clona, compila, empaqueta e
+instala global) en un solo paso, dentro de Linux o de tu distro WSL2 (nunca en
+PowerShell/CMD):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.sh | bash
+```
+
+Revisa el script antes de correrlo si prefieres no hacer `curl | bash` a ciegas:
+[`scripts/instalar.sh`](../../scripts/instalar.sh).
+
 En Ubuntu 24.04 o posterior, AppArmor puede bloquear los *user namespaces* que usa
 bubblewrap. Si `forja doctor` marca el sandbox con error, sigue la indicación que muestra
 (no desactives la protección en una máquina compartida).

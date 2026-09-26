@@ -77,7 +77,12 @@ if ($PSScriptRoot) {
 if ($repoRoot) {
   $wslRepoPath = ConvertTo-WslPath $repoRoot
   Write-Host "  usando la copia local ya clonada ($repoRoot) en vez de bajarla de internet"
-  wsl -d $distro -- bash -lc "FORJA_SOURCE=`"$wslRepoPath`" bash `"$wslRepoPath/scripts/instalar.sh`""
+  # Nada de un string con comillas incrustadas para "bash -lc": WSL vuelve a comerse cosas
+  # al reconstruir la linea de comandos con comillas anidadas (mismo tipo de bug que con
+  # las barras invertidas). Argumentos sueltos, sin comillas que pasar por el medio.
+  # bash -l (no -c): sigue actuando como shell de login (carga el PATH que nvm agrego a
+  # los dotfiles) pero corriendo el script como archivo, sin envolverlo en un string.
+  wsl -d $distro -- env "FORJA_SOURCE=$wslRepoPath" bash -l "$wslRepoPath/scripts/instalar.sh"
 } else {
   # "curl ... | bash" no basta: si curl falla (p. ej. 404), bash recibe stdin vacio y sale
   # con exito igual, tapando el error. Bajar a un archivo primero y correrlo aparte.

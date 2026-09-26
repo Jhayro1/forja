@@ -21,16 +21,20 @@ forja doctor
 ## Instalación de un solo comando (mientras no esté publicado en npm)
 
 El paquete todavía no está en el registro de npm, así que el comando de arriba no funciona
-todavía. Hasta que se publique, este script hace lo mismo (clona, compila, empaqueta e
-instala global) en un solo paso, dentro de Linux o de tu distro WSL2 (nunca en
-PowerShell/CMD):
+todavía. Hasta que se publique, este script hace lo mismo en un solo paso, dentro de Linux
+o de tu distro WSL2 (nunca en PowerShell/CMD): instala lo que falte (git, bubblewrap y
+Node 22 vía nvm; puede pedirte tu contraseña de Linux), clona, compila, empaqueta e
+instala global, y deja un lanzador en `/usr/local/bin/forja` para que `forja` funcione
+también fuera de una terminal interactiva.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.sh -o /tmp/i.sh && bash /tmp/i.sh
 ```
 
-Revisa el script antes de correrlo si prefieres no hacer `curl | bash` a ciegas:
-[`scripts/instalar.sh`](../../scripts/instalar.sh).
+Se baja a un archivo en vez de `curl | bash` para que un fallo de la descarga no pase
+desapercibido. Mientras el repositorio sea privado, `raw.githubusercontent.com` responde
+404 sin credenciales: clona el repo y corre `bash scripts/instalar.sh` desde ahí. Revisa el
+script antes si prefieres: [`scripts/instalar.sh`](../../scripts/instalar.sh).
 
 ## Windows: un solo comando en PowerShell
 

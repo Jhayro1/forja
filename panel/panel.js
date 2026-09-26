@@ -2,7 +2,7 @@
 // Seguridad: el DOM se construye sólo con textContent (nunca innerHTML), así
 // que ningún texto de un agente, log o diff puede inyectar HTML o scripts.
 
-const state = { csrf: null, modules: [], view: 'resumen', data: null, taskOpen: null, taskTab: 'detalle', lastFetch: 0 };
+const state = { csrf: null, modules: [], project: null, view: 'inicio', data: null, taskOpen: null, taskTab: 'detalle', lastFetch: 0, rendered: '', fastPoll: false, events: null };
 
 /** h('div', { class: 'x', onclick }, 'texto', child) */
 function h(tag, attrs, ...children) {
@@ -48,9 +48,16 @@ async function api(method, path, body) {
   if (!res.ok) {
     const err = new Error(data.error?.mensaje || `error ${res.status}`);
     err.status = res.status;
+    err.code = data.error?.codigo;
     throw err;
   }
   return data;
+}
+
+/** GET that always brings the full answer (never a 304 without data). */
+function fresh(path) {
+  etags.delete(path);
+  return api('GET', path);
 }
 
 async function mutate(method, path, body, okText) {
@@ -98,7 +105,7 @@ function showLogin(message) {
       'div',
       { class: 'card login' },
       h('h1', {}, 'Entrar al panel'),
-      h('p', { class: 'muted' }, 'Abre el enlace que muestra ', h('span', { class: 'mono' }, 'forja ui'), ' en tu terminal, o pega aquí su código.'),
+      h('p', { class: 'muted' }, 'Vuelve a escribir ', h('span', { class: 'mono' }, 'forja'), ' en tu terminal: abre el panel con una sesión nueva. También puedes pegar aquí el código del enlace.'),
       message ? h('p', { class: 's-bloqueada' }, message) : null,
       input,
       h(
@@ -760,41 +767,61 @@ function renderPlaneacion(d) {
 }
 
 const VIEWS = [
-  { id: 'resumen', title: 'Flujo', module: 'runs', path: '/v1/estado', key: 'estado', render: renderResumen },
-  { id: 'planeacion', title: 'Planeación', module: 'planeacion', path: '/v1/planeacion', key: 'planeacion', render: renderPlaneacion },
-  { id: 'acciones', title: 'Acciones', module: 'conexiones', path: '/v1/acciones', key: 'acciones', render: renderAcciones },
-  { id: 'conexiones', title: 'Conexiones', module: 'conexiones', path: '/v1/conexiones', key: 'conexiones', render: renderConexiones },
-  { id: 'auditoria', title: 'Auditoría', module: 'conexiones', path: '/v1/auditoria', key: 'auditoria', render: renderAuditoria },
-  { id: 'memoria', title: 'Memoria', module: 'memoria', path: '/v1/memoria', key: 'memoria', render: renderMemoria },
+  { id: 'resumen', title: 'Tareas', module: 'runs', path: '/v1/estado', key: 'estado', render: renderResumen, advanced: true },
+  { id: 'planeacion', title: 'Planeación', module: 'planeacion', path: '/v1/planeacion', key: 'planeacion', render: renderPlaneacion, advanced: true },
+  { id: 'acciones', title: 'Acciones', module: 'conexiones', path: '/v1/acciones', key: 'acciones', render: renderAcciones, advanced: true },
+  { id: 'conexiones', title: 'Conexiones', module: 'conexiones', path: '/v1/conexiones', key: 'conexiones', render: renderConexiones, advanced: true },
+  { id: 'auditoria', title: 'Auditoría', module: 'conexiones', path: '/v1/auditoria', key: 'auditoria', render: renderAuditoria, advanced: true },
+  { id: 'memoria', title: 'Memoria', module: 'memoria', path: '/v1/memoria', key: 'memoria', render: renderMemoria, advanced: true },
 ];
 window.forjaViews = VIEWS;
 
+function navButton(v) {
+  return h(
+    'button',
+    {
+      class: v.advanced ? 'adv' : null,
+      'aria-current': state.view === v.id ? 'page' : 'false',
+      onclick: () => go(v.id),
+    },
+    v.title,
+  );
+}
+
 function renderNav() {
   const nav = document.getElementById('nav');
-  nav.replaceChildren(
-    ...VIEWS.filter((v) => state.modules.includes(v.module)).map((v) =>
-      h(
-        'button',
-        {
-          'aria-current': state.view === v.id ? 'page' : 'false',
-          onclick: () => {
-            state.view = v.id;
-            closeTask();
-            renderNav();
-            void refresh(true);
-          },
-        },
-        v.title,
-      ),
-    ),
-  );
+  const visible = VIEWS.filter((v) => state.modules.includes(v.module));
+  const sep = visible.some((v) => v.advanced) ? [h('span', { class: 'sep', 'aria-hidden': 'true' })] : [];
+  nav.replaceChildren(...visible.filter((v) => !v.advanced).map(navButton), ...sep, ...visible.filter((v) => v.advanced).map(navButton));
+  const chip = document.getElementById('proyecto');
+  chip.replaceChildren(h('button', { class: 'chip', title: 'Cambiar de proyecto', onclick: () => go('proyectos') }, state.project ? `📁 ${state.project.nombre}` : '📁 Elige un proyecto', ' ▾'));
+}
+
+/** Goes to a view (and re-renders it from scratch). */
+function go(id) {
+  state.view = id;
+  state.rendered = '';
+  closeTask();
+  renderNav();
+  void refresh(true);
 }
 
 async function refresh(force) {
   if (!force && Date.now() - state.lastFetch < 250) return;
   state.lastFetch = Date.now();
-  const view = VIEWS.find((v) => v.id === state.view) || VIEWS[0];
+  const view = VIEWS.find((v) => v.id === state.view && state.modules.includes(v.module)) || VIEWS.find((v) => state.modules.includes(v.module));
+  if (!view) return;
   try {
+    if (view.load) {
+      // Screens that combine several sources: re-render only if something changed
+      // (so what you are typing, e.g. in the chat, is not wiped every few seconds).
+      const data = await view.load();
+      const sig = JSON.stringify(data);
+      if (!force && sig === state.rendered) return;
+      state.rendered = sig;
+      document.getElementById('app').replaceChildren(...view.render(data).filter(Boolean));
+      return;
+    }
     if (view.id === 'acciones') {
       const b = await api('GET', '/v1/boveda');
       if (!b.sinCambios) state.boveda = b.boveda;
@@ -809,6 +836,7 @@ async function refresh(force) {
     if (state.taskOpen && view.id === 'resumen' && state.taskTab === 'registro') void openTask(state.taskOpen);
   } catch (e) {
     if (e.status === 401) return showLogin('La sesión venció.');
+    if (e.status === 409 && e.code === 'sin_proyecto') return go('proyectos');
     toast(`✘ ${e.message}`);
   }
 }
@@ -821,23 +849,74 @@ function scheduleRefresh() {
 
 function connectEvents() {
   const status = document.getElementById('conexion');
+  state.events?.close();
+  state.events = null;
+  if (!state.project) {
+    status.textContent = '';
+    return;
+  }
   const es = new EventSource('/v1/eventos');
+  state.events = es;
   es.addEventListener('open', () => (status.textContent = '● en vivo'));
   es.addEventListener('error', () => (status.textContent = '○ reconectando…'));
   es.addEventListener('snapshot', scheduleRefresh);
   es.addEventListener('evento', scheduleRefresh);
 }
 
+/** Re-reads which screens exist (they depend on the chosen project) and reconnects live events. */
+async function loadModules() {
+  const r = await fresh('/v1/modulos');
+  state.modules = r.modulos;
+  if (!r.proyecto) state.project = null;
+  else if (state.modules.includes('proyectos')) {
+    const p = await fresh('/v1/proyectos');
+    const cur = (p.proyectos || []).find((x) => x.actual);
+    state.project = cur ? { id: cur.id, nombre: cur.nombre } : { id: r.proyecto, nombre: 'proyecto' };
+  } else state.project = { id: r.proyecto, nombre: 'proyecto' };
+  connectEvents();
+  renderNav();
+}
+
+/** After choosing, importing or creating a project. */
+// biome-ignore lint/correctness/noUnusedVariables: pantallas.js la usa (scripts clásicos que comparten el ámbito global).
+async function onProjectChanged(view = 'inicio') {
+  etags.clear();
+  await loadModules();
+  go(state.project ? view : 'proyectos');
+}
+
+/** First screen: set up the machine if nothing works yet, then pick a project, then the flow. */
+async function firstView() {
+  if (state.modules.includes('sistema')) {
+    try {
+      const s = await fresh('/v1/sistema');
+      if (s.sistema && s.sistema.estado === 'error') return 'configuracion';
+    } catch {
+      // The flow still works without the diagnosis.
+    }
+  }
+  if (!state.project) return state.modules.includes('proyectos') ? 'proyectos' : 'resumen';
+  return state.modules.includes('trabajos') ? 'inicio' : 'resumen';
+}
+
 async function main() {
   if (!(await login())) return;
   Object.assign(T, (await api('GET', '/v1/textos')).textos);
-  state.modules = (await api('GET', '/v1/modulos')).modulos;
+  await loadModules();
+  state.view = await firstView();
   renderNav();
   await refresh(true);
-  connectEvents();
-  // Activity of working agents is not a domain event: refresh it every few seconds.
-  setInterval(() => refresh(false), 5000);
+  // Activity of working agents, sign-ins and jobs are not domain events: poll them
+  // (faster while something is in progress).
+  let last = Date.now();
+  setInterval(() => {
+    if (state.fastPoll || Date.now() - last > 5000) {
+      last = Date.now();
+      void refresh(false);
+    }
+  }, 1500);
   document.addEventListener('keydown', (e) => e.key === 'Escape' && closeTask());
 }
 
-void main();
+// pantallas.js loads after this file (both deferred) and adds its screens to VIEWS first.
+document.addEventListener('DOMContentLoaded', () => void main());

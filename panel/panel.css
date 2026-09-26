@@ -344,3 +344,257 @@ textarea:focus-visible {
     padding: 10px;
   }
 }
+
+/* ---------- pantallas de inicio (pantallas.js) ---------- */
+.chip {
+  font: inherit;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+nav .sep {
+  width: 1px;
+  background: var(--line);
+  margin: 2px 6px;
+}
+nav button.adv {
+  font-size: 13px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.row > input {
+  flex: 1 1 220px;
+  width: auto;
+}
+.row .act,
+.row .sec {
+  margin-top: 0;
+}
+.small {
+  font-size: 13px;
+}
+h3 {
+  font-size: 16px;
+  margin: 0 0 6px;
+}
+h4 {
+  font-size: 14px;
+  margin: 12px 0 4px;
+}
+.card p {
+  margin: 4px 0;
+}
+.card ul,
+.card ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+main > .card,
+main > .grid,
+main > div {
+  margin-bottom: 12px;
+}
+.steps {
+  display: flex;
+  gap: 0;
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 16px;
+  flex-wrap: wrap;
+  counter-reset: paso;
+}
+.steps li {
+  counter-increment: paso;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 12px 4px 8px;
+  border: 1px solid var(--line);
+  border-right: none;
+  background: var(--panel);
+}
+.steps li:first-child {
+  border-radius: 999px 0 0 999px;
+}
+.steps li:last-child {
+  border-right: 1px solid var(--line);
+  border-radius: 0 999px 999px 0;
+}
+.steps li::before {
+  content: counter(paso) ". ";
+}
+.steps li.done {
+  color: var(--ok);
+}
+.steps li.done::before {
+  content: "✔ ";
+}
+.steps li.now {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  border-color: var(--accent);
+}
+.split {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.msgs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow: auto;
+}
+.msg {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+.msg.yo {
+  align-self: flex-end;
+  background: var(--bg);
+}
+.msg.ia {
+  align-self: flex-start;
+  background: var(--panel);
+}
+.msg.pensando {
+  color: var(--muted);
+  font-style: italic;
+}
+.msg-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.badge {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.b-ok {
+  color: var(--ok);
+}
+.b-corriendo {
+  color: var(--run);
+}
+.b-error,
+.b-interrumpido {
+  color: var(--bad);
+}
+.b-cancelado {
+  color: var(--muted);
+}
+pre.log {
+  max-height: 40vh;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+input[type="number"] {
+  width: 120px;
+  font: inherit;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+a.act.link {
+  display: inline-block;
+  text-decoration: none;
+  align-self: flex-start;
+  font: inherit;
+  padding: 6px 12px;
+}
+.role {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(200px, 1.4fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+@media (max-width: 640px) {
+  .role {
+    grid-template-columns: 1fr;
+  }
+}
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+.folders {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px;
+}
+.folders li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.linklike {
+  font: inherit;
+  background: none;
+  border: none;
+  color: var(--info);
+  cursor: pointer;
+  padding: 2px 0;
+  text-align: left;
+}
+.stack > button,
+.stack > a {
+  align-self: flex-start;
+}
+a.act {
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}

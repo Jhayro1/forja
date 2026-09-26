@@ -1,4 +1,4 @@
-import { stringField } from '../http.js';
+import { ApiError, stringField } from '../http.js';
 import type { ApiModule } from '../server.js';
 
 /**
@@ -11,6 +11,12 @@ export interface PlanningBackend {
   overview(): object;
   answerSpecQuestion(questionId: string, text: string): string;
   approveDiscovery(): string;
+  /**
+   * One message to the planner, answered in the background (it can take minutes):
+   * the panel sees the reply through the event feed. `nuevo` starts a new change;
+   * `cerrar` asks it to close discovery and prepare the summary to approve.
+   */
+  send(text: string, opts: { nuevo: boolean; cerrar: boolean }): string;
 }
 
 export function planningModule(backend: PlanningBackend): ApiModule {
@@ -24,6 +30,17 @@ export function planningModule(backend: PlanningBackend): ApiModule {
         handler: async ({ params, body }) => ({ ok: true, mensaje: backend.answerSpecQuestion(params[0]!.toUpperCase(), stringField(await body(), 'respuesta')!.trim()) }),
       },
       { method: 'POST', path: /^\/v1\/planeacion\/descubrimiento\/aprobar$/, handler: () => ({ ok: true, mensaje: backend.approveDiscovery() }) },
+      {
+        method: 'POST',
+        path: /^\/v1\/planeacion\/mensaje$/,
+        handler: async ({ body }) => {
+          const b = await body();
+          const cerrar = b.cerrar === true;
+          const text = stringField(b, 'texto', { optional: cerrar, max: 20_000 })?.trim() ?? '';
+          if (!text && !cerrar) throw new ApiError(422, 'campo_requerido', 'escribe un mensaje');
+          return { ok: true, mensaje: backend.send(text, { nuevo: b.nuevo === true, cerrar }) };
+        },
+      },
     ],
   };
 }

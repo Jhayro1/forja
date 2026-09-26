@@ -113,11 +113,25 @@ if ($userPath -notlike "*$binDir*") {
 # Tambien en esta misma ventana, para no tener que abrir otra PowerShell.
 if ($env:Path -notlike "*$binDir*") { $env:Path = "$env:Path;$binDir" }
 
+# Acceso directo en el escritorio: doble clic y Forja se abre en el navegador.
+try {
+  $desktop = [Environment]::GetFolderPath('Desktop')
+  $shell = New-Object -ComObject WScript.Shell
+  $lnk = $shell.CreateShortcut((Join-Path $desktop 'Forja.lnk'))
+  $lnk.TargetPath = Join-Path $env:WINDIR 'System32\wsl.exe'
+  $lnk.Arguments = "-d $distro -- forja"
+  $lnk.WorkingDirectory = $env:USERPROFILE
+  $lnk.Description = 'Abrir Forja en el navegador'
+  $lnk.Save()
+  Write-Host "- acceso directo 'Forja' creado en tu escritorio"
+} catch {
+  Write-Host "  (no se pudo crear el acceso directo: $($_.Exception.Message))"
+}
+
 Write-Host ""
-Write-Host "OK: Listo. Desde esta misma PowerShell, en la carpeta de tu proyecto:"
+Write-Host "OK: Forja esta instalado. Abriendolo en tu navegador..."
+Write-Host "    Ahi eliges tu proyecto y le cuentas a Forja que quieres hacer."
+Write-Host "    Deja esta ventana abierta mientras lo usas; Ctrl+C para cerrarlo."
+Write-Host "    La proxima vez: doble clic en 'Forja' en tu escritorio (o escribe: forja)."
 Write-Host ""
-Write-Host "    forja importar .                      (una vez por proyecto)"
-Write-Host "    forja planear `"lo que quieres hacer`""
-Write-Host ""
-Write-Host "Por debajo corre dentro de WSL2/$distro; forja entra solo a la carpeta en la que"
-Write-Host "estas. Si pasas rutas como argumento, usa el estilo /mnt/c/... en vez de C:\..."
+wsl -d $distro -- forja

@@ -77,12 +77,21 @@ if ($PSScriptRoot) {
 if ($repoRoot) {
   $wslRepoPath = ConvertTo-WslPath $repoRoot
   Write-Host "  usando la copia local ya clonada ($repoRoot) en vez de bajarla de internet"
+  # Si Git en Windows convirtio instalar.sh a CRLF al clonar (core.autocrlf=true, comun),
+  # bash lo rompe con errores confusos ("set: pipefail: invalid option name": el \r queda
+  # pegado al final de la opcion). No dependemos de que el checkout del usuario este bien:
+  # se normaliza a LF en una copia aparte antes de correrlo, cada vez.
+  $localScript = Join-Path $repoRoot 'scripts\instalar.sh'
+  $normalizedScript = Join-Path $env:TEMP 'forja-instalar-normalizado.sh'
+  $scriptText = (Get-Content -Raw -Path $localScript) -replace "`r`n", "`n" -replace "`r", "`n"
+  [System.IO.File]::WriteAllText($normalizedScript, $scriptText)
+  $wslNormalizedScript = ConvertTo-WslPath $normalizedScript
   # Nada de un string con comillas incrustadas para "bash -lc": WSL vuelve a comerse cosas
   # al reconstruir la linea de comandos con comillas anidadas (mismo tipo de bug que con
   # las barras invertidas). Argumentos sueltos, sin comillas que pasar por el medio.
   # bash -l (no -c): sigue actuando como shell de login (carga el PATH que nvm agrego a
   # los dotfiles) pero corriendo el script como archivo, sin envolverlo en un string.
-  wsl -d $distro -- env "FORJA_SOURCE=$wslRepoPath" bash -l "$wslRepoPath/scripts/instalar.sh"
+  wsl -d $distro -- env "FORJA_SOURCE=$wslRepoPath" bash -l $wslNormalizedScript
 } else {
   # "curl ... | bash" no basta: si curl falla (p. ej. 404), bash recibe stdin vacio y sale
   # con exito igual, tapando el error. Bajar a un archivo primero y correrlo aparte.

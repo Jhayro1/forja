@@ -1,0 +1,5 @@
+# Scripts de shell corren en Linux/WSL: si Git en Windows los convierte a CRLF al
+# clonar (core.autocrlf=true, muy común), bash los rompe con errores confusos
+# ("invalid option name" en pipefail, por el \r pegado al final de la línea).
+*.sh text eol=lf
+*.ps1 text eol=crlf

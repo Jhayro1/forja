@@ -56,6 +56,18 @@ Write-Host "- instalando Forja dentro de $distro (clona, compila e instala)..."
 # .\scripts\instalar.ps1 desde ahi), reusamos esa copia como fuente en vez de bajarla de
 # internet: mas rapido y no depende de que el repo sea publico. Si corrio via "irm | iex"
 # no hay copia local, y ahi si hace falta bajarla de GitHub.
+function ConvertTo-WslPath($winPath) {
+  # No usamos "wsl -- wslpath ...": WSL tiene un bug conocido donde las barras
+  # invertidas de un argumento pasado despues de "--" se comen solas (una ruta como
+  # C:\Users\x llega como CUsersx). Traducimos nosotros mismos: mismo mapeo que usa
+  # WSL2 por defecto (drvfs en /mnt/<letra minuscula>).
+  $full = (Resolve-Path $winPath).Path
+  if ($full -notmatch '^([A-Za-z]):\\(.*)$') { throw "no se pudo traducir la ruta '$full' a una ruta de WSL (formato inesperado)." }
+  $drive = $Matches[1].ToLower()
+  $rest = $Matches[2] -replace '\\', '/'
+  return "/mnt/$drive/$rest"
+}
+
 $repoRoot = $null
 if ($PSScriptRoot) {
   $candidate = Split-Path -Parent $PSScriptRoot
@@ -63,8 +75,7 @@ if ($PSScriptRoot) {
 }
 
 if ($repoRoot) {
-  $wslRepoPath = (wsl -d $distro -- wslpath -u $repoRoot).Trim()
-  if ($LASTEXITCODE -ne 0 -or -not $wslRepoPath) { throw "no se pudo traducir la ruta '$repoRoot' a una ruta de WSL." }
+  $wslRepoPath = ConvertTo-WslPath $repoRoot
   Write-Host "  usando la copia local ya clonada ($repoRoot) en vez de bajarla de internet"
   wsl -d $distro -- bash -lc "FORJA_SOURCE=`"$wslRepoPath`" bash `"$wslRepoPath/scripts/instalar.sh`""
 } else {

@@ -11,6 +11,11 @@
 #   FORJA_REF        rama o etiqueta a instalar (por defecto main)
 #   FORJA_SOURCE     de donde clonar (URL git o ruta local); por defecto GitHub.
 #
+# Con --sistema solo hace la parte que necesita root (paquetes y el lanzador global) y
+# sale: instalar.ps1 la corre con `wsl -u root`, que no pide contrasena, para que la parte
+# de usuario ya no tenga nada que pedirle a sudo. En Linux, sin --sistema, lo que falte se
+# pide con sudo una sola vez; si ya esta todo, no se vuelve a pedir.
+#
 # Solo ASCII en los mensajes: la salida puede terminar en una consola de Windows que no
 # la muestra como UTF-8.
 set -euo pipefail
@@ -20,16 +25,45 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 
 [[ "$(uname -s)" == "Linux" ]] || fail "Forja solo corre en Linux (o Windows con WSL2)."
 
-# --- Paquetes del sistema -------------------------------------------------------------
+# --- Lo que necesita root ---------------------------------------------------------------
+as_root() { if ((EUID == 0)); then "$@"; else sudo "$@"; fi; }
+
+# /usr/local/bin/forja es un lanzador fijo (no depende de donde quedo Node), asi que se
+# escribe una vez y las reinstalaciones no lo tocan. El real, con la ruta de Node, vive en
+# ~/.local/bin/forja y lo escribe la parte de usuario, sin sudo. Hace falta porque
+# `wsl -- forja` (el forja.cmd de Windows) no carga .bashrc, y ~/.local/bin solo entra al
+# PATH en un shell de login.
+GLOBAL_LAUNCHER=/usr/local/bin/forja
+launcher_body() {
+  printf '%s\n' '#!/bin/sh' \
+    '# Lanzador de Forja: el de cada usuario esta en ~/.local/bin/forja (lo deja el instalador).' \
+    '[ -x "$HOME/.local/bin/forja" ] || { echo "Forja no esta instalado para $(id -un): corre el instalador." >&2; exit 1; }' \
+    'exec "$HOME/.local/bin/forja" "$@"'
+}
+launcher_ok() { [[ -f "$GLOBAL_LAUNCHER" ]] && [[ "$(cat "$GLOBAL_LAUNCHER")" == "$(launcher_body)" ]]; }
+# Solo se reemplaza un script de shell (este lanzador o el de versiones anteriores), nunca
+# el forja que deja `npm install -g` si Node es del sistema.
+launcher_replaceable() { [[ ! -e "$GLOBAL_LAUNCHER" ]] || [[ "$(head -n1 "$GLOBAL_LAUNCHER")" == '#!/bin/sh' ]]; }
+
 missing=()
 command -v git >/dev/null || missing+=(git)
 command -v bwrap >/dev/null || missing+=(bubblewrap)
 command -v curl >/dev/null || missing+=(curl)
 if ((${#missing[@]})); then
   command -v apt-get >/dev/null || fail "faltan ${missing[*]} y esta distro no usa apt: instalalos a mano y vuelve a correr esto."
-  log "instalando ${missing[*]} (te puede pedir tu contrasena de Linux)"
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq "${missing[@]}"
+  ((EUID == 0)) || log "instalando ${missing[*]} (te pide tu contrasena de Linux una sola vez)"
+  as_root apt-get update -qq
+  as_root apt-get install -y -qq "${missing[@]}"
+fi
+if ! launcher_ok && launcher_replaceable; then
+  ((EUID == 0)) || log "dejando el lanzador /usr/local/bin/forja (te pide tu contrasena de Linux una sola vez)"
+  launcher_body | as_root tee "$GLOBAL_LAUNCHER" >/dev/null
+  as_root chmod 755 "$GLOBAL_LAUNCHER"
+fi
+
+if [[ "${1:-}" == --sistema ]]; then
+  echo "OK: paquetes del sistema y lanzador listos."
+  exit 0
 fi
 
 # --- Node >= 22.13 ---------------------------------------------------------------------
@@ -90,14 +124,13 @@ rm -f "$REPO_DIR/$TARBALL"
 
 # --- forja visible fuera de un shell interactivo ----------------------------------------
 # Con Node de nvm, `forja` queda en un directorio que solo entra al PATH desde .bashrc.
-# El forja.cmd de Windows (y cualquier `wsl -- forja`) no pasa por ahi, asi que se deja
-# un lanzador en /usr/local/bin que antepone ese directorio al PATH (claude/codex
-# instalados con el mismo npm tambien quedan visibles para Forja).
+# Este lanzador antepone ese directorio al PATH (claude/codex instalados con el mismo npm
+# tambien quedan visibles para Forja); /usr/local/bin/forja delega en el.
 NODE_BIN="$(dirname "$(command -v node)")"
 if [[ "$NODE_BIN" != /usr/bin && "$NODE_BIN" != /usr/local/bin ]]; then
-  log "dejando un lanzador en /usr/local/bin/forja (te puede pedir tu contrasena de Linux)"
-  printf '#!/bin/sh\nexport PATH="%s:$PATH"\nexec "%s/forja" "$@"\n' "$NODE_BIN" "$NODE_BIN" | sudo tee /usr/local/bin/forja >/dev/null
-  sudo chmod 755 /usr/local/bin/forja
+  mkdir -p "$HOME/.local/bin"
+  printf '#!/bin/sh\nexport PATH="%s:$PATH"\nexec "%s/forja" "$@"\n' "$NODE_BIN" "$NODE_BIN" >"$HOME/.local/bin/forja"
+  chmod 755 "$HOME/.local/bin/forja"
 fi
 
 # --- Claude Code: el agente que Forja lanza ---------------------------------------------

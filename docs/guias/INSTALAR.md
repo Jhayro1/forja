@@ -52,13 +52,18 @@ escribir `forja ...` directo en PowerShell aunque por debajo siga siendo Linux:
 irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.ps1 | iex
 ```
 
-Instala lo que falte (Node, Forja, Claude Code; te pide tu contraseña de Linux e iniciar
-sesión en Claude), crea un acceso directo **Forja** en tu escritorio y abre el panel en tu
-navegador. La próxima vez, doble clic en ese acceso directo (o escribe `forja`).
+Instala lo que falte (Node, Forja, Claude Code; sólo te pide iniciar sesión en Claude),
+crea un acceso directo **Forja** en tu escritorio y abre el panel en tu navegador. La próxima
+vez, doble clic en ese acceso directo (o escribe `forja`).
 
-Si es la primera vez que activas WSL en esa máquina, Windows puede pedirte reiniciar; cuando
-reinicies, abre la app **Ubuntu** una vez para crear tu usuario y contraseña de Linux, y
-vuelve a correr el mismo comando — retoma solo desde ahí.
+No te pide la contraseña de Linux: lo que necesita root (paquetes del sistema y el lanzador
+`/usr/local/bin/forja`) se hace con `wsl -u root`, que Windows permite a tu propia sesión sin
+contraseña, y lo demás corre como tu usuario. Si no tenías Ubuntu, la instala y te crea el
+usuario de Linux con tu nombre de Windows, sin contraseña. Si alguna vez necesitas root dentro
+de esa Ubuntu, usa `wsl -u root` desde PowerShell en vez de `sudo`.
+
+Si es la primera vez que activas WSL en esa máquina, Windows puede pedirte reiniciar; reinicia
+y vuelve a correr el mismo comando — retoma solo desde ahí.
 
 Revisa el script antes si prefieres: [`scripts/instalar.ps1`](../../scripts/instalar.ps1).
 

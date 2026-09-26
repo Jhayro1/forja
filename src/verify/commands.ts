@@ -7,6 +7,7 @@ import type { CommandRecipe } from '../registry/config.js';
 import { DEFAULT_RUNNER_SCRIPT, launchDir, readSpool, spawnRunner, waitForLaunch, writeOrder } from '../runtime/launcher.js';
 import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds } from '../runtime/sandbox.js';
+import { activeSandboxMode } from '../runtime/sandbox-mode.js';
 import { buildAgentEnv } from '../security/env.js';
 
 export type CommandRun = { ok: boolean; exitCode: number | null; status: string; output: string; launchId: string; durationMs: number };
@@ -48,7 +49,7 @@ export async function runCommand(ctx: CommandContext, cwd: string, recipe: Comma
     cwd: 'cwd' in recipe && recipe.cwd && recipe.cwd !== '.' ? join(cwd, recipe.cwd) : cwd,
     sandbox: ctx.sandbox
       ? {
-          mode: 'bwrap',
+          mode: activeSandboxMode(),
           home,
           mounts: [{ src: join(cache, 'npm'), dest: join(home, '.npm'), rw: true }],
           read_only: binaryBinds([exe, process.execPath]),

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { ensureSandboxImage } from '../runtime/docker-sandbox.js';
 
 export type Level = 'ok' | 'aviso' | 'error';
 export type Check = { id: string; title: string; level: Level; detail: string; fix?: string };
@@ -31,19 +32,16 @@ const MIN_NODE = [22, 13] as const;
 export async function runChecks(exec: Exec = realExec, platform: Platform = detectPlatform(), nodeVersion = process.versions.node): Promise<Check[]> {
   const checks: Check[] = [];
 
-  // Platform (D2-19): Linux and Windows through WSL2 in the MVP.
+  // Platform (D2-19, ADR-012): Linux (bwrap), o cualquier SO con Docker (macOS, Windows
+  // nativo, o Linux si bwrap no sirve). Windows también sigue funcionando vía WSL2.
   if (platform.os === 'linux') {
     checks.push({ id: 'plataforma', title: 'Plataforma', level: 'ok', detail: platform.wsl ? 'Linux en WSL2 (Windows)' : 'Linux' });
   } else if (platform.os === 'win32') {
-    checks.push({
-      id: 'plataforma',
-      title: 'Plataforma',
-      level: 'error',
-      detail: 'Windows nativo todavía no está soportado',
-      fix: 'Instala WSL2 (wsl --install) y usa Forja dentro de la terminal de Ubuntu',
-    });
+    checks.push({ id: 'plataforma', title: 'Plataforma', level: 'ok', detail: 'Windows nativo (aislamiento vía Docker; alternativa: WSL2)' });
+  } else if (platform.os === 'darwin') {
+    checks.push({ id: 'plataforma', title: 'Plataforma', level: 'ok', detail: 'macOS (aislamiento vía Docker)' });
   } else {
-    checks.push({ id: 'plataforma', title: 'Plataforma', level: 'error', detail: `${platform.os} todavía no está soportado`, fix: 'Por ahora: Linux o Windows con WSL2' });
+    checks.push({ id: 'plataforma', title: 'Plataforma', level: 'error', detail: `${platform.os} todavía no está soportado`, fix: 'Por ahora: Linux, macOS o Windows, con Docker instalado' });
   }
 
   const [major = 0, minor = 0] = nodeVersion.split('.').map(Number);
@@ -62,20 +60,13 @@ export async function runChecks(exec: Exec = realExec, platform: Platform = dete
   checks.push(await checkClaude(exec));
   checks.push(await checkCodex(exec));
 
+  let sandboxOk = false;
   if (platform.os === 'linux') {
     const bwrap = await exec('bwrap', ['--version']);
-    checks.push(
-      bwrap.code === 0
-        ? { id: 'sandbox', title: 'Sandbox (bubblewrap)', level: 'ok', detail: bwrap.stdout.trim() }
-        : {
-            id: 'sandbox',
-            title: 'Sandbox (bubblewrap)',
-            level: 'error',
-            detail: 'no instalado: los agentes no pueden ejecutarse aislados',
-            fix: 'sudo apt install bubblewrap',
-          },
-    );
+    sandboxOk = bwrap.code === 0;
+    if (sandboxOk) checks.push({ id: 'sandbox', title: 'Sandbox (bubblewrap)', level: 'ok', detail: bwrap.stdout.trim() });
   }
+  if (!sandboxOk) checks.push(await checkDockerSandbox(exec, platform.os === 'linux'));
   return checks;
 }
 
@@ -114,6 +105,31 @@ async function checkCodex(exec: Exec): Promise<Check> {
     return { id: 'codex', title: 'Codex', level: 'aviso', detail: `${v} · sin sesión`, fix: 'Ejecuta: codex login' };
   }
   return { id: 'codex', title: 'Codex', level: 'ok', detail: `${v} · ${text.split('\n')[0]}` };
+}
+
+/** Docker sandbox (ADR-012): fallback for macOS, Windows nativo, o Linux sin bwrap usable. */
+async function checkDockerSandbox(exec: Exec, bwrapFailedOnLinux: boolean): Promise<Check> {
+  const info = await exec('docker', ['info', '--format', '{{.ServerVersion}}']);
+  if (info.code !== 0) {
+    return {
+      id: 'sandbox',
+      title: 'Sandbox (Docker)',
+      level: 'error',
+      detail: bwrapFailedOnLinux ? 'bubblewrap no funciona y Docker tampoco está disponible: los agentes no pueden ejecutarse aislados' : 'Docker no está instalado o el daemon no responde',
+      fix: 'Instala Docker Desktop (macOS/Windows) o el paquete docker de tu distro (Linux), y asegúrate de que esté corriendo',
+    };
+  }
+  const image = await ensureSandboxImage(exec);
+  if (!image.ok) {
+    return {
+      id: 'sandbox',
+      title: 'Sandbox (Docker)',
+      level: 'error',
+      detail: `no se pudo preparar la imagen del sandbox: ${image.detail}`,
+      fix: 'Revisa que docker pueda construir imágenes (docker build) y que tengas salida de red',
+    };
+  }
+  return { id: 'sandbox', title: 'Sandbox (Docker)', level: 'ok', detail: `Docker ${info.stdout.trim()} · imagen ${image.detail}` };
 }
 
 /** At least one provider with a session is required to work; both is the goal (D2-18). */

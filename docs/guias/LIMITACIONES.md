@@ -2,7 +2,7 @@
 
 Se publican para que decidas con información (v2/11 · M4). Se actualizan en cada versión.
 
-- **Sólo Linux.** El sandbox depende de bubblewrap. En macOS no hay aislamiento equivalente todavía: hay un prototipo con Seatbelt sin probar ni conectar ([ADR-010](../decisiones/ADR-010-aislamiento-macos.md)).
+- **Instalable sólo en Linux** (`package.json` lo bloquea a propósito). El sandbox principal es bubblewrap. Si bwrap no funciona en tu máquina Linux (por ejemplo, AppArmor bloqueando *user namespaces* en Ubuntu 24.04+), Docker es un segundo backend **real y probado** (`forja doctor` lo detecta solo): ver [ADR-012](../decisiones/ADR-012-aislamiento-docker.md). En macOS no hay aislamiento equivalente todavía: hay un prototipo con Seatbelt sin probar ni conectar ([ADR-010](../decisiones/ADR-010-aislamiento-macos.md)). En Windows nativo (fuera de WSL2) tampoco: ni el prototipo de AppContainer + Job Object ([ADR-011](../decisiones/ADR-011-aislamiento-windows.md)) ni Docker están conectados de verdad ahí — un binario de Windows/macOS no corre dentro de un contenedor Docker (siempre Linux por dentro), así que el backend de Docker sólo sirve hoy en hosts Linux. La única vía soportada para Windows sigue siendo WSL2.
 - **Pensado para TypeScript/JavaScript.** Otros stacks funcionan si el perfil del plan define sus
   comandos, pero la detección y la verificación están probadas sobre TS/JS.
 - **Estimaciones sin calibrar** hasta correr `forja piloto` con runs reales en tu proyecto.

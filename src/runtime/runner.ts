@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentIdentity, LockFile } from '../registry/lock.js';
 import { Redactor } from '../security/redact.js';
+import { dockerArgs } from './docker-sandbox.js';
 import { AllowlistProxy, hostMatcher } from './netproxy.js';
 import { FILES, LaunchOrder, type LaunchResult, type SpoolRecord } from './order.js';
 import { bwrapArgs, SANDBOX_HELPER_DIR, SANDBOX_PROXY_SOCKET } from './sandbox.js';
@@ -119,7 +120,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
   try {
     let file: string;
     let args: string[];
-    if (order.sandbox.mode === 'bwrap') {
+    if (order.sandbox.mode === 'bwrap' || order.sandbox.mode === 'docker') {
       const net = order.sandbox.network_hosts;
       let proxySocket: string | undefined;
       if (net !== null) {
@@ -152,14 +153,22 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
         helperDir: HELPER_DIR,
         ...(proxySocket ? { proxySocket } : {}),
       };
-      file = 'bwrap';
-      args = [...bwrapArgs(spec), '--clearenv', ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), '--', ...inner];
+      if (order.sandbox.mode === 'bwrap') {
+        file = 'bwrap';
+        args = [...bwrapArgs(spec), '--clearenv', ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), '--', ...inner];
+      } else {
+        file = 'docker';
+        args = [...dockerArgs(spec, env), ...inner];
+      }
     } else {
       [file, ...args] = order.argv as [string, ...string[]];
     }
+    // bwrap/docker are themselves host processes: they need the host's PATH (and, for
+    // docker, HOME to find its client config) to be found and run at all. Everything the
+    // *sandboxed* process gets was already set with --setenv/-e above, from `order.env`.
     child = spawn(file, args, {
       cwd: order.cwd,
-      env: order.sandbox.mode === 'bwrap' ? { PATH: process.env.PATH ?? '/usr/bin:/bin' } : order.env,
+      env: order.sandbox.mode === 'ninguno' ? order.env : { PATH: process.env.PATH ?? '/usr/bin:/bin', ...(order.sandbox.mode === 'docker' ? { HOME: process.env.HOME ?? '/root' } : {}) },
       stdio: [order.stdin_text !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
   } catch (error) {

@@ -17,6 +17,12 @@ const ALL_OK = {
   'bwrap --version': { code: 0, stdout: 'bubblewrap 0.9.0' },
 };
 const LINUX = { os: 'linux' as const, wsl: false };
+const DOCKER_OK = {
+  ...ALL_OK,
+  'bwrap --version': { code: 127 },
+  'docker info --format {{.ServerVersion}}': { code: 0, stdout: '27.3.1' },
+  'docker image inspect forja-sandbox:latest': { code: 0 },
+};
 
 describe('doctor', () => {
   it('todo listo con los dos proveedores', async () => {
@@ -41,14 +47,29 @@ describe('doctor', () => {
     expect(overall(await runChecks(exec, LINUX, '24.18.0'))).toBe('error');
   });
 
-  it('Windows nativo indica usar WSL2', async () => {
-    const checks = await runChecks(fakeExec(ALL_OK), { os: 'win32', wsl: false }, '24.18.0');
-    expect(checks[0]).toMatchObject({ level: 'error', fix: expect.stringContaining('WSL2') });
+  it('Windows nativo se soporta vía Docker (o WSL2)', async () => {
+    const checks = await runChecks(fakeExec(DOCKER_OK), { os: 'win32', wsl: false }, '24.18.0');
+    expect(checks[0]).toMatchObject({ level: 'ok', detail: expect.stringContaining('Docker') });
   });
 
-  it('sin bubblewrap no hay sandbox', async () => {
-    const checks = await runChecks(fakeExec({ ...ALL_OK, 'bwrap --version': { code: 127 } }), LINUX, '24.18.0');
-    expect(checks.find((c) => c.id === 'sandbox')?.level).toBe('error');
+  it('macOS se soporta vía Docker', async () => {
+    const checks = await runChecks(fakeExec(DOCKER_OK), { os: 'darwin', wsl: false }, '24.18.0');
+    expect(checks[0]).toMatchObject({ level: 'ok', detail: expect.stringContaining('Docker') });
+    expect(checks.find((c) => c.id === 'sandbox')).toMatchObject({ level: 'ok', title: 'Sandbox (Docker)' });
+  });
+
+  it('sin bubblewrap cae a Docker; si Docker también falla, error', async () => {
+    const conDocker = await runChecks(fakeExec(DOCKER_OK), LINUX, '24.18.0');
+    expect(conDocker.find((c) => c.id === 'sandbox')).toMatchObject({ level: 'ok', title: 'Sandbox (Docker)' });
+
+    const sinNada = await runChecks(fakeExec({ ...ALL_OK, 'bwrap --version': { code: 127 } }), LINUX, '24.18.0');
+    expect(sinNada.find((c) => c.id === 'sandbox')?.level).toBe('error');
+  });
+
+  it('Docker instalado pero sin poder construir la imagen es un error', async () => {
+    // La imagen no existe y el build (comando no cubierto por el fake -> code 127) falla.
+    const checks = await runChecks(fakeExec({ ...DOCKER_OK, 'docker image inspect forja-sandbox:latest': { code: 1 } }), LINUX, '24.18.0');
+    expect(checks.find((c) => c.id === 'sandbox')).toMatchObject({ level: 'error', detail: expect.stringContaining('no se pudo preparar la imagen') });
   });
 
   it('Node viejo es un error', async () => {

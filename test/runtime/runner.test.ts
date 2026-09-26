@@ -9,6 +9,7 @@ import type { LaunchOrder } from '../../src/runtime/order.js';
 const ROOT = resolve(import.meta.dirname, '../..');
 const RUNNER = join(ROOT, 'dist/runtime/runner-main.js');
 const HAS_BWRAP = spawnSync('bwrap', ['--ro-bind', '/', '/', 'true']).status === 0;
+const HAS_DOCKER = spawnSync('docker', ['image', 'inspect', 'forja-sandbox:latest']).status === 0;
 
 let base: string;
 beforeAll(() => {
@@ -167,5 +168,57 @@ describe.skipIf(!HAS_BWRAP)('runner con bwrap', () => {
       { tipo: 'red', host: 'permitido.invalid', puerto: 443, permitido: true },
       { tipo: 'red', host: 'example.com', puerto: 443, permitido: false },
     ]);
+  });
+});
+
+describe.skipIf(!HAS_DOCKER)('runner con docker (ADR-012-aislamiento-docker.md)', () => {
+  const nodeRoot = join(process.execPath, '..', '..');
+
+  it('dentro del contenedor: no ve el HOME real, no escribe fuera del workspace/tmpfs, sin red', async () => {
+    const outside = '/etc/forja-prueba-docker-no-deberia-existir';
+    const script = `ls -A "$HOME" | wc -l; (echo x > ${outside}) 2>/dev/null && echo escribio || echo no_escribio; (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && echo con_red || echo sin_red`;
+    const { dir, order: o } = order({
+      argv: ['bash', '-c', script],
+      // network_hosts: [] (not null) still stands up the proxy+bridge, which re-execs node.
+      sandbox: { mode: 'docker', home: '/tmp/casa-falsa', mounts: [], read_only: [nodeRoot], network_hosts: [], workspace_read_only: false },
+    });
+    writeOrder(dir, o);
+    spawnRunner(dir, RUNNER);
+    const status = await waitForLaunch(dir, 30_000);
+    expect(status.state === 'terminado' && status.result.status, JSON.stringify(readSpool(dir))).toBe('terminado');
+    const lines = readSpool(dir)
+      .filter((r) => r.stream === 'stdout')
+      .map((r) => r.line.trim());
+    expect(lines).toEqual(['0', 'no_escribio', 'sin_red']);
+    expect(existsSync(outside)).toBe(false);
+  });
+
+  it('el proxy deja pasar sólo los hosts permitidos, igual que con bwrap', async () => {
+    const js = `const net=require('net');function t(h){return new Promise(r=>{const s=net.connect(18080,'127.0.0.1',()=>s.write('CONNECT '+h+':443 HTTP/1.1\\r\\nHost: '+h+'\\r\\n\\r\\n'));s.once('data',d=>{r(d.toString().split('\\r\\n')[0]);s.destroy()});s.on('error',e=>r('error '+e.message));s.on('close',()=>r('cerrado'))})}(async()=>{console.log(await t('permitido.invalid'));console.log(await t('example.com'))})()`;
+    const { dir, order: o } = order({
+      argv: [process.execPath, '-e', js],
+      sandbox: { mode: 'docker', home: '/tmp/casa-falsa', mounts: [], read_only: [nodeRoot], network_hosts: ['permitido.invalid'], workspace_read_only: false },
+    });
+    writeOrder(dir, o);
+    spawnRunner(dir, RUNNER);
+    const status = await waitForLaunch(dir, 30_000);
+    expect(status.state === 'terminado' && status.result.status, JSON.stringify(readSpool(dir))).toBe('terminado');
+    const spool = readSpool(dir);
+    const out = spool.filter((r) => r.stream === 'stdout').map((r) => r.line);
+    expect(out).toEqual(['HTTP/1.1 502 Bad Gateway', 'HTTP/1.1 403 Forbidden']);
+  });
+
+  it('el workspace de sólo lectura no se puede escribir', async () => {
+    const { dir, order: o } = order({
+      argv: ['sh', '-c', '(echo x > archivo.txt) 2>/dev/null && echo escribio || echo no_escribio'],
+      sandbox: { mode: 'docker', home: '/tmp/casa-falsa', mounts: [], read_only: [], network_hosts: null, workspace_read_only: true },
+    });
+    writeOrder(dir, o);
+    spawnRunner(dir, RUNNER);
+    await waitForLaunch(dir, 30_000);
+    const lines = readSpool(dir)
+      .filter((r) => r.stream === 'stdout')
+      .map((r) => r.line.trim());
+    expect(lines).toEqual(['no_escribio']);
   });
 });

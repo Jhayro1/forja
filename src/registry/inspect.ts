@@ -54,9 +54,38 @@ const EXT_LANG: Record<string, string> = {
  * Static inspection only: reads files and git metadata. Never runs install scripts,
  * hooks, MCP servers or detected commands.
  */
+/**
+ * Git refuses a repository whose files belong to another user ("dubious ownership").
+ * Common on WSL with Windows folders under /mnt/c. The user decides whether to trust it.
+ */
+export class UntrustedRepoError extends Error {
+  constructor(readonly root: string) {
+    super(
+      `Git no confía en ${root}: sus archivos tienen otro dueño (pasa con carpetas de Windows vistas desde WSL). Si es tu proyecto, márcala como confiable (git config --global --add safe.directory "${root}").`,
+    );
+  }
+}
+
+/** Marks one repository as trusted in the user's git config, as git itself suggests. */
+export async function trustRepo(root: string): Promise<void> {
+  // Run from `/`: inside the repo git would refuse to start before reading the setting.
+  const current = await git('/', ['config', '--global', '--get-all', 'safe.directory'], { allowFail: true });
+  if (current.stdout.split('\n').includes(root)) return;
+  await git('/', ['config', '--global', '--add', 'safe.directory', root]);
+}
+
 export async function inspectRepo(path: string): Promise<RepoInspection> {
   const top = await git(path, ['rev-parse', '--show-toplevel'], { allowFail: true });
-  if (top.code !== 0) throw new Error(`${path} no es un repositorio git`);
+  if (top.code !== 0) {
+    const dubious = /dubious ownership in repository at '([^']+)'/.exec(top.stderr);
+    if (dubious) throw new UntrustedRepoError(dubious[1]!);
+    const why =
+      top.stderr
+        .trim()
+        .split('\n')[0]
+        ?.replace(/^fatal:\s*/, '') ?? '';
+    throw new Error(`${path} no es un repositorio git${why && !/not a git repository/i.test(why) ? ` (git: ${why})` : ''}`);
+  }
   const root = top.stdout.trim();
   const head = await git(root, ['rev-parse', '--verify', '-q', 'HEAD'], { allowFail: true });
   const branch = await git(root, ['symbolic-ref', '--short', '-q', 'HEAD'], { allowFail: true });

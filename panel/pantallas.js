@@ -350,8 +350,17 @@ async function loadProyectos() {
 
 async function importFolder(ruta) {
   if (!ruta.trim()) return toast('Pega la ruta de la carpeta de tu proyecto');
-  const r = await mutate('POST', '/v1/proyectos/importar', { ruta });
+  let r = await mutate('POST', '/v1/proyectos/importar', { ruta });
   if (!r) return;
+  if (r.requiere_confianza) {
+    const where = r.ruta_windows || r.ruta;
+    const ok = confirm(
+      `Git no confía en esta carpeta porque sus archivos tienen otro dueño (es normal con carpetas de Windows abiertas desde WSL):\n\n${where}\n\n¿Es tu proyecto y confías en ella? Forja la marca como confiable para git (safe.directory) y sigue.`,
+    );
+    if (!ok) return;
+    r = await mutate('POST', '/v1/proyectos/importar', { ruta, confiar: true });
+    if (!r || r.requiere_confianza) return;
+  }
   state.browse = null;
   state.importPath = '';
   if (r.bloqueos?.length) toast(`Importado, pero: ${r.bloqueos.join(' · ')}`, 10000);

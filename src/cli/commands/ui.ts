@@ -106,7 +106,8 @@ export function registerUiCommands(program: Command): void {
     .option('--boveda', 'abre la bóveda para ejecutar acciones aprobadas desde el panel (se cierra sola por inactividad)')
     .option('--boveda-minutos <n>', 'minutos sin uso tras los que se cierra la bóveda', (v) => Number.parseInt(v, 10), 15)
     .option('--sin-navegador', 'no abre el navegador (sólo muestra el enlace)')
-    .action(async (opts: { puerto?: number; boveda?: boolean; bovedaMinutos: number; sinNavegador?: boolean }) => {
+    .option('--salir-sin-entrada', 'termina cuando se cierra la entrada estándar (así lo usa la app de escritorio: si la app se cierra, el panel también)')
+    .action(async (opts: { puerto?: number; boveda?: boolean; bovedaMinutos: number; sinNavegador?: boolean; salirSinEntrada?: boolean }) => {
       if (opts.puerto !== undefined && (!Number.isInteger(opts.puerto) || opts.puerto < 1 || opts.puerto > 65535)) throw new CliError('--puerto debe estar entre 1 y 65535');
       if (!Number.isInteger(opts.bovedaMinutos) || opts.bovedaMinutos < 1 || opts.bovedaMinutos > 240) throw new CliError('--boveda-minutos debe estar entre 1 y 240');
       let vault: Vault | null = null;
@@ -134,6 +135,7 @@ export function registerUiCommands(program: Command): void {
         await new Promise<void>((resolve) => {
           process.once('SIGINT', resolve);
           process.once('SIGTERM', resolve);
+          if (opts.salirSinEntrada) rl.once('close', resolve);
         });
         rl.close();
         print('\nPanel cerrado.');

@@ -3,10 +3,13 @@ import { dirname, join } from 'node:path';
 import { type Document, parse, parseDocument, stringify } from 'yaml';
 import { z } from 'zod';
 import { hashJson } from '../domain/hash.js';
+import { EFFORTS } from '../providers/catalog.js';
 
 export const CONFIG_FILE = 'forja.yaml';
 
-const ModelRef = z.string().regex(/^(claude|codex|simulado):[A-Za-z0-9._-]+$/, 'formato proveedor:modelo, p. ej. claude:haiku');
+/** `[1m]` is Claude Code's suffix for the 1M context window (e.g. `claude:sonnet[1m]`). */
+const ModelRef = z.string().regex(/^(claude|codex|simulado):[A-Za-z0-9._-]+(\[1m\])?$/, 'formato proveedor:modelo, p. ej. claude:haiku');
+export const ROLE_NAMES = ['planeador', 'trabajador', 'complejo', 'revisor'] as const;
 
 const CommandRecipe = z
   .object({
@@ -35,6 +38,8 @@ export const ForjaConfig = z
       })
       .strict()
       .prefault({}),
+    /** Reasoning effort per role; each model gets the closest level it accepts (providers/catalog.ts). */
+    esfuerzo: z.partialRecord(z.enum(ROLE_NAMES), z.enum(EFFORTS)).default({}),
     ejecucion: z
       .object({
         paralelo: z.number().int().min(1).max(16).default(3),

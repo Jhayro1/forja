@@ -21,8 +21,11 @@ Funciona de punta a punta: planear → especificar → dividir → aprobar → e
 verificar → integrar → entregar en una rama `forja/entrega/<cambio>` (main nunca se toca).
 Falta la prueba de ejecución con Claude y Codex reales (hasta ahora con agentes simulados).
 
-Windows (PowerShell), un solo comando: instala todo, crea el acceso directo **Forja** en el
-escritorio y abre el panel en tu navegador. Todo corre en tu PC (sólo `127.0.0.1`).
+Windows: instala la **app de escritorio** desde el [último release](https://github.com/Jhayro1/forja/releases/latest)
+(`Forja_x.y.z_x64-setup.exe`). Ella misma prepara WSL e instala todo, sin contraseñas, y abre el
+panel en su ventana ([guía](docs/guias/ESCRITORIO.md)). También sigue valiendo el comando de
+PowerShell, que instala todo en tu Ubuntu y abre el panel en tu navegador. Todo corre en tu PC
+(sólo `127.0.0.1`).
 
 ```powershell
 irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/instalar.ps1 | iex
@@ -33,7 +36,7 @@ forja                                             # abre el panel en el navegado
 npm install && npm run check                      # desarrollo: typecheck + tests (Linux con bubblewrap)
 ```
 
-Guías: [instalar](docs/guias/INSTALAR.md) · [recuperación](docs/guias/RECUPERACION.md) · [seguridad](docs/guias/SEGURIDAD.md) · [limitaciones](docs/guias/LIMITACIONES.md) · [Forja sobre Forja](docs/guias/FORJA-SOBRE-FORJA.md).
+Guías: [instalar](docs/guias/INSTALAR.md) · [app de escritorio](docs/guias/ESCRITORIO.md) · [recuperación](docs/guias/RECUPERACION.md) · [seguridad](docs/guias/SEGURIDAD.md) · [limitaciones](docs/guias/LIMITACIONES.md) · [Forja sobre Forja](docs/guias/FORJA-SOBRE-FORJA.md).
 
 | Paso | Comandos |
 |---|---|
@@ -47,6 +50,7 @@ Guías: [instalar](docs/guias/INSTALAR.md) · [recuperación](docs/guias/RECUPER
 | Observar | `forja tablero`, `estado`, `preguntas`, `tarea T-001`, `logs T-001 -f`, `informe` (todos con `--json`) |
 | Decidir | `forja responder T-001 "…"`, `reintentar T-001 "nota"`; rehacer el plan a mitad: `detener` → `dividir` → `aprobar plan` → `run` |
 | Panel web | `forja` (o `forja ui`): se abre en el navegador; elige proyecto, configura Claude/Codex, conversa con el planeador y ejecuta todo con botones. Sólo 127.0.0.1 |
+| Modelos | `forja modelos`: todos los modelos de Claude y Codex con su esfuerzo de razonamiento; se eligen por rol en el panel o en `forja.yaml` (`roles`, `esfuerzo`) |
 | Modelos | `forja conformidad [proveedor:modelo…]`, `forja conformidad --listar` |
 | Piloto | `forja piloto [--aplicar]`: mide los runs y recomienda N |
 | Secretos | `forja boveda iniciar/guardar/listar/cambiar-clave/verificar/restaurar` |

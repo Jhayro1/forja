@@ -43,25 +43,53 @@ describe('configuración del proyecto desde el panel', () => {
     const read = b.read() as { roles: { rol: string; modelos: string[] }[]; paralelo: number; sugerencias: string[] };
     expect(read.roles.map((r) => r.rol)).toEqual(['planeador', 'trabajador', 'complejo', 'revisor']);
     expect(read.sugerencias).toContain('claude:opus');
-    b.save({ roles: { planeador: ['claude:opus'], trabajador: ['claude:haiku'], complejo: ['claude:sonnet'], revisor: ['claude:sonnet'] }, paralelo: 5 });
+    b.save({
+      roles: { planeador: ['claude:opus[1m]'], trabajador: ['claude:haiku'], complejo: ['claude:sonnet'], revisor: ['claude:sonnet'] },
+      esfuerzo: { planeador: 'max', revisor: 'high' },
+      paralelo: 5,
+    });
     expect(reloads).toBe(1);
     expect(readFileSync(path, 'utf8')).toContain('# mi nota sobre este proyecto');
     const cfg = readConfig(ctx.checkout.path);
+    expect(cfg.roles.planeador).toEqual(['claude:opus[1m]']);
     expect(cfg.roles.revisor).toEqual(['claude:sonnet']);
+    expect(cfg.esfuerzo).toEqual({ planeador: 'max', revisor: 'high' });
     expect(cfg.ejecucion.paralelo).toBe(5);
+    // Sin esfuerzos, la clave desaparece y cada CLI usa su valor por defecto.
+    b.save({ roles: cfg.roles, esfuerzo: {}, paralelo: 5 });
+    expect(readConfig(ctx.checkout.path).esfuerzo).toEqual({});
+    expect(readFileSync(path, 'utf8')).not.toContain('esfuerzo');
+  });
+
+  it('ofrece el catálogo completo con los esfuerzos de cada modelo', () => {
+    const read = new ProjectSettingsBackend(ctx, () => {}).read() as {
+      catalogo: { modelos: { ref: string; esfuerzos: string[]; estado: string }[]; esfuerzos: { id: string }[] };
+      roles: { esfuerzo: string | null }[];
+    };
+    const refs = read.catalogo.modelos.map((m) => m.ref);
+    expect(refs).toEqual(expect.arrayContaining(['claude:opus', 'claude:claude-fable-5-1', 'claude:sonnet[1m]', 'codex:gpt-6-sol', 'codex:gpt-6-astra', 'codex:gpt-6-luna']));
+    expect(read.catalogo.modelos.find((m) => m.ref === 'codex:gpt-6-luna')!.esfuerzos).not.toContain('ultra');
+    expect(read.catalogo.modelos.find((m) => m.ref === 'codex:gpt-5.5')!.estado).toBe('retirandose');
+    expect(read.catalogo.esfuerzos.map((e) => e.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    expect(read.roles.every((r) => r.esfuerzo === null)).toBe(true);
   });
 
   it('rechaza modelos con formato inválido sin tocar el archivo', async () => {
     const path = join(ctx.checkout.path, 'forja.yaml');
     const before = readFileSync(path, 'utf8');
     const b = new ProjectSettingsBackend(ctx, () => {});
-    expect(() => b.save({ roles: { planeador: ['gpt'], trabajador: ['claude:haiku'], complejo: ['claude:sonnet'], revisor: ['claude:sonnet'] }, paralelo: 3 })).toThrow(/proveedor:modelo/);
+    expect(() => b.save({ roles: { planeador: ['gpt'], trabajador: ['claude:haiku'], complejo: ['claude:sonnet'], revisor: ['claude:sonnet'] }, esfuerzo: {}, paralelo: 3 })).toThrow(
+      /proveedor:modelo/,
+    );
     expect(readFileSync(path, 'utf8')).toBe(before);
     // El módulo valida la forma antes de llegar al backend.
     const route = settingsModule(b).routes.find((r) => r.method === 'POST')!;
     const call = (body: object) => route.handler({ body: async () => body } as never);
     await expect(call({ roles: { planeador: [] }, paralelo: 3 })).rejects.toThrow();
     await expect(call({ roles: { planeador: ['a:b'], trabajador: ['a:b'], complejo: ['a:b'], revisor: ['a:b'] }, paralelo: 40 })).rejects.toThrow(/entre 1 y 16/);
+    await expect(call({ roles: { planeador: ['a:b'], trabajador: ['a:b'], complejo: ['a:b'], revisor: ['a:b'] }, esfuerzo: { planeador: 'turbo' }, paralelo: 3 })).rejects.toThrow(
+      /esfuerzo de «planeador»/,
+    );
   });
 });
 

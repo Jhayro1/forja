@@ -6,6 +6,7 @@ import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds, type Mount } from '../runtime/sandbox.js';
 import { activeSandboxMode } from '../runtime/sandbox-mode.js';
 import { buildAgentEnv } from '../security/env.js';
+import type { Effort } from './catalog.js';
 import type { ProviderKind } from './stream.js';
 
 export type ToolProfile = 'lectura' | 'edicion';
@@ -17,6 +18,8 @@ export type LaunchParams = {
   taskId: string;
   attempt: number;
   model: string;
+  /** Reasoning effort already clamped to what the model accepts (providers/catalog.ts). */
+  effort?: Effort;
   prompt: string;
   /** The only writable project directory for the agent. */
   workspace: string;
@@ -157,6 +160,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       'project,local',
       '--disable-slash-commands',
     ];
+    if (p.effort) argv.push('--effort', p.effort);
     if (p.outputSchema) argv.push('--json-schema', JSON.stringify(p.outputSchema));
     if (p.resumeSessionId) argv.push('--resume', p.resumeSessionId);
     return {
@@ -202,6 +206,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (!existsSync(cred)) throw new AdapterError(`no se encontró la sesión de Codex (${cred}); ejecuta «codex login»`);
     const sandbox = p.tools === 'edicion' ? 'workspace-write' : 'read-only';
     const flags = ['--json', '--ignore-user-config', '--skip-git-repo-check', '-m', p.model];
+    if (p.effort) flags.push('-c', `model_reasoning_effort="${p.effort}"`);
     if (p.mcpSocket) {
       const gw = gatewayServer();
       flags.push('-c', `mcp_servers.forja.command=${JSON.stringify(gw.command)}`, '-c', `mcp_servers.forja.args=${JSON.stringify(gw.args)}`);

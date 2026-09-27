@@ -5,3 +5,5 @@ coverage/
 *.log
 .env
 .env.*
+desktop/distro/salida/
+panel/dist-escritorio/

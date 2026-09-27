@@ -7,6 +7,7 @@ import { registerActionCommands } from './commands/actions.js';
 import { registerConformanceCommands } from './commands/conformance.js';
 import { registerMcpCommands } from './commands/mcp.js';
 import { registerMemoryCommands } from './commands/memory.js';
+import { registerModelCommands } from './commands/models.js';
 import { registerNotificationCommands } from './commands/notify.js';
 import { registerOpsCommands } from './commands/ops.js';
 import { registerPilotCommands } from './commands/pilot.js';
@@ -72,6 +73,7 @@ registerVaultCommands(program);
 registerActionCommands(program);
 registerMcpCommands(program);
 registerMemoryCommands(program);
+registerModelCommands(program);
 
 // `forja` alone opens the panel in the browser (the simple way in); in a pipe or a
 // script it keeps showing the help, as before.

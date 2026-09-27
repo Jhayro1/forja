@@ -114,3 +114,19 @@ sólo se pueden hacer con tus sesiones de Claude y Codex:
 | 8.1 | ✅ | **Carrera en `LockFile.acquire`**: el bloqueo se creaba vacío (`open wx`) y se escribía después. Otro proceso que lo leía en medio no podía parsearlo, lo tomaba por abandonado, lo borraba y se quedaba con él, así que corrían dos runners del mismo lanzamiento. Aparecía como falla intermitente de `runner.test` con la suite completa. — **Hecho:** el bloqueo se escribe entero en un archivo privado y se publica con `link(2)`, que falla si ya existe. `test/registry/lock.test.ts` lanza 12 procesos sincronizados al mismo milisegundo: con el código anterior fallaba 5 de 5 veces y ahora pasa 5 de 5. |
 | 8.2 | P3 | Tomar un bloqueo abandonado (su dueño murió) todavía tiene una carrera si dos procesos lo detectan a la vez: los dos borran y uno se queda con el bloqueo del otro. Requiere un dueño muerto y dos procesos simultáneos. Solución posible: renombrar el bloqueo viejo a un nombre único antes de borrarlo y comprobar que era el mismo. |
 | 8.3 | P3 | Los lotes de integración esperan a las tareas que se están verificando, pero no a las que todavía se ejecutan. Con tareas de duración muy distinta, la mayoría de lotes serán de 1. Medirlo con `forja piloto` antes de ampliar la ventana. |
+
+## 9. Panel, modelos y app de escritorio (septiembre de 2026)
+
+Panel con React y shadcn/ui ([ADR-013](docs/decisiones/ADR-013-panel-shadcn.md)), app de
+escritorio para Windows ([ADR-014](docs/decisiones/ADR-014-app-escritorio.md)) y catálogo de
+modelos con esfuerzo por rol ([ADR-015](docs/decisiones/ADR-015-catalogo-modelos.md)).
+
+| # | Prioridad | Qué | Detalle |
+|---|---|---|---|
+| 9.1 | P1 | **Probar la app en un Windows real** | Activar WSL, `wsl --import` de la distro, WebView2, inicio de sesión de Claude desde la ventana. Hasta ahora probada en Linux con un `wsl.exe` simulado (ver [ESCRITORIO.md](docs/guias/ESCRITORIO.md)) |
+| 9.2 | P1 | **Primer release `v0.1.0`** | La app descarga la distro del último release: hasta que exista uno, la instalación desde la app no tiene de dónde bajarla |
+| 9.3 | P2 | Firmar el instalador | Sin firma, SmartScreen avisa la primera vez |
+| 9.4 | P2 | Actualización automática de la app | Tauri updater con claves de firma; hoy «Actualizar Forja» actualiza Forja dentro de la distro, no la app |
+| 9.5 | P2 | Comprobar `ultra` (Codex) y `ultracode` (Claude) contra los CLI reales | Salen de la documentación; `ultracode` no se ofrece todavía |
+| 9.6 | P3 | Aligerar la distro (~355 MB) | Casi todo son los binarios nativos de Claude Code y Codex; se podrían instalar al primer uso |
+| 9.7 | P3 | Pruebas E2E del panel en CI | Hoy se validó a mano con Playwright (flujo completo con agentes simulados); convertirlo en una prueba automática |

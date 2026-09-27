@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { type ProviderRef, parseRef, pickCandidate, providerPause } from '../../core/engine.js';
+import { effortParam, type ProviderRef, parseRef, pickCandidate, providerPause } from '../../core/engine.js';
 import { newId } from '../../domain/ids.js';
 import { refSha, taskBranch, taskWorktree } from '../../git/workspace.js';
 import type { GatewayHost } from '../../mcp/gateway.js';
@@ -101,6 +101,7 @@ export class TaskLauncher {
           taskId,
           attempt,
           model: candidate.model,
+          ...effortParam(engine.config, role, candidate.ref),
           prompt,
           workspace: path,
           providerStateDir: join(engine.dataDir, 'proveedores', candidate.provider),

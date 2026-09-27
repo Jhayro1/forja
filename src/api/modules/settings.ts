@@ -1,9 +1,12 @@
+import { type Effort, isEffort } from '../../providers/catalog.js';
+import { ROLE_NAMES } from '../../registry/config.js';
 import { ApiError } from '../http.js';
 import type { ApiModule } from '../server.js';
 
-export type RoleName = 'planeador' | 'trabajador' | 'complejo' | 'revisor';
-export const ROLE_NAMES: RoleName[] = ['planeador', 'trabajador', 'complejo', 'revisor'];
-export type SettingsInput = { roles: Record<RoleName, string[]>; paralelo: number };
+export type RoleName = (typeof ROLE_NAMES)[number];
+export { ROLE_NAMES };
+/** `esfuerzo`: absent role = the CLI's default effort. */
+export type SettingsInput = { roles: Record<RoleName, string[]>; esfuerzo: Partial<Record<RoleName, Effort>>; paralelo: number };
 
 /** The project's models per role and how many agents work at once (forja.yaml). */
 export interface SettingsBackend {
@@ -22,9 +25,18 @@ function parseInput(b: Record<string, unknown>): SettingsInput {
     if (clean.length === 0) throw new ApiError(422, 'campo_invalido', `elige al menos un modelo para «${r}»`);
     out[r] = [...new Set(clean)].slice(0, 4);
   }
+  const esfuerzo: Partial<Record<RoleName, Effort>> = {};
+  const efforts = (b.esfuerzo ?? {}) as Record<string, unknown>;
+  if (typeof efforts !== 'object') throw new ApiError(422, 'campo_invalido', '«esfuerzo» debe ser un objeto por rol');
+  for (const r of ROLE_NAMES) {
+    const e = efforts[r];
+    if (e === undefined || e === null || e === '') continue;
+    if (!isEffort(e)) throw new ApiError(422, 'campo_invalido', `esfuerzo de «${r}» no válido`);
+    esfuerzo[r] = e;
+  }
   const paralelo = Number(b.paralelo);
   if (!Number.isInteger(paralelo) || paralelo < 1 || paralelo > 16) throw new ApiError(422, 'campo_invalido', 'agentes en paralelo: entre 1 y 16');
-  return { roles: out, paralelo };
+  return { roles: out, esfuerzo, paralelo };
 }
 
 export function settingsModule(backend: SettingsBackend): ApiModule {

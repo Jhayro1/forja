@@ -1,22 +1,15 @@
 <!doctype html>
 <html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Forja</title>
-  <link rel="stylesheet" href="/panel.css">
-  <script src="/panel.js" defer></script>
-  <script src="/pantallas.js" defer></script>
-</head>
-<body>
-  <header class="top">
-    <div class="brand">Forja</div>
-    <div id="proyecto"></div>
-    <nav id="nav" aria-label="Secciones"></nav>
-    <div id="conexion" class="status" role="status" aria-live="polite"></div>
-  </header>
-  <main id="app" tabindex="-1"><p class="muted">Cargando…</p></main>
-  <aside id="detalle" class="drawer" hidden aria-label="Detalle de la tarea"></aside>
-  <div id="aviso" class="toast" role="alert" hidden></div>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- forja ui cambia este valor por uno aleatorio en cada carga (CSP con nonce). -->
+    <meta name="forja-nonce" content="__FORJA_NONCE__" />
+    <link rel="icon" href="./forja.svg" type="image/svg+xml" />
+    <title>Forja</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
 </html>

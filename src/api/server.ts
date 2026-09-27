@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -72,15 +72,42 @@ export type ApiOptions = {
   idempotency?: IdempotencyStore;
 };
 
-const PANEL_DIR = fileURLToPath(new URL('../../panel/', import.meta.url));
-const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', html: 'text/html; charset=utf-8' };
-/** A flat, plain file name inside panel/: no slashes or dots to escape the folder. */
-const PANEL_FILE = /^\/([a-z0-9-]+)\.(js|css)$/;
+/** The compiled panel (panel/ is a Vite project; `npm run build` leaves it in panel/dist). */
+const PANEL_DIR = fileURLToPath(new URL('../../panel/dist/', import.meta.url));
+const TYPES: Record<string, string> = {
+  js: 'text/javascript; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  html: 'text/html; charset=utf-8',
+  svg: 'image/svg+xml',
+  woff2: 'font/woff2',
+  png: 'image/png',
+};
+/**
+ * A plain file name at the root of the panel or inside assets/: every dot-separated
+ * part has at least one safe character, so `..`, slashes and hidden files never match.
+ */
+const PANEL_FILE = /^\/((?:assets\/)?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(js|css|svg|woff2|png))$/;
+const NONCE_MARK = '__FORJA_NONCE__';
 
-function staticFile(pathname: string): [string, string] | null {
-  if (pathname === '/') return ['index.html', TYPES.html!];
+type StaticFile = { file: string; type: string; immutable: boolean };
+
+function staticFile(pathname: string): StaticFile | null {
+  if (pathname === '/' || pathname === '/index.html') return { file: 'index.html', type: TYPES.html!, immutable: false };
   const m = PANEL_FILE.exec(pathname);
-  return m && existsSync(`${PANEL_DIR}${m[1]}.${m[2]}`) ? [`${m[1]}.${m[2]}`, TYPES[m[2]!]!] : null;
+  // Vite names what is in assets/ by content hash: it can be cached forever.
+  return m && existsSync(`${PANEL_DIR}${m[1]}`) ? { file: m[1]!, type: TYPES[m[2]!]!, immutable: m[1]!.startsWith('assets/') } : null;
+}
+
+/**
+ * The page with a fresh nonce: Radix adds a <style> to lock scrolling behind dialogs and
+ * the panel hands it this nonce, so the CSP can keep refusing any other inline style.
+ */
+function panelPage(): { body: string; csp: string } | null {
+  const path = `${PANEL_DIR}index.html`;
+  if (!existsSync(path)) return null;
+  const nonce = randomBytes(16).toString('base64');
+  const csp = SECURITY_HEADERS['Content-Security-Policy']!.replace("style-src 'self'", `style-src 'self' 'nonce-${nonce}'`);
+  return { body: readFileSync(path, 'utf8').replaceAll(NONCE_MARK, nonce), csp };
 }
 
 const SESSION_COOKIE = 'forja_sesion';
@@ -190,10 +217,16 @@ export class ApiServer {
     const method = req.method ?? 'GET';
 
     const asset = method === 'GET' ? staticFile(url.pathname) : null;
+    if (asset?.file === 'index.html') {
+      const page = panelPage();
+      if (!page) throw new ApiError(503, 'panel_sin_compilar', 'falta compilar el panel: corre «npm run build» en el repositorio de Forja');
+      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Security-Policy': page.csp, 'Content-Type': asset.type });
+      res.end(page.body);
+      return;
+    }
     if (asset) {
-      const [file, type] = asset;
-      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': type });
-      res.end(readFileSync(`${PANEL_DIR}${file}`));
+      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': asset.type, ...(asset.immutable ? { 'Cache-Control': 'public, max-age=31536000, immutable' } : {}) });
+      res.end(readFileSync(`${PANEL_DIR}${asset.file}`));
       return;
     }
 

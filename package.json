@@ -27,7 +27,7 @@
   },
   "files": [
     "dist/**/*.js",
-    "panel",
+    "panel/dist",
     "prompts",
     "docker",
     "LICENSE",
@@ -36,15 +36,16 @@
     "docs/guias"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json && npm run -s build -w panel",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run -s typecheck -w panel",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "check": "npm run lint && npm run typecheck && npm test",
     "prepare": "npm run build",
-    "probar:paquete": "bash scripts/probar-paquete.sh"
+    "probar:paquete": "bash scripts/probar-paquete.sh",
+    "build:cli": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
     "commander": "^15.0.0",
@@ -59,5 +60,9 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "workspaces": [
+    "panel",
+    "desktop"
+  ]
 }

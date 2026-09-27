@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
 import type { Prices } from '../plan/estimate.js';
 import { AdapterError, ClaudeAdapter, CodexAdapter, type LaunchParams, type ProviderAdapter, SimulatedAdapter, type ToolProfile } from '../providers/adapters.js';
+import { effortFor } from '../providers/catalog.js';
 import type { ForjaConfig } from '../registry/config.js';
 import { type LaunchOutcome, runToCompletion } from '../runtime/launch-service.js';
 import type { EventStore } from '../store/event-store.js';
@@ -129,6 +130,12 @@ export function allowedModels(engine: Engine): string[] {
   return [...new Set(Object.values(engine.config.roles).flat())];
 }
 
+/** The role's effort (forja.yaml `esfuerzo`) clamped to what `ref` accepts, as a LaunchParams fragment. */
+export function effortParam(config: ForjaConfig, role: Role, ref: string): Pick<LaunchParams, 'effort'> {
+  const effort = effortFor(ref, config.esfuerzo[role]);
+  return effort ? { effort } : {};
+}
+
 export function parseRef(ref: string): { provider: 'claude' | 'codex' | 'simulado'; model: string } {
   const i = ref.indexOf(':');
   return { provider: ref.slice(0, i) as 'claude' | 'codex' | 'simulado', model: ref.slice(i + 1) };
@@ -158,6 +165,7 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
       taskId: opts.scope.task_id ?? opts.role,
       attempt: opts.attempt ?? 1,
       model,
+      ...effortParam(engine.config, opts.role, ref),
       prompt: opts.prompt,
       workspace: opts.workspace,
       providerStateDir: join(engine.dataDir, 'proveedores', provider),

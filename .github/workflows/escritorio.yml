@@ -23,7 +23,10 @@ jobs:
       - name: construir la distro (Docker)
         run: desktop/distro/construir.sh salida
       - name: probar la distro como la usa la app (usuario forja, sin contraseña)
+        # Como en ci.yml: el runner desechable permite user namespaces (bubblewrap); en WSL
+        # no hace falta porque su kernel no aplica esa restricción de AppArmor.
         run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           docker run --rm --privileged -u forja forja-wsl sh -c 'forja --version && claude --version && codex --version && bwrap --ro-bind / / true'
           docker run --rm -u forja forja-wsl sh -c 'test "$(id -u)" = 1000 && grep -q "default=forja" /etc/wsl.conf'
       - uses: actions/upload-artifact@v4

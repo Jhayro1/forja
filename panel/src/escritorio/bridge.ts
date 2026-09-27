@@ -9,7 +9,6 @@ export type Status = {
   distro: string | null;
   version_forja: string | null;
   version_app: string;
-  ubuntu_sin_forja: boolean;
 };
 
 export type Progress = { paso: 'descargar' | 'verificar' | 'importar' | 'comprobar'; detalle: string; porcentaje: number | null };
@@ -53,7 +52,6 @@ function simulated(): Desktop {
     distro: mode === 'listo' ? 'Forja' : null,
     version_forja: mode === 'listo' ? '0.1.0' : null,
     version_app: '0.1.0',
-    ubuntu_sin_forja: false,
   };
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   return {

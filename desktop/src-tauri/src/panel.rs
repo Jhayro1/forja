@@ -78,6 +78,8 @@ impl Panel {
                 }
             });
         }
+        // Sólo los lectores quedan con emisor: si forja ui muere, la espera termina ya.
+        drop(tx);
         let stdin = child.stdin.take();
         let mut panel = Panel {
             child,
@@ -179,7 +181,11 @@ mod integration {
         let second = panel.link().expect("otro enlace");
         assert_ne!(first, second);
         let base = &first[..first.find("/#").unwrap()];
-        assert_eq!(&second[..second.find("/#").unwrap()], base, "mismo servidor");
+        assert_eq!(
+            &second[..second.find("/#").unwrap()],
+            base,
+            "mismo servidor"
+        );
         let page = crate::install::tests_http_get(&format!("{base}/"));
         assert!(page.contains("forja-nonce"), "sirve el panel");
         drop(panel);

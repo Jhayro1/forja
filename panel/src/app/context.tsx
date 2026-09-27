@@ -50,12 +50,13 @@ async function firstView(modules: string[], hasProject: boolean): Promise<ViewId
 export function AppProvider({ children, fallback }: { children: ReactNode; fallback: ReactNode }) {
   const client = useQueryClient();
   const [state, setState] = useState<Omit<AppState, 'go' | 'projectChanged' | 'has'> | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void (async () => {
+    (async () => {
       const [textos, mods] = await Promise.all([api.get<{ textos: Textos }>('/v1/textos'), loadModules()]);
       setState({ textos: textos.textos, ...mods, view: await firstView(mods.modules, mods.project !== null) });
-    })();
+    })().catch((e: Error) => setError(e.message));
   }, []);
 
   const go = useCallback((view: ViewId) => setState((s) => (s ? { ...s, view } : s)), []);
@@ -70,6 +71,16 @@ export function AppProvider({ children, fallback }: { children: ReactNode; fallb
   );
 
   const value = useMemo<AppState | null>(() => (state ? { ...state, go, projectChanged, has: (m) => state.modules.includes(m) } : null), [state, go, projectChanged]);
+  if (error)
+    return (
+      <div className="flex min-h-svh flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="font-medium">No se pudo cargar el panel</p>
+        <p className="text-sm text-muted-foreground">{error}</p>
+        <button type="button" className="text-sm underline" onClick={() => location.reload()}>
+          Reintentar
+        </button>
+      </div>
+    );
   if (!value) return <>{fallback}</>;
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

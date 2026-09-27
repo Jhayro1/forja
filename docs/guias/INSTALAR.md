@@ -36,6 +36,14 @@ desapercibido. Mientras el repositorio sea privado, `raw.githubusercontent.com` 
 404 sin credenciales: clona el repo y corre `bash scripts/instalar.sh` desde ahí. Revisa el
 script antes si prefieres: [`scripts/instalar.sh`](../../scripts/instalar.sh).
 
+## Windows: app de escritorio (lo más fácil)
+
+Descarga e instala `Forja_x.y.z_x64-setup.exe` del
+[último release](https://github.com/Jhayro1/forja/releases/latest). Al abrirla activa WSL si
+hace falta, instala su propia distro de Linux con todo listo (Forja, Claude Code y Codex) sin
+crear usuarios ni pedir contraseñas, y abre el panel en su ventana. Detalles en
+[ESCRITORIO.md](ESCRITORIO.md).
+
 ## Windows: un solo comando en PowerShell
 
 Forja no corre nativo en Windows todavía. Hay un segundo backend de aislamiento real con

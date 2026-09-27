@@ -36,8 +36,6 @@ struct Status {
     distro: Option<String>,
     version_forja: Option<String>,
     version_app: String,
-    /// La distro de Ubuntu existe pero sin Forja: se puede ofrecer instalar la propia igual.
-    ubuntu_sin_forja: bool,
 }
 
 /// Windows, o Linux con FORJA_PROBAR_EN_LINUX (desarrollo: un wsl.exe simulado en el PATH).
@@ -59,15 +57,12 @@ async fn estado(app: AppHandle) -> Status {
     tauri::async_runtime::spawn_blocking(move || {
         let available = supported() && wsl::available();
         let found = if available { find_distro() } else { None };
-        let ubuntu =
-            available && found.is_none() && wsl::distros().iter().any(|d| d == wsl::UBUNTU);
         Status {
             windows: supported(),
             wsl: available,
             distro: found.as_ref().map(|f| f.0.clone()),
             version_forja: found.map(|f| f.1),
             version_app,
-            ubuntu_sin_forja: ubuntu,
         }
     })
     .await
@@ -77,7 +72,6 @@ async fn estado(app: AppHandle) -> Status {
         distro: None,
         version_forja: None,
         version_app: String::new(),
-        ubuntu_sin_forja: false,
     })
 }
 

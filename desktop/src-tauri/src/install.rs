@@ -170,7 +170,11 @@ pub fn update(distro: &str) -> Result<String, String> {
 /// GET de texto, para las pruebas de integración.
 #[cfg(test)]
 pub fn tests_http_get(url: &str) -> String {
-    agent().get(url).call().and_then(|mut r| r.body_mut().read_to_string()).expect("GET")
+    agent()
+        .get(url)
+        .call()
+        .and_then(|mut r| r.body_mut().read_to_string())
+        .expect("GET")
 }
 
 #[cfg(test)]
@@ -187,7 +191,10 @@ mod integration {
         for paso in ["descargar", "verificar", "importar", "comprobar"] {
             assert!(seen.contains(&paso), "falta el paso {paso}: {seen:?}");
         }
-        assert!(!dir.join(super::ROOTFS).exists(), "borra la descarga al terminar");
+        assert!(
+            !dir.join(super::ROOTFS).exists(),
+            "borra la descarga al terminar"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

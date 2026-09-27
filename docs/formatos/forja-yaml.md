@@ -1,5 +1,21 @@
 # Formato · `forja.yaml` (en el repo, sin secretos)
 
+> Lo implementado hoy está en `src/registry/config.ts`. Modelos por rol y esfuerzo de
+> razonamiento ([ADR-015](../decisiones/ADR-015-catalogo-modelos.md)); `forja modelos` lista
+> los disponibles:
+>
+> ```yaml
+> roles:
+>   planeador: [claude:opus, codex:gpt-6-astra]   # el primero; el segundo si no hay cuota
+>   trabajador: [claude:haiku, codex:gpt-6-luna]
+>   complejo: [claude:sonnet[1m], codex:gpt-6-sol]
+>   revisor: [codex:gpt-6-sol, claude:sonnet]
+> esfuerzo:                                        # opcional: low medium high xhigh max ultra
+>   planeador: high                                # cada modelo usa el nivel más alto que acepta
+> ```
+>
+> Lo que sigue es el diseño original del formato.
+
 ```yaml
 version: 1
 proyecto:

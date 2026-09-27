@@ -61,9 +61,13 @@ fn failure(what: &str, out: &Output) -> String {
 
 /// WSL 2 instalado y usable (sin él no hay aislamiento de Linux en Windows).
 pub fn available() -> bool {
-    run(wsl().arg("--status"))
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    // `--version` existe desde el WSL de la tienda; `--status`, en el que trae Windows.
+    // Sin distros instaladas alguno puede fallar aunque WSL esté activo: basta uno.
+    ["--version", "--status"].iter().any(|arg| {
+        run(wsl().arg(arg))
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
 }
 
 pub fn distros() -> Vec<String> {

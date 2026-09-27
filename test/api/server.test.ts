@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -195,7 +195,9 @@ describe('API local · sesión y protecciones', () => {
     expect(r.body.textos.estadoTarea.ejecutando).toBe('agente trabajando');
     expect(r.body.textos.fases[2]).toEqual(['dividir', 'Plan']);
     expect((await call('GET', '/v1/textos')).status).toBe(401);
-    const panel = readFileSync(join(ROOT, 'panel/panel.js'), 'utf8');
+    const panel = panelSources()
+      .map((f) => readFileSync(f, 'utf8'))
+      .join('\n');
     for (const word of ["'agente trabajando'", "'pregunta de un agente'", "'espera tu aprobación'", "'Especificar'"]) expect(panel).not.toContain(word);
   });
 
@@ -255,26 +257,61 @@ describe('API local · sesión y protecciones', () => {
   it('cabeceras de seguridad y sin CORS; el panel no usa innerHTML ni scripts inline', async () => {
     const page = await call('GET', '/');
     expect(page.status).toBe(200);
-    expect(page.headers['content-security-policy']).toContain("script-src 'self'");
-    expect(page.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    const csp = String(page.headers['content-security-policy']);
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("frame-ancestors 'none'");
     expect(page.headers['x-content-type-options']).toBe('nosniff');
     expect(page.headers['access-control-allow-origin']).toBeUndefined();
     expect(page.text).not.toMatch(/<script>[^<]/);
-    const js = readFileSync(join(ROOT, 'panel/panel.js'), 'utf8');
-    expect(js).not.toMatch(/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/);
-    expect(js).not.toMatch(/setAttribute\('style'/);
-    expect((await call('GET', '/panel.js')).headers['content-type']).toMatch(/javascript/);
-    expect((await call('GET', '/pantallas.js')).status).toBe(200);
-    const pantallas = readFileSync(join(ROOT, 'panel/pantallas.js'), 'utf8');
-    expect(pantallas).not.toMatch(/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/);
+    expect(page.text).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
+    // Un nonce nuevo en cada carga, el mismo en la cabecera y en la página; sólo para estilos.
+    const nonce = /style-src 'self' 'nonce-([A-Za-z0-9+/=]+)'/.exec(csp)?.[1];
+    expect(nonce).toBeTruthy();
+    expect(page.text).toContain(`content="${nonce}"`);
+    expect(csp).not.toMatch(/script-src[^;]*nonce/);
+    expect(String((await call('GET', '/')).headers['content-security-policy'])).not.toContain(nonce!);
+    for (const f of panelSources()) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).not.toMatch(/\.innerHTML|outerHTML|insertAdjacentHTML|dangerouslySetInnerHTML|document\.write|eval\(|new Function/);
+    }
+    const script = /src="\.\/(assets\/[^"]+\.js)"/.exec(page.text)?.[1];
+    const asset = await call('GET', `/${script}`);
+    expect(asset.headers['content-type']).toMatch(/javascript/);
+    expect(asset.headers['cache-control']).toContain('immutable');
+    expect((await call('GET', '/forja.svg')).headers['content-type']).toBe('image/svg+xml');
   });
 
-  it('sólo sirve archivos planos de panel/: nada fuera de la carpeta', async () => {
-    for (const path of ['/../package.json', '/%2e%2e/package.json', '/panel/../../package.json', '/no-existe.js', '/package.json', '/src.ts', '/.env']) {
+  it('sólo sirve archivos planos del panel compilado: nada fuera de la carpeta', async () => {
+    for (const path of [
+      '/../package.json',
+      '/%2e%2e/package.json',
+      '/panel/../../package.json',
+      '/assets/../../package.json',
+      '/assets/.oculto.js',
+      '/src/main.tsx',
+      '/no-existe.js',
+      '/package.json',
+      '/src.ts',
+      '/.env',
+    ]) {
       expect((await call('GET', path)).status, path).not.toBe(200);
     }
   });
 });
+
+/** Every source file of the panel (React), to check what it never does. */
+function panelSources(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.(ts|tsx)$/.test(e.name)) out.push(p);
+    }
+  };
+  walk(join(ROOT, 'panel/src'));
+  return out;
+}
 
 describe('API local · eventos (SSE)', () => {
   function stream(cookie: string, lastId?: string): Promise<{ text: () => string; close: () => void }> {

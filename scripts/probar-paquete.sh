@@ -9,8 +9,9 @@ npm run build >/dev/null
 tarball="$(npm pack --silent --pack-destination "$tmp")"
 echo "paquete: $tarball ($(du -h "$tmp/$tarball" | cut -f1))"
 # Nada de pruebas, fuentes TS ni documentos internos dentro del paquete.
-if tar -tzf "$tmp/$tarball" | grep -E '\.test\.|/test/|\.ts$|/m0/|/v2/' >/dev/null; then
-  echo "✘ el paquete incluye archivos que no deberían publicarse:"; tar -tzf "$tmp/$tarball" | grep -E '\.test\.|/test/|\.ts$|/m0/|/v2/'; exit 1
+# El panel va compilado (panel/dist): ni sus fuentes React ni su package.json.
+if tar -tzf "$tmp/$tarball" | grep -E '\.test\.|/test/|\.tsx?$|/m0/|/v2/|package/panel/(src|package\.json)' >/dev/null; then
+  echo "✘ el paquete incluye archivos que no deberían publicarse:"; tar -tzf "$tmp/$tarball" | grep -E '\.test\.|/test/|\.tsx?$|/m0/|/v2/|package/panel/(src|package\.json)'; exit 1
 fi
 npm install -g --prefix "$tmp/prefijo" "$tmp/$tarball" --no-audit --no-fund >/dev/null 2>&1
 bin="$tmp/prefijo/bin/forja"
@@ -22,7 +23,8 @@ cd "$tmp" && "$bin" nuevo demo --ruta "$tmp/demo" >/dev/null && cd "$tmp/demo" &
 # El arranque (dist/cli/bin.js) oculta sólo el aviso experimental de SQLite, sin `env -S`.
 if grep -q ExperimentalWarning "$tmp/estado.err"; then echo "✘ se filtró el aviso experimental de SQLite"; cat "$tmp/estado.err"; exit 1; fi
 head -1 "$tmp/prefijo/lib/node_modules/@jhayro1/forja/dist/cli/bin.js" | grep -qx '#!/usr/bin/env node'
-test -f "$tmp/prefijo/lib/node_modules/@jhayro1/forja/panel/panel.js"
+test -f "$tmp/prefijo/lib/node_modules/@jhayro1/forja/panel/dist/index.html"
+ls "$tmp/prefijo/lib/node_modules/@jhayro1/forja/panel/dist/assets/"index-*.js >/dev/null
 test -f "$tmp/prefijo/lib/node_modules/@jhayro1/forja/dist/runtime/runner-main.js"
 test -f "$tmp/prefijo/lib/node_modules/@jhayro1/forja/dist/providers/sim-agent.js"
 echo "✔ instalación limpia: CLI, doctor, proyecto nuevo, panel, runner y agente simulado presentes"

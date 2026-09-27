@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Sólo la página del asistente (local) puede llamar a los comandos de la app; el panel (http://127.0.0.1) no.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

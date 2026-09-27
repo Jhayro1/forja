@@ -62,6 +62,7 @@
     "access": "public"
   },
   "workspaces": [
-    "panel"
+    "panel",
+    "desktop"
   ]
 }

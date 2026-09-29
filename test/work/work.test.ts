@@ -129,5 +129,6 @@ describe.skipIf(!HAS_BWRAP)('historial y observaciones de un run real (agentes s
     expect(after.map((o) => `${o.source}:${o.kind}`).sort()).toEqual(['auditor:sugerencia', 'qa:defecto', 'revisor:sugerencia']);
     expect(after.find((o) => o.source === 'qa')?.location).toBe('CA-002');
     expect(latestValidation(t.engine, changeId)?.observaciones).toBe(2);
-  });
+    // A run plus a whole-sprint validation in the sandbox: slower than a unit test under a loaded suite.
+  }, 90_000);
 });

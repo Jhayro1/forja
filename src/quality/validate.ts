@@ -107,7 +107,7 @@ export function scanDiff(diff: string, redactor = new Redactor()): { secrets: st
 export async function validateSprint(engine: Engine, input: { changeId: string; repoPath: string; sandbox?: boolean; onLog?: (line: string) => void }): Promise<ValidationReport> {
   const log = input.onLog ?? (() => {});
   const run = runsOf(engine, input.changeId)[0];
-  if (!run || run.state !== 'completado') throw new Error('el sprint todavía no tiene una entrega completa: termina el run antes de validar');
+  if (run?.state !== 'completado') throw new Error('el sprint todavía no tiene una entrega completa: termina el run antes de validar');
   const branch = deliveryBranch(engine.config.git.prefijo, input.changeId);
   const commit = await refSha(input.repoPath, branch);
   const plan = latestPlan(engine, input.changeId)?.plan;

@@ -65,7 +65,7 @@ export type CatalogModel = {
   contexto: string | null;
   se_retira: string | null;
 };
-export type RoleName = 'planeador' | 'trabajador' | 'complejo' | 'revisor';
+export type RoleName = 'planeador' | 'trabajador' | 'complejo' | 'revisor' | 'integrador' | 'auditor' | 'qa';
 export type Configuracion = {
   roles: { rol: RoleName; modelos: string[]; esfuerzo: Effort | null; ayuda: string }[];
   paralelo: number;
@@ -179,4 +179,115 @@ export type Nodo = {
   label: string;
   salen: { kind: string; dst: string; confidence: string }[];
   entran: { kind: string; src: string; confidence: string }[];
+};
+
+// ---------- v3: siguiente acción, agentes, cuentas, correo, historial y calidad ----------
+
+export type SiguienteAccion = { accion: string; titulo: string; motivo: string; vista: 'sprint' | 'tablero' | 'calidad' | 'historial'; urgente: boolean };
+export type TareaV3 = Tarea & { tipo?: string | null; depende_de?: string[]; rol?: string | null; cuenta?: string | null; resumen?: string | null; fallos_calidad?: number };
+export type EstadoV3 = Omit<Estado, 'tareas'> & { tareas: TareaV3[]; siguiente_accion?: SiguienteAccion };
+
+export type RolAgente = {
+  id: 'orquestador' | 'implementador' | 'integrador' | 'revisor' | 'auditor' | 'qa';
+  titulo: string;
+  descripcion: string;
+  roles_forja: string[];
+  modelos: string[];
+  esfuerzo: Effort | null;
+  estado: 'activo' | 'inactivo';
+  trabajando: { tarea: string; titulo: string; modelo: string | null; cuenta: string | null; desde: string | null; actividad: string | null }[];
+  otra_actividad: string | null;
+  llamadas: number;
+  tokens: number | null;
+};
+export type CuentaAgentes = { proveedor: 'claude' | 'codex'; alias: string; activa: boolean; sesion: boolean; en_pausa: boolean; max_agentes: number | null; en_curso: number };
+export type Agentes = { roles: RolAgente[]; cuentas: CuentaAgentes[] };
+
+export type Cuenta = {
+  proveedor: 'claude' | 'codex';
+  alias: string;
+  activa: boolean;
+  max_agentes: number | null;
+  principal: boolean;
+  sesion_iniciada: boolean;
+  carpeta: string;
+  inicio_sesion: (LoginState & { cuenta?: string }) | null;
+};
+
+export type AvisoTipo = 'chat' | 'trabajos' | 'runs' | 'pendientes' | 'observaciones';
+export type Correo = {
+  activo: boolean;
+  host: string;
+  puerto: number;
+  seguridad: 'tls' | 'starttls' | 'ninguna';
+  usuario: string;
+  remitente: string;
+  nombre_remitente: string;
+  destinatario: string;
+  avisos: Partial<Record<AvisoTipo, boolean>>;
+  clave_guardada: boolean;
+  desde_entorno: boolean;
+  avisos_disponibles: { id: AvisoTipo; texto: string }[];
+};
+
+export type Marca = 'unida' | 'en_curso' | 'pendiente' | 'bloqueada' | 'cancelada';
+export type HistTarea = {
+  id: string;
+  titulo: string;
+  estado: string;
+  marca: Marca;
+  rol: string | null;
+  cuenta: string | null;
+  inicio: string | null;
+  fin: string | null;
+  intentos: number;
+  resumen: string | null;
+};
+export type HistHistoria = { id: string; titulo: string; tareas: HistTarea[]; hechas: number; total: number };
+export type HistSprint = {
+  id: string;
+  titulo: string;
+  fase: string;
+  creado: string;
+  entregado: string | null;
+  prioridad: number;
+  fecha_objetivo: string | null;
+  retrasado: boolean;
+  historias: HistHistoria[];
+  hechas: number;
+  total: number;
+};
+export type HistEpica = { id: string | null; titulo: string; objetivo: string; estado: string; fecha_objetivo: string | null; sprints: HistSprint[]; hechas: number; total: number };
+export type EventoCalendario = {
+  fecha: string;
+  tipo: 'sprint_creado' | 'sprint_entregado' | 'tarea_iniciada' | 'tarea_unida' | 'tarea_bloqueada';
+  sprint: string;
+  tarea: string | null;
+  titulo: string;
+};
+export type Historial = { epicas: HistEpica[]; calendario: EventoCalendario[] };
+export type Epica = { epic_id: string; title: string; goal: string; state: string; target_date: string | null; created_at: string };
+
+export type EstadoObs = 'abierta' | 'en_plan' | 'en_correccion' | 'resuelta' | 'descartada' | 'pospuesta';
+export type Observacion = {
+  obs_id: string;
+  change_id: string;
+  run_id: string | null;
+  task_id: string | null;
+  source: 'revisor' | 'auditor' | 'qa' | 'verificacion';
+  severity: 'critica' | 'alta' | 'media' | 'baja';
+  kind: 'defecto' | 'sugerencia' | 'requisito_nuevo';
+  location: string;
+  text: string;
+  evidence: string | null;
+  commit_sha: string | null;
+  state: EstadoObs;
+  reason: string | null;
+  plan_change: string | null;
+  created_at: string;
+};
+export type Observaciones = {
+  lista: Observacion[];
+  conteo: Record<EstadoObs, number>;
+  validacion?: { id: string; commit: string; fecha: string; observaciones: number; comprobaciones: { paso: string; ok: boolean | null }[] } | null;
 };

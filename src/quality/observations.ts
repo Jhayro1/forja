@@ -49,9 +49,12 @@ const MOVES: Record<ObsState, readonly ObsState[]> = {
   resuelta: ['abierta'],
 };
 
-/** Same finding (source, task, place and text) = same observation: recording it again changes nothing. */
+/**
+ * Same finding (source, task, place and text) = same observation, whichever sprint found
+ * it again: recording it again changes nothing, so a repeated finding is listed once (v3 §4.7).
+ */
 export function observationId(o: z.output<typeof ObservationInput>): string {
-  const key = [o.change_id, o.source, o.task_id ?? '', o.location.trim().toLowerCase(), o.text.trim().toLowerCase()].join('\u0000');
+  const key = [o.source, o.task_id ?? '', o.location.trim().toLowerCase(), o.text.trim().toLowerCase()].join('\u0000');
   return `obs_${createHash('sha256').update(key).digest('hex').slice(0, 20)}`;
 }
 
@@ -87,7 +90,12 @@ export class ObservationService {
   record(input: ObservationInput): string {
     const o = ObservationInput.parse(input);
     const id = observationId(o);
-    if (this.get(id)) return id;
+    const existing = this.get(id);
+    if (existing) {
+      // Found again after it was marked solved: it is not solved (a discarded one stays discarded: the user decided).
+      if (existing.state === 'resuelta') this.move(id, 'abierta', { reason: 'volvió a aparecer en una revisión posterior' });
+      return id;
+    }
     this.engine.store.execute({ request_id: newId('req'), type: 'registrar_observacion', input: { id } }, () => ({
       result: null,
       events: [{ type: OBS_EV.recorded, aggregate_type: 'observacion', aggregate_id: id, ...(o.run_id ? { run_id: o.run_id } : {}), ...(o.task_id ? { task_id: o.task_id } : {}), payload: o }],

@@ -37,3 +37,15 @@ export function estimateText(e: Estimacion | null | undefined): string | null {
 export function safeUrl(url: string | null | undefined): string | null {
   return typeof url === 'string' && /^https:\/\/[^\s]+$/.test(url) ? url : null;
 }
+
+/** Dates always in Spanish, whatever the browser's language. */
+export const LOCALE = 'es-PE';
+export function fecha(iso: string | number | Date, opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }): string {
+  return new Date(iso).toLocaleDateString(LOCALE, opts);
+}
+export function hora(iso: string | number | Date): string {
+  return new Date(iso).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+}
+export function fechaHora(iso: string | number | Date): string {
+  return new Date(iso).toLocaleString(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}

@@ -6,6 +6,7 @@ import type { ApiModule } from '../server.js';
  * and QA with their action plans (v3/PLAN.md §3, §5.1.1, §6.3).
  */
 export interface WorkBackend {
+  agents(): object;
   history(): object;
   historyMarkdown(): string;
   epics(): object;
@@ -30,6 +31,7 @@ export function workModule(backend: WorkBackend): ApiModule {
   return {
     name: 'trabajo',
     routes: [
+      { method: 'GET', path: /^\/v1\/agentes$/, handler: () => ({ agentes: backend.agents() }) },
       { method: 'GET', path: /^\/v1\/historial$/, handler: () => ({ historial: backend.history() }) },
       { method: 'GET', path: /^\/v1\/historial\/markdown$/, handler: () => ({ markdown: backend.historyMarkdown() }) },
       { method: 'GET', path: /^\/v1\/epicas$/, handler: () => backend.epics() },

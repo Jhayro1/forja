@@ -60,8 +60,9 @@ export function accountsModule(backend: AccountsBackend): ApiModule {
         },
       },
       {
-        method: 'DELETE',
-        path: new RegExp(`^/v1/cuentas/${ACC}$`),
+        // POST (not DELETE) so the panel's action helper, CSRF and Idempotency-Key apply as usual.
+        method: 'POST',
+        path: new RegExp(`^/v1/cuentas/${ACC}/eliminar$`),
         handler: ({ params }) => {
           guard(() => backend.removeAccount(...pa(params)));
           return { ok: true, mensaje: 'cuenta eliminada' };

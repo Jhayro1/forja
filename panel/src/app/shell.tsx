@@ -1,5 +1,8 @@
-import { CheckIcon, ChevronsUpDownIcon, FolderPlusIcon, MenuIcon, MonitorIcon, MoonIcon, SunIcon } from 'lucide-react';
+import { BellIcon, CheckIcon, ChevronsUpDownIcon, FolderPlusIcon, LogOutIcon, MonitorIcon, MoonIcon, SearchIcon, SunIcon } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
+import { CommandPalette } from '@/components/command-palette';
+import { Badge } from '@/components/ui/badge';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -11,20 +14,40 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Separator } from '@/components/ui/separator';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar';
 import { useAction, useApiQuery } from '@/hooks/use-api';
 import type { LiveStatus } from '@/hooks/use-live-events';
 import { type Theme, useTheme } from '@/hooks/use-theme';
-import type { Proyectos } from '@/lib/types';
+import { api } from '@/lib/api';
+import { hora } from '@/lib/format';
+import type { EstadoV3, Proyectos } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useApp } from './context';
-import { NAV } from './navigation';
+import { GROUP_LABEL, NAV, type NavGroup } from './navigation';
 
 function Brand() {
   return (
-    <div className="flex items-center gap-2 px-2">
-      <img src="./forja.svg" alt="" className="size-7" />
-      <span className="text-base font-semibold tracking-tight">Forja</span>
+    <div className="flex items-center gap-2 px-1 py-1">
+      <img src="./forja.svg" alt="" className="size-7 shrink-0" />
+      <span className="truncate text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">Forja</span>
     </div>
   );
 }
@@ -33,22 +56,25 @@ function ProjectSwitcher() {
   const { project, has, go, projectChanged } = useApp();
   const list = useApiQuery<Proyectos>(has('proyectos') ? '/v1/proyectos' : null);
   const { run } = useAction();
+  const { isMobile } = useSidebar();
   if (!has('proyectos')) return null;
   const choose = async (id: string) => {
     if (await run(`/v1/proyectos/${id}/seleccionar`)) await projectChanged('inicio');
   };
+  const initial = (project?.nombre ?? '?').slice(0, 1).toUpperCase();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="h-auto w-full justify-between px-3 py-2 text-left">
-          <span className="min-w-0">
-            <span className="block text-xs text-muted-foreground">Proyecto</span>
-            <span className="block truncate font-medium">{project ? project.nombre : 'Elige un proyecto'}</span>
+        <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent" tooltip={project?.nombre ?? 'Elige un proyecto'}>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground">{initial}</span>
+          <span className="grid min-w-0 flex-1 text-left leading-tight">
+            <span className="text-xs text-muted-foreground">Proyecto</span>
+            <span className="truncate font-medium">{project ? project.nombre : 'Elige un proyecto'}</span>
           </span>
-          <ChevronsUpDownIcon className="text-muted-foreground" />
-        </Button>
+          <ChevronsUpDownIcon className="ml-auto text-muted-foreground" />
+        </SidebarMenuButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-64" align="start">
+      <DropdownMenuContent className="w-64" align="start" side={isMobile ? 'bottom' : 'right'}>
         <DropdownMenuLabel>Tus proyectos</DropdownMenuLabel>
         {(list.data?.proyectos ?? []).map((p) => (
           <DropdownMenuItem key={p.id} onSelect={() => !p.actual && void choose(p.id)}>
@@ -65,41 +91,41 @@ function ProjectSwitcher() {
   );
 }
 
-function Nav({ onNavigate }: { onNavigate?: () => void }) {
-  const { view, go, has } = useApp();
-  const visible = NAV.filter((n) => has(n.module));
-  const group = (g: 'principal' | 'avanzado', label?: string) => {
-    const items = visible.filter((n) => n.group === g);
-    if (!items.length) return null;
-    return (
-      <div className="space-y-1">
-        {label ? <p className="px-3 pt-4 pb-1 text-xs font-medium text-muted-foreground">{label}</p> : null}
-        {items.map((n) => (
-          <button
-            type="button"
-            key={n.id}
-            aria-current={view === n.id ? 'page' : undefined}
-            onClick={() => {
-              go(n.id);
-              onNavigate?.();
-            }}
-            className={cn(
-              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-              view === n.id ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground' : 'text-sidebar-foreground/80',
-            )}
-          >
-            <n.icon className="size-4" />
-            {n.title}
-          </button>
-        ))}
-      </div>
-    );
-  };
+function Nav({ attention }: { attention: number }) {
+  const { view, go, has, project } = useApp();
+  const { setOpenMobile } = useSidebar();
+  const visible = NAV.filter((n) => has(n.module) && (n.group === 'global' || project));
+  const groups: NavGroup[] = ['proyecto', 'calidad', 'mas', 'global'];
   return (
-    <nav aria-label="Secciones" className="flex-1 overflow-y-auto">
-      {group('principal')}
-      {group('avanzado', 'Avanzado')}
-    </nav>
+    <>
+      {groups.map((g) => {
+        const items = visible.filter((n) => n.group === g);
+        if (!items.length) return null;
+        return (
+          <SidebarGroup key={g}>
+            <SidebarGroupLabel>{GROUP_LABEL[g]}</SidebarGroupLabel>
+            <SidebarMenu>
+              {items.map((n) => (
+                <SidebarMenuItem key={n.id}>
+                  <SidebarMenuButton
+                    isActive={view === n.id}
+                    tooltip={n.title}
+                    onClick={() => {
+                      go(n.id);
+                      setOpenMobile(false);
+                    }}
+                  >
+                    <n.icon />
+                    <span>{n.title}</span>
+                  </SidebarMenuButton>
+                  {n.id === 'tablero' && attention > 0 ? <SidebarMenuBadge className="bg-warning/20 text-foreground">{attention}</SidebarMenuBadge> : null}
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        );
+      })}
+    </>
   );
 }
 
@@ -137,54 +163,140 @@ function LiveDot({ status }: { status: LiveStatus }) {
   const [text, color] = LIVE[status];
   if (!text) return null;
   return (
-    <span role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground">
+    <span role="status" aria-live="polite" className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
       <span className={cn('size-2 rounded-full', color, status === 'en-vivo' && 'animate-pulse')} />
       {text}
     </span>
   );
 }
 
-function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
+/** What waits for the user, one click away from any screen (v3 §6.5). */
+function Alerts({ estado }: { estado: EstadoV3 | undefined }) {
+  const { go, openTask, textos } = useApp();
+  const pending = estado?.pendientes ?? [];
+  const paused = estado?.proveedores_en_pausa ?? [];
+  const total = pending.length + paused.length;
   return (
-    <div className="flex h-full flex-col gap-4 p-3">
-      <Brand />
-      <ProjectSwitcher />
-      <Nav {...(onNavigate ? { onNavigate } : {})} />
-      <p className="px-3 text-xs text-muted-foreground">Todo corre en tu PC.</p>
-    </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={`Avisos (${total})`} className="relative">
+          <BellIcon />
+          {total ? <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-white">{total}</span> : null}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <div className="border-b px-4 py-3">
+          <p className="text-sm font-medium">Avisos</p>
+          <p className="text-xs text-muted-foreground">{total ? 'Esto espera algo de ti.' : 'Nada espera por ti ahora.'}</p>
+        </div>
+        <ul className="max-h-80 divide-y overflow-y-auto">
+          {pending.map((p) => (
+            <li key={`${p.kind}:${p.id}`}>
+              <button type="button" className="w-full px-4 py-3 text-left text-sm hover:bg-accent" onClick={() => (p.id.startsWith('T-') ? openTask(p.id) : go('sprint'))}>
+                <span className="font-medium">
+                  {p.id} · {textos.pendiente[p.kind] ?? p.kind}
+                </span>
+                <span className="line-clamp-2 block text-xs text-muted-foreground">{p.text}</span>
+              </button>
+            </li>
+          ))}
+          {paused.map((p) => (
+            <li key={p.proveedor} className="px-4 py-3 text-sm">
+              <span className="font-medium">⏸ {p.proveedor} en pausa</span>
+              <span className="block text-xs text-muted-foreground">
+                hasta {hora(p.hasta)} · {p.motivo}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 
 export function Shell({ live, children }: { live: LiveStatus; children: ReactNode }) {
-  const [menu, setMenu] = useState(false);
+  const { view, project, has, server, openTask } = useApp();
+  const [palette, setPalette] = useState(false);
+  const est = useApiQuery<{ estado: EstadoV3 }>(project && has('runs') ? '/v1/estado' : null);
+  const estado = est.data?.estado;
+  const current = NAV.find((n) => n.id === view);
+  const attention = estado?.pendientes.length ?? 0;
+  let open = true;
+  try {
+    open = localStorage.getItem('sidebar_state') !== 'false';
+  } catch {
+    // Without storage the sidebar starts open.
+  }
   return (
-    <div className="flex min-h-svh">
-      <aside className="sticky top-0 hidden h-svh w-64 shrink-0 border-r bg-sidebar md:block">
-        <SidebarBody />
-      </aside>
-      <Sheet open={menu} onOpenChange={setMenu}>
-        <SheetContent side="left" className="w-72 bg-sidebar p-0">
-          <SheetTitle className="sr-only">Menú</SheetTitle>
-          <SidebarBody onNavigate={() => setMenu(false)} />
-        </SheetContent>
-      </Sheet>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
-          <Button variant="ghost" size="icon" className="md:hidden" aria-label="Abrir menú" onClick={() => setMenu(true)}>
-            <MenuIcon />
-          </Button>
-          <div className="md:hidden">
-            <Brand />
-          </div>
-          <div className="ml-auto flex items-center gap-3">
+    <SidebarProvider defaultOpen={open}>
+      <Sidebar collapsible="icon" variant="inset">
+        <SidebarHeader>
+          <Brand />
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <ProjectSwitcher />
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarHeader>
+        <SidebarContent>
+          <Nav attention={attention} />
+        </SidebarContent>
+        <SidebarFooter>
+          <SidebarMenu>
+            {server ? (
+              <SidebarMenuItem>
+                <SidebarMenuButton tooltip="Cerrar sesión" onClick={() => void api.logout()}>
+                  <LogOutIcon />
+                  <span>Cerrar sesión</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ) : (
+              <p className="px-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Todo corre en tu máquina.</p>
+            )}
+          </SidebarMenu>
+        </SidebarFooter>
+        <SidebarRail />
+      </Sidebar>
+      <SidebarInset className="min-w-0">
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur md:rounded-t-xl">
+          <SidebarTrigger aria-label="Mostrar u ocultar el menú" />
+          <Separator orientation="vertical" className="mr-1 h-4" />
+          <Breadcrumb className="min-w-0">
+            <BreadcrumbList className="flex-nowrap">
+              {project ? (
+                <>
+                  <BreadcrumbItem className="hidden max-w-40 truncate md:block">{project.nombre}</BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden md:block" />
+                </>
+              ) : null}
+              <BreadcrumbItem>
+                <BreadcrumbPage className="truncate">{current?.title ?? ''}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          {estado?.modo_demo ? (
+            <Badge variant="outline" className="ml-2 border-warning/40 bg-warning/15">
+              Modo demo
+            </Badge>
+          ) : null}
+          <div className="ml-auto flex items-center gap-1">
+            <Button variant="outline" size="sm" className="hidden gap-2 text-muted-foreground sm:flex" onClick={() => setPalette(true)}>
+              <SearchIcon /> Buscar…
+              <kbd className="pointer-events-none rounded border bg-muted px-1.5 font-mono text-[10px]">Ctrl K</kbd>
+            </Button>
+            <Button variant="ghost" size="icon" className="sm:hidden" aria-label="Buscar" onClick={() => setPalette(true)}>
+              <SearchIcon />
+            </Button>
             <LiveDot status={live} />
+            {project ? <Alerts estado={estado} /> : null}
             <ThemeMenu />
           </div>
         </header>
-        <main id="contenido" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 p-4 md:p-8">
+        <main id="contenido" tabIndex={-1} className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-6 lg:p-8">
           {children}
         </main>
-      </div>
-    </div>
+      </SidebarInset>
+      <CommandPalette open={palette} onOpenChange={setPalette} onOpenTask={(id) => openTask(id)} />
+    </SidebarProvider>
   );
 }

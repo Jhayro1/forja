@@ -17,6 +17,7 @@ import { estimatePlan } from '../plan/estimate.js';
 import { waves } from '../plan/plan.js';
 import { closureBlockers, openQuestions } from '../planner/discovery.js';
 import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, plannerScratch, runPlannerTurn, transcript } from '../planner/session.js';
+import { ObservationService } from '../quality/observations.js';
 import { runningOrchestrator } from '../run/process.js';
 import type { TaskView } from '../run/snapshot.js';
 import { currentChange } from '../run/snapshot.js';
@@ -43,7 +44,8 @@ export class EngineRunsBackend implements RunsBackend {
   state(): object {
     const snap = this.board.snapshot();
     if (!snap) return { cambio: null };
-    return { proyecto: this.ctx.config.nombre, ...snapshotJson(snap, runningOrchestrator(this.ctx.dataDir)), registro: snap.run ? this.board.runLog(snap.run.run_id) : [] };
+    const open = new ObservationService(this.ctx.engine).list({ change_id: snap.change.change_id, states: ['abierta'] }).length;
+    return { proyecto: this.ctx.config.nombre, ...snapshotJson(snap, runningOrchestrator(this.ctx.dataDir), open), registro: snap.run ? this.board.runLog(snap.run.run_id) : [] };
   }
 
   private find(id: string): TaskView | null {

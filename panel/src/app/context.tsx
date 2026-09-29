@@ -3,11 +3,46 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { api } from '@/lib/api';
 import type { Modulos, Proyectos, Textos } from '@/lib/types';
 
-export type ViewId = 'inicio' | 'proyectos' | 'configuracion' | 'resumen' | 'planeacion' | 'acciones' | 'conexiones' | 'auditoria' | 'memoria';
+export type ViewId = 'inicio' | 'sprint' | 'tablero' | 'agentes' | 'historial' | 'calidad' | 'planeacion' | 'proyectos' | 'configuracion' | 'acciones' | 'conexiones' | 'auditoria' | 'memoria';
+
+const VIEWS: ReadonlySet<string> = new Set<ViewId>([
+  'inicio',
+  'sprint',
+  'tablero',
+  'agentes',
+  'historial',
+  'calidad',
+  'planeacion',
+  'proyectos',
+  'configuracion',
+  'acciones',
+  'conexiones',
+  'auditoria',
+  'memoria',
+]);
+/** Old names kept so bookmarks keep working. */
+const ALIASES: Record<string, ViewId> = { resumen: 'tablero', tareas: 'tablero' };
+
+/** The screen lives in the URL (#/tablero): back/forward and reload keep it. */
+function viewFromHash(): ViewId | null {
+  const name = location.hash.replace(/^#\/?/, '').split(/[?/]/)[0] ?? '';
+  if (VIEWS.has(name)) return name as ViewId;
+  return ALIASES[name] ?? null;
+}
+
+function taskFromHash(): string | null {
+  const m = /^#\/tablero\/(T-\d{1,5})/.exec(location.hash);
+  return m?.[1] ?? null;
+}
 
 export type AppState = {
   view: ViewId;
   go: (view: ViewId) => void;
+  /** Task open in the board's side panel (#/tablero/T-003), kept in the URL. */
+  task: string | null;
+  openTask: (id: string | null) => void;
+  /** Server mode (forja servidor): shows «cerrar sesión» and the account settings. */
+  server: boolean;
   modules: string[];
   project: { id: string; nombre: string } | null;
   textos: Textos;
@@ -43,34 +78,58 @@ async function firstView(modules: string[], hasProject: boolean): Promise<ViewId
       // The flow still works without the diagnosis.
     }
   }
-  if (!hasProject) return modules.includes('proyectos') ? 'proyectos' : 'resumen';
-  return modules.includes('trabajos') ? 'inicio' : 'resumen';
+  if (!hasProject) return modules.includes('proyectos') ? 'proyectos' : 'tablero';
+  return modules.includes('trabajos') ? 'inicio' : 'tablero';
 }
 
 export function AppProvider({ children, fallback }: { children: ReactNode; fallback: ReactNode }) {
   const client = useQueryClient();
-  const [state, setState] = useState<Omit<AppState, 'go' | 'projectChanged' | 'has'> | null>(null);
+  const [state, setState] = useState<Omit<AppState, 'go' | 'projectChanged' | 'has' | 'openTask' | 'server'> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       const [textos, mods] = await Promise.all([api.get<{ textos: Textos }>('/v1/textos'), loadModules()]);
-      setState({ textos: textos.textos, ...mods, view: await firstView(mods.modules, mods.project !== null) });
+      const view = viewFromHash() ?? (await firstView(mods.modules, mods.project !== null));
+      if (!location.hash.startsWith(`#/${view}`)) history.replaceState(null, '', `#/${view}`);
+      setState({ textos: textos.textos, ...mods, view, task: view === 'tablero' ? taskFromHash() : null });
     })().catch((e: Error) => setError(e.message));
   }, []);
 
-  const go = useCallback((view: ViewId) => setState((s) => (s ? { ...s, view } : s)), []);
+  useEffect(() => {
+    const onHash = () => {
+      const view = viewFromHash();
+      const task = view === 'tablero' ? taskFromHash() : null;
+      if (view) setState((s) => (s && (s.view !== view || s.task !== task) ? { ...s, view, task } : s));
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const go = useCallback((view: ViewId) => {
+    if (viewFromHash() !== view || taskFromHash()) location.hash = `#/${view}`;
+    setState((s) => (s ? { ...s, view, task: null } : s));
+  }, []);
+  const openTask = useCallback((id: string | null) => {
+    location.hash = id ? `#/tablero/${id}` : '#/tablero';
+    setState((s) => (s ? { ...s, view: 'tablero', task: id } : s));
+  }, []);
   const projectChanged = useCallback(
     async (next: ViewId = 'inicio') => {
       api.clear();
       const mods = await loadModules();
       client.removeQueries();
-      setState((s) => (s ? { ...s, ...mods, view: mods.project ? next : 'proyectos' } : s));
+      const view = mods.project ? next : 'proyectos';
+      history.replaceState(null, '', `#/${view}`);
+      setState((s) => (s ? { ...s, ...mods, view, task: null } : s));
     },
     [client],
   );
 
-  const value = useMemo<AppState | null>(() => (state ? { ...state, go, projectChanged, has: (m) => state.modules.includes(m) } : null), [state, go, projectChanged]);
+  const value = useMemo<AppState | null>(
+    () => (state ? { ...state, go, openTask, projectChanged, server: api.server, has: (m) => state.modules.includes(m) } : null),
+    [state, go, openTask, projectChanged],
+  );
   if (error)
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-3 p-6 text-center">

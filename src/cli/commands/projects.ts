@@ -1,7 +1,9 @@
-import { existsSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { detectProfile } from '../../profile/detect.js';
+import { CloneError, cloneEnv, cloneRepo, parseRepo } from '../../registry/clone.js';
 import { trustRepo, UntrustedRepoError } from '../../registry/inspect.js';
 import { fromUserPath } from '../../registry/paths.js';
 import { createProject, importProject, ProjectError, resolveCheckout } from '../../registry/projects.js';
@@ -25,6 +27,40 @@ export function registerProjectCommands(program: Command): void {
           if (error instanceof ProjectError) throw new CliError(error.message, EXIT.input);
           throw error;
         }
+      });
+    });
+
+  program
+    .command('clonar <repositorio>')
+    .description('clona un repositorio (https o usuario/repo) en ~/proyectos y lo registra; para uno privado, el token va en FORJA_GIT_TOKEN')
+    .option('--ruta <dir>', 'carpeta destino (por defecto ~/proyectos/<repo>)')
+    .action(async (input: string, opts: { ruta?: string }, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      let ref: ReturnType<typeof parseRepo>;
+      let env: Record<string, string>;
+      try {
+        ref = parseRepo(input);
+        env = cloneEnv(ref, process.env.FORJA_GIT_TOKEN);
+      } catch (error) {
+        throw new CliError((error as Error).message, EXIT.input);
+      }
+      const dest = resolve(opts.ruta ? fromUserPath(opts.ruta) : join(homedir(), 'proyectos', ref.name));
+      mkdirSync(dirname(dest), { recursive: true });
+      print(`Clonando ${ref.url} en ${dest}…`);
+      try {
+        await cloneRepo(ref, dest, env, g.json ? () => {} : print);
+      } catch (error) {
+        throw new CliError((error as Error).message, error instanceof CloneError ? EXIT.precondition : EXIT.environment);
+      }
+      await withRegistry(async (registry) => {
+        const { checkout, inspection } = await importProject(registry, dest).catch((error: Error) => {
+          throw new CliError(`se clonó en ${dest}, pero no se pudo registrar: ${error.message}`, EXIT.precondition);
+        });
+        registry.setActive(checkout.checkout_id);
+        if (g.json) return printJson({ proyecto: checkout, inspeccion: inspection });
+        print(`✔ «${checkout.name}» clonado y registrado (${checkout.path})`);
+        for (const w of inspection.warnings) print(`  ! ${w}`);
+        for (const b of inspection.blockers) print(`  ✘ ${b}`);
       });
     });
 

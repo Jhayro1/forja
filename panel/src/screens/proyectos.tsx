@@ -1,15 +1,16 @@
-import { ArrowUpIcon, FolderGit2Icon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GitBranchIcon } from 'lucide-react';
+import { ArrowUpIcon, DownloadCloudIcon, FolderGit2Icon, FolderIcon, FolderOpenIcon, FolderPlusIcon, GitBranchIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '@/app/context';
 import { EmptyState, Field, PageHeader, Section, StatusBadge } from '@/components/common';
 import { useConfirm } from '@/components/confirm';
+import { JobCard } from '@/components/job-card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toaster';
 import { useAction, useApiQuery } from '@/hooks/use-api';
-import type { Carpetas, Importado, Proyecto, Proyectos as ProyectosData } from '@/lib/types';
+import type { Carpetas, Importado, Proyecto, Proyectos as ProyectosData, Trabajo } from '@/lib/types';
 
 function useImport() {
   const { run } = useAction();
@@ -146,6 +147,51 @@ function FolderBrowser({ onPick }: { onPick: (ruta: string) => void }) {
   );
 }
 
+/** «Clonar desde GitHub»: brings a repository to this machine (or server) and registers it. */
+function CloneSection() {
+  const { run } = useAction();
+  const [repo, setRepo] = useState('');
+  const [token, setToken] = useState('');
+  const [folder, setFolder] = useState('');
+  const [jobId, setJobId] = useState<string | null>(null);
+  const job = useApiQuery<{ trabajo: Trabajo }>(jobId ? `/v1/sistema/trabajos/${jobId}` : null, { fastPoll: (d) => d?.trabajo.estado === 'corriendo' });
+  const start = async () => {
+    if (!repo.trim()) return toast('Pega la dirección del repositorio', 'error');
+    const r = await run<{ ok?: boolean; mensaje?: string; trabajo?: Trabajo }>('/v1/proyectos/clonar', { repositorio: repo.trim(), carpeta: folder.trim() || null, token: token.trim() || null });
+    if (r?.trabajo) {
+      setJobId(r.trabajo.id);
+      setToken('');
+    }
+  };
+  const t = job.data?.trabajo;
+  return (
+    <Section title="Clonar desde GitHub" description="Trae un repositorio a esta máquina y lo agrega a tus proyectos, sin usar la terminal.">
+      <Card>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <Field label="Repositorio" htmlFor="clonar-repo" help="La dirección https de GitHub o sólo usuario/repo, por ejemplo Jhayro1/mi-bodega.">
+              <Input id="clonar-repo" placeholder="https://github.com/usuario/repo" value={repo} onChange={(e) => setRepo(e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Token de GitHub (sólo si es privado)" htmlFor="clonar-token" help="Un token de sólo lectura del repositorio. Se usa una vez para clonar y no se guarda en ningún lado.">
+            <Input id="clonar-token" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />
+          </Field>
+          <Field label="Carpeta (opcional)" htmlFor="clonar-carpeta" help="Si lo dejas vacío, va a proyectos/<repo> dentro de tu carpeta personal.">
+            <Input id="clonar-carpeta" placeholder="proyectos/mi-repo" value={folder} onChange={(e) => setFolder(e.target.value)} />
+          </Field>
+        </CardContent>
+        <CardFooter className="flex-wrap gap-2">
+          <Button onClick={() => void start()} disabled={t?.estado === 'corriendo'}>
+            <DownloadCloudIcon /> Clonar
+          </Button>
+          {t?.estado === 'ok' ? <span className="text-sm text-success">✔ Listo: ya aparece en «Tus proyectos».</span> : null}
+        </CardFooter>
+      </Card>
+      {t ? <JobCard job={t} base="/v1/sistema/trabajos" /> : null}
+    </Section>
+  );
+}
+
 export default function Proyectos() {
   const q = useApiQuery<ProyectosData>('/v1/proyectos');
   const { projectChanged, server } = useApp();
@@ -175,6 +221,8 @@ export default function Proyectos() {
           </EmptyState>
         )}
       </Section>
+
+      <CloneSection />
 
       <Section title="Agregar un proyecto existente">
         <Card>

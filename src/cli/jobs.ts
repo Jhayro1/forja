@@ -63,7 +63,11 @@ export class JobRunner {
     return join(this.dir, id);
   }
 
-  start(tipo: string, cmd: JobCommand): JobView {
+  /**
+   * `env`: extra variables for the command (a clone token). They go to the watcher's
+   * environment only, never to the job files on disk.
+   */
+  start(tipo: string, cmd: JobCommand, env: Record<string, string> = {}): JobView {
     const running = this.list().find((j) => j.estado === 'corriendo');
     if (running) throw new Error(`ya hay un trabajo en curso («${running.titulo}»): espera a que termine o cancélalo`);
     const id = newId('job', this.now());
@@ -73,7 +77,7 @@ export class JobRunner {
     writeFileSync(join(dir, 'trabajo.json'), JSON.stringify(meta));
     writeFileSync(join(dir, 'orden.json'), JSON.stringify({ file: cmd.file, args: cmd.args, cwd: cmd.cwd }));
     const err = openSync(join(dir, 'vigilante.err'), 'a', 0o600);
-    const watcher = spawn(process.execPath, [this.watcher, dir], { detached: true, stdio: ['ignore', 'ignore', err] });
+    const watcher = spawn(process.execPath, [this.watcher, dir], { detached: true, stdio: ['ignore', 'ignore', err], env: { ...process.env, ...env } });
     closeSync(err);
     watcher.unref();
     return this.view(id)!;

@@ -2,10 +2,12 @@ import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import type { ProjectsBackend } from '../api/modules/projects.js';
+import { checkDestination, cloneEnv, parseRepo } from '../registry/clone.js';
 import { trustRepo, UntrustedRepoError } from '../registry/inspect.js';
 import { browseRoots, fromUserPath, isWsl, toWindowsPath } from '../registry/paths.js';
 import { createProject, importProject } from '../registry/projects.js';
 import { Registry } from '../registry/registry.js';
+import { FORJA_BIN, JobRunner } from './jobs.js';
 import type { PanelProjects } from './panel-host.js';
 
 const HIDDEN = new Set(['node_modules', 'AppData', 'Application Data', 'Local Settings']);
@@ -81,6 +83,25 @@ export class RegistryProjectsBackend implements ProjectsBackend {
     const { checkout } = await this.withRegistryAsync((r) => createProject(r, name, join(base, name)));
     this.projects.select(checkout.checkout_id);
     return { proyecto: { id: checkout.checkout_id, nombre: checkout.name, ...this.view(checkout.path) }, mensaje: `proyecto «${checkout.name}» creado` };
+  }
+
+  /**
+   * `forja clonar` as a background job in the machine's job folder (the same one installs
+   * use, so the panel shows its output like any other). Errors in the address, the token or
+   * the destination are reported right away, before anything runs.
+   */
+  clone(repo: string, folder: string | null, token: string | null): object {
+    const ref = parseRepo(repo);
+    const env = cloneEnv(ref, token);
+    const dest = folder ? this.resolve(folder) : join(this.userHome, 'proyectos', ref.name);
+    checkDestination(dest);
+    const jobs = new JobRunner(join(this.home, 'trabajos'));
+    // Only the token reaches the job, through its environment; git's other settings are rebuilt by `forja clonar`.
+    return jobs.start(
+      'clonar',
+      { title: `Clonar ${ref.name}`, file: process.execPath, args: [FORJA_BIN, 'clonar', ref.url, '--ruta', dest], cwd: this.userHome },
+      env.GIT_CONFIG_COUNT && token ? { FORJA_GIT_TOKEN: token } : {},
+    );
   }
 
   archive(checkoutId: string): object {

@@ -42,7 +42,7 @@ Guías: [instalar](docs/guias/INSTALAR.md) · [servidor](docs/guias/SERVIDOR.md)
 
 | Paso | Comandos |
 |---|---|
-| Proyecto | `forja nuevo`, `importar`, `proyectos`, `usar`, `proyecto archivar/desarchivar/vincular` |
+| Proyecto | `forja nuevo`, `importar`, `clonar <usuario/repo \| https…>` (token de un repo privado en `FORJA_GIT_TOKEN`; en el panel: Proyectos → Clonar desde GitHub), `proyectos`, `usar`, `proyecto archivar/desarchivar/vincular` |
 | Planear | `forja planear`, `cambios`, `aprobar descubrimiento` |
 | Especificar | `forja especificar`, `responder Q-001 …` |
 | Dividir y aprobar | `forja dividir`, `plan`, `run --estimar`, `aprobar plan` |

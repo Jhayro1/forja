@@ -14,6 +14,8 @@ export interface ProjectsBackend {
   archive(checkoutId: string): object;
   /** Subfolders to pick from, limited to the allowed roots. */
   browse(path: string | null): object;
+  /** Clones a repository into ~/proyectos in the background (v3); the token is used once and never stored. */
+  clone(repo: string, folder: string | null, token: string | null): object;
 }
 
 const CHECKOUT = /^\/v1\/proyectos\/(chk_[0-9A-HJKMNP-TV-Z]{26})\/(seleccionar|archivar)$/;
@@ -36,6 +38,15 @@ export function projectsModule(backend: ProjectsBackend): ApiModule {
         handler: async ({ body }) => {
           const b = await body();
           return { ok: true, ...(await backend.importFolder(stringField(b, 'ruta', { max: 1000 })!, b.confiar === true)) };
+        },
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/proyectos\/clonar$/,
+        handler: async ({ body }) => {
+          const b = await body();
+          const trabajo = backend.clone(stringField(b, 'repositorio', { max: 300 })!, stringField(b, 'carpeta', { optional: true, max: 1000 }), stringField(b, 'token', { optional: true, max: 300 }));
+          return { ok: true, trabajo, mensaje: 'clonando…' };
         },
       },
       {

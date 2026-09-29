@@ -220,7 +220,7 @@ export function Shell({ live, children }: { live: LiveStatus; children: ReactNod
   const est = useApiQuery<{ estado: EstadoV3 }>(project && has('runs') ? '/v1/estado' : null);
   const estado = est.data?.estado;
   const current = NAV.find((n) => n.id === view);
-  const attention = estado?.pendientes.length ?? 0;
+  const attention = estado?.pendientes?.length ?? 0;
   let open = true;
   try {
     open = localStorage.getItem('sidebar_state') !== 'false';

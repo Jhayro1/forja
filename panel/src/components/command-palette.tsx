@@ -82,7 +82,7 @@ export function CommandPalette({ open, onOpenChange, onOpenTask }: { open: boole
                 <PlusIcon /> Nueva idea o sprint
               </CommandItem>
             </CommandGroup>
-            {e.tareas.length ? (
+            {e.tareas?.length ? (
               <>
                 <CommandSeparator />
                 <CommandGroup heading="Tareas">

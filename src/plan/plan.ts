@@ -191,6 +191,15 @@ export function validatePlan(output: PlanOutput, spec: Spec): { issues: PlanIssu
           const key = `archivos:${[a.id, b.id].sort().join('+')}`;
           implicitResources[key] = [a.id, b.id];
           warn(a.id, `puede escribir los mismos archivos que ${b.id}: no correrán a la vez`);
+          continue;
+        }
+        // Reading what a parallel task writes means working on an outdated version (v3 §4.8).
+        for (const [reader, writer] of [
+          [a, b],
+          [b, a],
+        ] as const) {
+          if (reader.lee.some((gr) => writer.escribe.some((gw) => globsMayOverlap(gr, gw))))
+            warn(reader.id, `lee archivos que ${writer.id} escribe y no dependen entre sí: si ${reader.id} necesita la versión nueva, debería depender de ${writer.id}`);
         }
       }
     }

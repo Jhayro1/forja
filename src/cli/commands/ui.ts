@@ -11,6 +11,7 @@ import { projectsModule } from '../../api/modules/projects.js';
 import { runsModule } from '../../api/modules/runs.js';
 import { settingsModule } from '../../api/modules/settings.js';
 import { systemModule } from '../../api/modules/system.js';
+import { workModule } from '../../api/modules/work.js';
 import { OwnerAuth } from '../../api/owner-auth.js';
 import { type ApiModule, ApiServer } from '../../api/server.js';
 import { MailService } from '../../notify/mail.js';
@@ -26,6 +27,7 @@ import { RegistryProjectsBackend } from '../projects-backend.js';
 import { vaultPassphrase } from '../secret-input.js';
 import { ProjectSettingsBackend } from '../settings-backend.js';
 import { MachineSystemBackend } from '../system-backend.js';
+import { EngineWorkBackend } from '../work-backend.js';
 
 /**
  * Modules the panel offers for a project. Each milestone adds its own module
@@ -39,11 +41,24 @@ export type PanelResources = {
   busy: BusyFlag;
 };
 export type ModuleFactory = (ctx: EngineContext, res: PanelResources) => ApiModule;
+
+/** One planning backend per open project: the chat and the action plans share its «thinking» state. */
+const planners = new WeakMap<EngineContext, EnginePlanningBackend>();
+function plannerFor(ctx: EngineContext, busy: BusyFlag): EnginePlanningBackend {
+  let p = planners.get(ctx);
+  if (!p) {
+    p = new EnginePlanningBackend(ctx, busy);
+    planners.set(ctx, p);
+  }
+  return p;
+}
+
 export const PANEL_MODULES: ModuleFactory[] = [
   (ctx) => runsModule(new EngineRunsBackend(ctx)),
   (ctx, res) => connectionsModule(new EngineConnectionsBackend(ctx, res.vault)),
   (ctx) => memoryModule(new EngineMemoryBackend(ctx)),
-  (ctx, res) => planningModule(new EnginePlanningBackend(ctx, res.busy)),
+  (ctx, res) => planningModule(plannerFor(ctx, res.busy)),
+  (ctx, res) => workModule(new EngineWorkBackend(ctx, plannerFor(ctx, res.busy))),
   (ctx) => jobsModule(new ProjectJobsBackend(ctx)),
   (ctx, res) => settingsModule(new ProjectSettingsBackend(ctx, res.reload)),
 ];

@@ -9,6 +9,7 @@ import { startLaunch } from '../../runtime/launch-service.js';
 import { launchDir } from '../../runtime/launcher.js';
 import { runCommand } from '../../verify/commands.js';
 import { buildWorkerPrompt } from '../context.js';
+import { buildTeamLedger, exportsReader } from '../team.js';
 import { GraphContext } from './graph-context.js';
 import type { RunContext } from './run-context.js';
 import { levelFor } from './scheduler.js';
@@ -18,6 +19,8 @@ export const gatewayOrigin = (taskId: string, runId: string) => `agente ${taskId
 
 const CONTEXT_NOTE =
   '\n<contexto_bajo_pedido>\nSi te falta contexto (una decisión, archivos relacionados o quién usa un archivo), pídelo con la herramienta MCP «forja» pedir_contexto indicando el motivo, en vez de recorrer el repositorio a ciegas.\n</contexto_bajo_pedido>';
+
+const TEAM_NOTE = '\n<equipo_en_vivo>\nEn tareas largas, consulta la herramienta MCP «forja» equipo para ver qué terminaron o empezaron otras tareas desde que arrancaste.\n</equipo_en_vivo>';
 
 const EXTERNAL_TOOLS_NOTE =
   '<herramientas_externas>\nSi la tarea necesita un efecto fuera del repositorio (un servicio, una API), usa la herramienta MCP «forja» proponer_accion: queda pendiente de aprobación humana y NO se ejecuta. No intentes llegar al servicio de otra forma.\n</herramientas_externas>';
@@ -29,6 +32,7 @@ const EXTERNAL_TOOLS_NOTE =
  */
 export class TaskLauncher {
   private readonly graph: GraphContext;
+  private readonly exportsOf: ReturnType<typeof exportsReader>;
   private noProviderSince: number | null = null;
   private lastNoProviderLog = 0;
 
@@ -38,6 +42,13 @@ export class TaskLauncher {
     graph?: GraphContext,
   ) {
     this.graph = graph ?? new GraphContext(ctx);
+    this.exportsOf = exportsReader(ctx.repoPath);
+  }
+
+  /** The team ledger for one task, also served live through the gateway's «equipo» tool. */
+  team(taskId: string) {
+    const { ctx } = this;
+    return buildTeamLedger({ plan: ctx.plan, tasks: ctx.tasks(), exec: (id) => ctx.execOf(id), exportsOf: this.exportsOf }, taskId);
   }
 
   /** Milliseconds without any usable model while tasks wait (null: models available). */
@@ -87,13 +98,16 @@ export class TaskLauncher {
       const related = await this.graph.relatedFiles(task, path);
       // Lessons whose files changed since approval wait for a human to revalidate them (MEJORAS 5.7).
       const lessons = new LessonService(engine.store).forTask(task, hashFilesIn(path)).map((l) => ({ id: l.lesson_id, text: l.text }));
-      const built = await buildWorkerPrompt({ plan, spec: ctx.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer, related, lessons });
-      const prompt = this.gateway ? `${built.prompt}\n\n${EXTERNAL_TOOLS_NOTE}${this.gateway.offersContext ? CONTEXT_NOTE : ''}` : built.prompt;
+      const team = await this.team(taskId);
+      const built = await buildWorkerPrompt({ plan, spec: ctx.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer, related, lessons, team });
+      const prompt = this.gateway ? `${built.prompt}\n\n${EXTERNAL_TOOLS_NOTE}${TEAM_NOTE}${this.gateway.offersContext ? CONTEXT_NOTE : ''}` : built.prompt;
       const launchId = newId('lan');
       const dir = launchDir(engine.dataDir, launchId);
       // Intent before effect: the launch id is durable before the runner exists.
       ctx.exec(taskId, { launch_id: launchId, launch_dir: dir });
-      const mcpSocket = this.gateway ? await this.gateway.socketFor(gatewayOrigin(taskId, run.run_id), launchId, { runId: run.run_id, taskId }) : undefined;
+      const mcpSocket = this.gateway
+        ? await this.gateway.socketFor(gatewayOrigin(taskId, run.run_id), launchId, { runId: run.run_id, taskId }, async () => JSON.stringify(await this.team(taskId)))
+        : undefined;
       startLaunch(
         engine.dataDir,
         engine.adapters[candidate.provider],

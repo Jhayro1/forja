@@ -1,5 +1,5 @@
 import type { Role } from '../../core/engine.js';
-import { type Plan, type PlanTask, taskResources } from '../../plan/plan.js';
+import { globsMayOverlap, type Plan, type PlanTask, taskResources } from '../../plan/plan.js';
 import type { TaskRow } from '../../store/projections.js';
 
 /**
@@ -47,11 +47,17 @@ export function selectLaunches(input: { plan: Plan; tasks: TaskRow[]; parallel: 
   const running = tasks.filter((t) => t.state === 'reservada' || t.state === 'ejecutando').length;
   let slots = input.parallel - running;
   if (slots <= 0) return [];
-  const held = new Set(tasks.filter((t) => (HOLDING_STATES as readonly string[]).includes(t.state)).flatMap((t) => taskResources(plan, t.task_id)));
+  const holding = tasks.filter((t) => (HOLDING_STATES as readonly string[]).includes(t.state));
+  const held = new Set(holding.flatMap((t) => taskResources(plan, t.task_id)));
   const dependents = input.dependents ?? dependentCounts(plan);
+  // Files being written right now: a task that reads them would work on an outdated copy,
+  // so it goes after the others when there is a choice (v3 §4.8). It is never starved.
+  const writing = holding.flatMap((t) => plan.tareas.find((p) => p.id === t.task_id)?.escribe ?? []);
+  const readsInFlight = (id: string) => (plan.tareas.find((p) => p.id === id)?.lee ?? []).some((g) => writing.some((w) => globsMayOverlap(g, w)));
+  const conflict = new Map(tasks.map((t) => [t.task_id, readsInFlight(t.task_id) ? 1 : 0]));
   const ready = tasks
     .filter((t) => t.state === 'lista' && (!input.only || t.task_id === input.only))
-    .sort((a, b) => (dependents.get(b.task_id) ?? 0) - (dependents.get(a.task_id) ?? 0) || a.task_id.localeCompare(b.task_id));
+    .sort((a, b) => (conflict.get(a.task_id) ?? 0) - (conflict.get(b.task_id) ?? 0) || (dependents.get(b.task_id) ?? 0) - (dependents.get(a.task_id) ?? 0) || a.task_id.localeCompare(b.task_id));
   const out: string[] = [];
   for (const t of ready) {
     if (slots <= 0) break;

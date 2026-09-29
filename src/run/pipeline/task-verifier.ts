@@ -42,6 +42,20 @@ export class TaskVerifier {
     });
     ctx.exec(taskId, { steps: JSON.stringify(v.steps) });
     if (v.ok) {
+      // What the reviewer left on an APPROVED change is kept, not lost (v3 §5.1.1).
+      for (const h of v.review?.hallazgos ?? [])
+        ctx.observe({ task_id: taskId, source: 'revisor', severity: h.severidad, kind: h.clase, location: h.ubicacion, text: h.motivo, commit_sha: exec.candidate_sha });
+      for (const c of v.review?.criterios.filter((x) => x.veredicto === 'no_verificable') ?? [])
+        ctx.observe({
+          task_id: taskId,
+          source: 'revisor',
+          severity: 'media',
+          kind: 'defecto',
+          location: c.id,
+          text: `No se pudo verificar ${c.id} en la revisión`,
+          evidence: c.evidencia,
+          commit_sha: exec.candidate_sha,
+        });
       ctx.move(taskId, 'verificada', 'verificacion_aprobada');
       ctx.log(`✔ ${taskId} verificada (${v.steps.map((s) => s.paso).join(', ')})`);
     } else if (v.environmentFailure) {

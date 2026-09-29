@@ -3,6 +3,7 @@ import { captureTask, resetWorktree } from '../../git/workspace.js';
 import { readOutcome } from '../../runtime/launch-service.js';
 import { launchStatus, spawnRunner } from '../../runtime/launcher.js';
 import { extractQuestion } from '../context.js';
+import { extractSummary } from '../team.js';
 import type { RunContext } from './run-context.js';
 
 /**
@@ -76,7 +77,7 @@ export class OutcomeHandler {
       ctx.qualityFailure(taskId, `El intento no produjo cambios (${why}).`);
       return;
     }
-    ctx.exec(taskId, { candidate_sha: capture.sha, files: JSON.stringify(capture.changes.map((c) => c.path)) });
+    ctx.exec(taskId, { candidate_sha: capture.sha, files: JSON.stringify(capture.changes.map((c) => c.path)), summary: extractSummary(outcome.summary.text) });
     ctx.move(taskId, 'verificando', 'proceso_terminado');
     ctx.log(`✎ ${taskId}: ${capture.changes.length} archivo(s) cambiados; verificando`);
   }

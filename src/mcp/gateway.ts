@@ -57,6 +57,15 @@ export type GatewayContext = {
   context?: ContextProvider;
   /** The run/task this socket belongs to (set by the host, never by the agent). */
   scope?: RequestScope;
+  /** Live team ledger of the task (v3 §4.8): what the other agents do and did. */
+  team?: () => Promise<string>;
+};
+
+const TEAM_TOOL: McpTool = {
+  name: 'equipo',
+  description:
+    'Qué hacen ahora las otras tareas de este trabajo (y qué archivos tienen reservados), qué terminaron (archivos, lo que exportan y su resumen) y quién depende de tu tarea. Úsala antes de crear algo que otra tarea pudo haber hecho.',
+  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 };
 
 const CONTEXT_TOOL: McpTool = {
@@ -96,6 +105,7 @@ export function gatewayHandler(ctx: GatewayContext): (method: string, params: un
           tools: [
             ...OWN_TOOLS,
             ...(ctx.context ? [CONTEXT_TOOL] : []),
+            ...(ctx.team ? [TEAM_TOOL] : []),
             ...ctx.externals.flatMap((e) => e.tools.map((t) => ({ ...t, name: `${e.def.name}__${t.name}`, description: `[${e.def.name} ${e.def.declared_version}] ${t.description ?? ''}`.trim() }))),
           ],
         };
@@ -132,6 +142,9 @@ export function gatewayHandler(ctx: GatewayContext): (method: string, params: un
               if (!['decision', 'relacionados', 'archivo'].includes(que)) return text('que debe ser decision, relacionados o archivo', true);
               return text(ctx.context.answer(ctx.scope ?? null, { que: que as 'decision', objetivo: String(args.objetivo ?? '').slice(0, 300), motivo: String(args.motivo ?? '') }));
             }
+            case 'equipo':
+              if (!ctx.team) return text('herramienta no disponible', true);
+              return text((await ctx.team()) || 'no hay otras tareas en este trabajo');
             case 'estado_accion': {
               const a = ctx.actions.get(String(args.id));
               // Agents only see their own proposals.
@@ -188,14 +201,14 @@ export class GatewayHost {
     return this.context !== undefined;
   }
 
-  async socketFor(origin: string, key: string, scope: RequestScope = null): Promise<string> {
+  async socketFor(origin: string, key: string, scope: RequestScope = null, team?: () => Promise<string>): Promise<string> {
     const folder = join(this.dir, createHash('sha256').update(key).digest('hex').slice(0, 12));
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     const path = join(folder, MCP_SOCKET_NAME);
     this.servers.get(path)?.close();
     rmSync(path, { force: true });
     const server = createServer((socket) =>
-      serveRpc(socket, socket, gatewayHandler({ origin, actions: this.actions, externals: this.externals, scope, ...(this.context ? { context: this.context } : {}) })),
+      serveRpc(socket, socket, gatewayHandler({ origin, actions: this.actions, externals: this.externals, scope, ...(this.context ? { context: this.context } : {}), ...(team ? { team } : {}) })),
     );
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);

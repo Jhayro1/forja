@@ -3,6 +3,8 @@ import { TASK_CREATED, TASK_STATE_CHANGED, TaskCreatedPayload, TaskStateChangedP
 import { checkTransition, type TaskState, type TransitionReason } from '../domain/task-state.js';
 import { applyMemoryEvent, MEMORY_TABLES } from '../memory/lessons.js';
 import { applyProfileEvent, PROFILE_TABLES } from '../profile/baseline.js';
+import { applyQualityEvent, QUALITY_TABLES } from '../quality/observations.js';
+import { applyWorkEvent, WORK_TABLES } from '../work/epics.js';
 import { ACTION_TABLES, applyActionEvent } from './action-projections.js';
 import { applyPlanningEvent, PLANNING_TABLES } from './planning-projections.js';
 import type { Db } from './sqlite.js';
@@ -71,8 +73,10 @@ export function applyEvent(db: Db, event: StoredEvent): void {
       applyActionEvent(db, event);
       applyMemoryEvent(db, event);
       applyProfileEvent(db, event);
+      applyQualityEvent(db, event);
+      applyWorkEvent(db, event);
       return;
   }
 }
 
-export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES, ...ACTION_TABLES, ...MEMORY_TABLES, ...PROFILE_TABLES] as const;
+export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES, ...ACTION_TABLES, ...MEMORY_TABLES, ...PROFILE_TABLES, ...QUALITY_TABLES, ...WORK_TABLES] as const;

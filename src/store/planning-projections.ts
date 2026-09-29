@@ -63,6 +63,8 @@ export const TASK_EXEC_FIELDS = [
   'env_failures',
   'control',
   'pinned_model',
+  'account',
+  'summary',
 ] as const;
 export const TaskExecPatch = z.object(Object.fromEntries(TASK_EXEC_FIELDS.map((f) => [f, z.union([z.string(), z.number(), z.null()]).optional()]))).strict();
 

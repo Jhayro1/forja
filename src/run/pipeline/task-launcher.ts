@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { effortParam, type ProviderRef, parseRef, pickCandidate, providerPause } from '../../core/engine.js';
+import { accountFor, accountParams, effortParam, type ProviderRef, parseRef, pickCandidate, pinnedAvailable } from '../../core/engine.js';
 import { newId } from '../../domain/ids.js';
 import { refSha, taskBranch, taskWorktree } from '../../git/workspace.js';
 import type { GatewayHost } from '../../mcp/gateway.js';
@@ -47,7 +47,7 @@ export class TaskLauncher {
 
   private candidateFor(_taskId: string, role: ReturnType<typeof levelFor>, pinned: string | null): ProviderRef | null {
     if (!pinned) return pickCandidate(this.ctx.engine, role);
-    if (providerPause(this.ctx.engine, pinned)) return null;
+    if (!pinnedAvailable(this.ctx.engine, pinned)) return null;
     return { ref: pinned, ...parseRef(pinned) };
   }
 
@@ -66,10 +66,13 @@ export class TaskLauncher {
       }
       return;
     }
+    // With several accounts, the least busy one takes the task (v3 §4.9).
+    const account = accountFor(engine, candidate.provider, 'reparto');
+    if (account === null) return;
     this.noProviderSince = null;
     ctx.move(taskId, 'reservada', 'reservada');
     const attempt = exec.quality_failures + 1;
-    ctx.exec(taskId, { attempt, level: role, provider: candidate.provider, model: candidate.model });
+    ctx.exec(taskId, { attempt, level: role, provider: candidate.provider, model: candidate.model, account: account?.alias ?? null });
     try {
       const base = exec.worktree && existsSync(exec.worktree) ? exec.base_sha! : await refSha(ctx.repoPath, run.branch);
       const { path } = await taskWorktree(ctx.repoPath, ctx.dir(taskId), taskBranch(engine.config.git.prefijo, run.run_id, taskId), base);
@@ -104,7 +107,7 @@ export class TaskLauncher {
           ...effortParam(engine.config, role, candidate.ref),
           prompt,
           workspace: path,
-          providerStateDir: join(engine.dataDir, 'proveedores', candidate.provider),
+          ...accountParams(engine, candidate.provider, account),
           tools: 'edicion',
           timeoutMs: engine.config.ejecucion.timeout_min * 60_000,
           ...(task.red ? { extraHosts: plan.perfil.red_instalar } : {}),
@@ -114,7 +117,7 @@ export class TaskLauncher {
         engine.runnerScript,
       );
       ctx.move(taskId, 'ejecutando', 'lanzamiento_iniciado');
-      ctx.log(`▶ ${taskId} ${task.titulo} · ${candidate.ref}${exec.pinned_model ? ' (reasignada)' : ''} (intento ${attempt})`);
+      ctx.log(`▶ ${taskId} ${task.titulo} · ${candidate.ref}${account && account.alias !== 'principal' ? ` @${account.alias}` : ''}${exec.pinned_model ? ' (reasignada)' : ''} (intento ${attempt})`);
     } catch (error) {
       // A launch that cannot even start will not fix itself: bounded, then blocked.
       ctx.environmentFailure(taskId, `no se pudo lanzar el agente: ${(error as Error).message}`);

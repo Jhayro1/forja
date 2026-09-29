@@ -10,6 +10,7 @@ import { resumeProvider } from '../core/engine.js';
 import { McpRegistry } from '../mcp/registry.js';
 import { GraphStore } from '../memory/graph-store.js';
 import { hashFilesIn, LessonService } from '../memory/lessons.js';
+import { MailService, panelLink } from '../notify/mail.js';
 import { currentApproval, gateProblems } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import { estimatePlan } from '../plan/estimate.js';
@@ -244,9 +245,22 @@ export class EnginePlanningBackend implements PlanningBackend {
           change = listChanges(engine).find((c) => c.change_id === id)!;
         }
         const inputs = change.mode === 'mejora' ? { workspace: this.ctx.checkout.path, evidence: await repoEvidence(this.ctx.checkout.path) } : { workspace: plannerScratch(engine) };
+        const started = Date.now();
         await runPlannerTurn(engine, { changeId: change.change_id, userText, ...inputs, closing: opts.cerrar });
+        // A long answer deserves an email (v3 §5.6): the user may have left the tab.
+        if (Date.now() - started > 60_000) {
+          const reply = transcript(engine, change.change_id).at(-1)?.planner_text ?? '';
+          void new MailService(this.ctx.home).notice('chat', {
+            asunto: `Forja · ${this.ctx.config.nombre}: el planeador respondió`,
+            texto: `Cambio: ${change.title}\n\n${reply.slice(0, 3000)}${panelLink()}`,
+          });
+        }
       } catch (error) {
         this.lastError = (error as Error).message;
+        void new MailService(this.ctx.home).notice('chat', {
+          asunto: `Forja · ${this.ctx.config.nombre}: el planeador no pudo responder`,
+          texto: `${this.lastError.slice(0, 2000)}${panelLink()}`,
+        });
       } finally {
         this.thinking = null;
         this.busy.set(null);

@@ -279,6 +279,11 @@ const MIGRATIONS: readonly string[] = [
   -- Lecciones: hashes del ámbito al aprobarlas (vencen cuando cambian sus archivos, MEJORAS 5.7).
   ALTER TABLE lessons ADD COLUMN hashes TEXT;
   `,
+  `
+  -- v3: cuenta del proveedor con la que corrió cada tarea (§4.9) y su resumen de producto.
+  ALTER TABLE task_exec ADD COLUMN account TEXT;
+  ALTER TABLE task_exec ADD COLUMN summary TEXT;
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

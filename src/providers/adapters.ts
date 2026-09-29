@@ -40,6 +40,8 @@ export type LaunchParams = {
   simulationScript?: object;
   /** Host path of this launch's MCP gateway socket (M5): the agent's ONLY MCP server. */
   mcpSocket?: string;
+  /** Session file of the account chosen for this launch (v3 §4.9); the CLI's default one otherwise. */
+  credentialFile?: string;
 };
 
 /**
@@ -134,7 +136,7 @@ export class ClaudeAdapter implements ProviderAdapter {
 
   buildOrder(p: LaunchParams): LaunchOrder {
     if (!this.executable) throw new AdapterError('Claude Code no está instalado (no se encontró «claude» en el PATH)');
-    const cred = ClaudeAdapter.credentialFile();
+    const cred = p.credentialFile ?? ClaudeAdapter.credentialFile();
     if (!existsSync(cred)) throw new AdapterError(`no se encontró la sesión de Claude (${cred}); ejecuta «claude» e inicia sesión`);
     const tools = p.tools === 'edicion' ? ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'] : ['Read', 'Glob', 'Grep'];
     const argv = [
@@ -202,7 +204,7 @@ export class CodexAdapter implements ProviderAdapter {
 
   buildOrder(p: LaunchParams): LaunchOrder {
     if (!this.executable) throw new AdapterError('Codex no está instalado (no se encontró «codex» en el PATH)');
-    const cred = CodexAdapter.credentialFile();
+    const cred = p.credentialFile ?? CodexAdapter.credentialFile();
     if (!existsSync(cred)) throw new AdapterError(`no se encontró la sesión de Codex (${cred}); ejecuta «codex login»`);
     const sandbox = p.tools === 'edicion' ? 'workspace-write' : 'read-only';
     const flags = ['--json', '--ignore-user-config', '--skip-git-repo-check', '-m', p.model];

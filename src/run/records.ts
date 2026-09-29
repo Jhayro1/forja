@@ -46,6 +46,10 @@ export type ExecRow = {
   control: string | null;
   /** Model the user pinned with `forja reasignar` (`proveedor:modelo`), instead of the role's order. */
   pinned_model: string | null;
+  /** Provider account the last attempt ran on (v3 §4.9); null = the CLI's default session. */
+  account: string | null;
+  /** What the agent says it did, in product language (shown on the board). */
+  summary: string | null;
 };
 
 const EMPTY_EXEC: Omit<ExecRow, 'run_id' | 'task_id'> = {
@@ -69,6 +73,8 @@ const EMPTY_EXEC: Omit<ExecRow, 'run_id' | 'task_id'> = {
   steps: null,
   control: null,
   pinned_model: null,
+  account: null,
+  summary: null,
 };
 
 export type ExecPatch = Partial<Omit<ExecRow, 'run_id' | 'task_id'>>;

@@ -1,8 +1,10 @@
 import { createInterface } from 'node:readline';
 import type { Command } from 'commander';
 import { type IdempotencyStore, MemoryIdempotencyStore, SqliteIdempotencyStore } from '../../api/idempotency.js';
+import { accountsModule } from '../../api/modules/accounts.js';
 import { connectionsModule } from '../../api/modules/connections.js';
 import { jobsModule } from '../../api/modules/jobs.js';
+import { mailModule } from '../../api/modules/mail.js';
 import { memoryModule } from '../../api/modules/memory.js';
 import { planningModule } from '../../api/modules/planning.js';
 import { projectsModule } from '../../api/modules/projects.js';
@@ -10,6 +12,7 @@ import { runsModule } from '../../api/modules/runs.js';
 import { settingsModule } from '../../api/modules/settings.js';
 import { systemModule } from '../../api/modules/system.js';
 import { type ApiModule, ApiServer } from '../../api/server.js';
+import { MailService } from '../../notify/mail.js';
 import { forjaHome } from '../../registry/home.js';
 import { Vault, vaultPaths } from '../../vault/vault.js';
 import { CliError, EXIT, print } from '../context.js';
@@ -47,7 +50,12 @@ export const PANEL_MODULES: ModuleFactory[] = [
 /** Modules that work without a project (system setup, choosing a project…). */
 export type GlobalResources = { home: string; projects: PanelProjects; system: MachineSystemBackend };
 export type GlobalModuleFactory = (res: GlobalResources) => ApiModule;
-export const GLOBAL_MODULES: GlobalModuleFactory[] = [(res) => systemModule(res.system), (res) => projectsModule(new RegistryProjectsBackend(res.home, res.projects))];
+export const GLOBAL_MODULES: GlobalModuleFactory[] = [
+  (res) => systemModule(res.system),
+  (res) => accountsModule(res.system),
+  (res) => mailModule(new MailService(res.home)),
+  (res) => projectsModule(new RegistryProjectsBackend(res.home, res.projects)),
+];
 
 /** Replays by Idempotency-Key in the open project's database; in memory while there is none. */
 function idempotencyFor(projects: PanelProjects): IdempotencyStore {

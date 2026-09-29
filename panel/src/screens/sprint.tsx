@@ -2,6 +2,7 @@ import { CheckIcon, CircleCheckBigIcon, LoaderCircleIcon, PlayIcon, SendIcon, Sp
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/app/context';
 import { Mono, PageHeader, StatusBadge } from '@/components/common';
+import { DeliveryCard } from '@/components/delivery-card';
 import { JobCard } from '@/components/job-card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -418,22 +419,25 @@ function RunView({ est, job, startJob }: { est: Estado; job: Trabajo | null; sta
 
 function DeliveredView({ est, startJob, onNew }: { est: Estado; startJob: StartJob; onNew: () => void }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CircleCheckBigIcon className="size-5 text-success" /> Entregado
-        </CardTitle>
-        <CardDescription>
-          Los cambios están en la rama <Mono className="font-medium text-foreground">{est.entrega ?? 'de entrega'}</Mono>. Tu rama principal no se tocó: revísala y mézclala cuando quieras.
-        </CardDescription>
-      </CardHeader>
-      <CardFooter className="flex-wrap gap-2">
-        <Button variant="outline" onClick={() => void startJob('informe')}>
-          Ver el informe
-        </Button>
-        <Button onClick={onNew}>Empezar un cambio nuevo</Button>
-      </CardFooter>
-    </Card>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CircleCheckBigIcon className="size-5 text-success" /> Entregado
+          </CardTitle>
+          <CardDescription>
+            Los cambios están en la rama <Mono className="font-medium text-foreground">{est.entrega ?? 'de entrega'}</Mono>. Tu rama principal no se tocó: revísala y mézclala cuando quieras.
+          </CardDescription>
+        </CardHeader>
+        <CardFooter className="flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void startJob('informe')}>
+            Ver el informe
+          </Button>
+          <Button onClick={onNew}>Empezar un cambio nuevo</Button>
+        </CardFooter>
+      </Card>
+      <DeliveryCard />
+    </div>
   );
 }
 

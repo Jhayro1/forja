@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import { GitHubSettings } from '../../git/publish.js';
+import { publishDelivery } from '../../git/publish-delivery.js';
 import { label, TEXTOS } from '../../i18n/textos.js';
 import { latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
@@ -29,6 +31,21 @@ import { domainError, snapshotOrFail, taskOrFail } from '../run-selection.js';
 import { confirm } from '../secret-input.js';
 import { certifyModels } from './conformance.js';
 import { startRunNotifications } from './notify.js';
+
+/**
+ * With a GitHub token and «publicar al entregar» on, the delivered branch goes up and its PR
+ * opens right away. It never merges nor touches the main branch; a failure only warns.
+ */
+async function autoPublish(ctx: EngineContext, change: ReturnType<typeof getChange>): Promise<void> {
+  const gh = new GitHubSettings(ctx.home).view();
+  if (!gh.configurado || !gh.publicar_al_entregar) return;
+  try {
+    const r = await publishDelivery(ctx.engine, change, { home: ctx.home, repoPath: ctx.checkout.path });
+    print(`  ⇡ Rama ${r.rama} subida a GitHub${r.pr ? ` · PR: ${r.pr.url}` : ''} (Forja no la une: eso lo decides tú)`);
+  } catch (error) {
+    print(`  ⚠ No se pudo publicar en GitHub: ${(error as Error).message} (reinténtalo con forja publicar)`);
+  }
+}
 
 function showPending(s: RunSnapshot): void {
   if (s.pending.length === 0) return;
@@ -253,6 +270,7 @@ export function registerRunCommands(program: Command): void {
               : `■ Run ${summary.state}: ${s.integrated}/${s.total} integradas.`,
           );
           if (summary.state === 'completado') print(`  Revisa: git log --oneline ${summary.deliveryBranch} · informe: forja informe`);
+          if (summary.state === 'completado') await autoPublish(ctx, getChange(ctx.engine, change.change_id));
           showPending(s);
           if (summary.state !== 'completado') print(`Siguiente paso: ${s.nextStep}`);
         }

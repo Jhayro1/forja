@@ -3,6 +3,7 @@ import type { Command } from 'commander';
 import { type IdempotencyStore, MemoryIdempotencyStore, SqliteIdempotencyStore } from '../../api/idempotency.js';
 import { accountsModule } from '../../api/modules/accounts.js';
 import { connectionsModule } from '../../api/modules/connections.js';
+import { githubModule } from '../../api/modules/github.js';
 import { jobsModule } from '../../api/modules/jobs.js';
 import { mailModule } from '../../api/modules/mail.js';
 import { memoryModule } from '../../api/modules/memory.js';
@@ -14,6 +15,7 @@ import { systemModule } from '../../api/modules/system.js';
 import { workModule } from '../../api/modules/work.js';
 import { OwnerAuth } from '../../api/owner-auth.js';
 import { type ApiModule, ApiServer } from '../../api/server.js';
+import { GitHubSettings } from '../../git/publish.js';
 import { MailService } from '../../notify/mail.js';
 import { forjaHome } from '../../registry/home.js';
 import { Vault, vaultPaths } from '../../vault/vault.js';
@@ -70,6 +72,7 @@ export const GLOBAL_MODULES: GlobalModuleFactory[] = [
   (res) => systemModule(res.system),
   (res) => accountsModule(res.system),
   (res) => mailModule(new MailService(res.home)),
+  (res) => githubModule(new GitHubSettings(res.home)),
   (res) => projectsModule(new RegistryProjectsBackend(res.home, res.projects)),
 ];
 

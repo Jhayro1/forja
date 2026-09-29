@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { publishDelivery } from '../../git/publish-delivery.js';
 import { MailService, panelLink } from '../../notify/mail.js';
 import { mailOnce } from '../../notify/mail-notices.js';
 import { ObservationService } from '../../quality/observations.js';
@@ -46,6 +47,29 @@ export function registerQualityCommands(program: Command): void {
         print(`  auditor: ${'error' in report.auditor ? `✘ ${report.auditor.error}` : report.auditor.resumen}`);
         print(`  QA: ${'error' in report.qa ? `✘ ${report.qa.error}` : report.qa.resumen}`);
         print(report.observaciones ? `→ ${report.observaciones} observación(es): revísalas con forja observaciones o en el panel (Calidad).` : '→ sin observaciones nuevas.');
+      } finally {
+        ctx.close();
+      }
+    });
+
+  program
+    .command('publicar')
+    .description('sube la rama de entrega del sprint a GitHub y abre su PR (nunca une ni toca la rama principal); usa el token de Ajustes → GitHub')
+    .action(async (_o: unknown, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const change = currentChange(ctx.engine);
+        if (!change) throw new CliError('no hay ningún sprint', EXIT.precondition);
+        let r: Awaited<ReturnType<typeof publishDelivery>>;
+        try {
+          r = await publishDelivery(ctx.engine, change, { home: ctx.home, repoPath: ctx.checkout.path });
+        } catch (error) {
+          throw new CliError((error as Error).message, EXIT.precondition);
+        }
+        if (g.json) return printJson({ publicacion: r });
+        print(`✔ Rama ${r.rama} subida a ${r.repositorio}${r.pr ? `\n  PR ${r.pr.nuevo ? 'abierto' : 'ya existente'}: ${r.pr.url}` : ''}`);
+        print('  Forja no une el PR ni toca la rama principal: eso lo decides tú.');
       } finally {
         ctx.close();
       }

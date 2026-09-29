@@ -1,5 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
+import { deliveryState, publishDelivery } from '../../src/git/publish-delivery.js';
+import { getChange } from '../../src/planner/session.js';
 import { actionPlanText, ObservationService } from '../../src/quality/observations.js';
 import { latestValidation, scanDiff, validateSprint } from '../../src/quality/validate.js';
 import { Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
@@ -129,6 +132,20 @@ describe.skipIf(!HAS_BWRAP)('historial y observaciones de un run real (agentes s
     expect(after.map((o) => `${o.source}:${o.kind}`).sort()).toEqual(['auditor:sugerencia', 'qa:defecto', 'revisor:sugerencia']);
     expect(after.find((o) => o.source === 'qa')?.location).toBe('CA-002');
     expect(latestValidation(t.engine, changeId)?.observaciones).toBe(2);
+
+    // Publicar la entrega: sube sólo la rama de Forja al remoto y lo deja registrado.
+    const remote = `${t.dir}/remoto.git`;
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
+    process.env.FORJA_GITHUB_TOKEN = 'github_pat_prueba1234567890';
+    try {
+      const change = getChange(t.engine, changeId);
+      const r = await publishDelivery(t.engine, change, { home: t.dir, repoPath: repo, pushUrl: remote });
+      expect(r.rama).toBe(`forja/entrega/${changeId}`);
+      expect(execFileSync('git', ['branch', '--list'], { cwd: remote }).toString()).not.toContain('main');
+      expect(deliveryState(t.engine, change, t.dir).publicada?.commit).toBe(r.commit);
+    } finally {
+      delete process.env.FORJA_GITHUB_TOKEN;
+    }
     // A run plus a whole-sprint validation in the sandbox: slower than a unit test under a loaded suite.
   }, 90_000);
 });

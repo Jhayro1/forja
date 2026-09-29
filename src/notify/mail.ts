@@ -1,8 +1,10 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTransport } from 'nodemailer';
 import { z } from 'zod';
+import { decryptLocal, encryptLocal } from '../security/local-secret.js';
+
+export { decryptLocal, encryptLocal };
 
 /**
  * Email notices over any SMTP (v3/PLAN.md §5.6 and §6.10). Built for Auralis Mail app
@@ -70,32 +72,6 @@ export const smtpSender: Sender = async (s, m) => {
     transport.close();
   }
 };
-
-function localKey(home: string): Buffer {
-  const path = join(home, 'clave-local');
-  if (!existsSync(path)) {
-    mkdirSync(home, { recursive: true, mode: 0o700 });
-    writeFileSync(path, randomBytes(32), { mode: 0o600, flag: 'wx' });
-  }
-  const key = readFileSync(path);
-  if (key.length !== 32) throw new MailError(`${path} no es una clave válida`);
-  return key;
-}
-
-export function encryptLocal(home: string, text: string): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', localKey(home), iv);
-  const data = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
-  return [iv, cipher.getAuthTag(), data].map((b) => b.toString('base64')).join('.');
-}
-
-export function decryptLocal(home: string, sealed: string): string {
-  const [iv, tag, data] = sealed.split('.').map((p) => Buffer.from(p, 'base64'));
-  if (!iv || !tag || !data) throw new MailError('la clave guardada está dañada');
-  const decipher = createDecipheriv('aes-256-gcm', localKey(home), iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
-}
 
 function fromEnv(env: NodeJS.ProcessEnv): MailSettings | null {
   if (!env.FORJA_SMTP_HOST) return null;

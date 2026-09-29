@@ -1,0 +1,50 @@
+# Configuración de Forja. Sin secretos: las credenciales viven en la bóveda local.
+schema_version: 1
+project_id: prj_01M3QJY4YYJMXBTTNDB6ZX19KJ
+nombre: forja
+roles:
+  planeador:
+    - claude:opus
+    - codex:gpt-6-astra
+  trabajador:
+    - claude:haiku
+    - codex:gpt-6-luna
+  complejo:
+    - claude:sonnet
+    - codex:gpt-6-sol
+  revisor:
+    - codex:gpt-6-sol
+    - claude:sonnet
+  integrador:
+    - claude:sonnet
+    - codex:gpt-6-sol
+  auditor:
+    - claude:opus
+    - codex:gpt-6-astra
+  qa:
+    - codex:gpt-6-sol
+    - claude:sonnet
+esfuerzo: {}
+ejecucion:
+  paralelo: 3
+  timeout_min: 30
+  intentos_calidad: 3
+  integracion: serie
+  lote_max: 4
+  lote_espera_s: 20
+presupuesto:
+  por_tarea_usd: 1
+  por_run_usd: 20
+perfil:
+  stack: []
+  comandos: {}
+  red_instalar: []
+contexto:
+  modo: simple
+  max_archivos: 15
+  bajo_pedido: false
+  buscador: ninguno
+conexiones: []
+git:
+  rama_principal: main
+  prefijo: forja/

@@ -38,6 +38,8 @@ forja                                             # abre el panel en el navegado
 npm install && npm run check                      # desarrollo: typecheck + tests (Linux con bubblewrap)
 ```
 
+**Empieza por el [manual de inicio](docs/guias/MANUAL.md)** (Windows, Linux/WSL y VPS).
+
 Guías: [instalar](docs/guias/INSTALAR.md) · [servidor](docs/guias/SERVIDOR.md) · [app de escritorio](docs/guias/ESCRITORIO.md) · [recuperación](docs/guias/RECUPERACION.md) · [seguridad](docs/guias/SEGURIDAD.md) · [limitaciones](docs/guias/LIMITACIONES.md) · [Forja sobre Forja](docs/guias/FORJA-SOBRE-FORJA.md).
 
 | Paso | Comandos |
@@ -61,7 +63,8 @@ Guías: [instalar](docs/guias/INSTALAR.md) · [servidor](docs/guias/SERVIDOR.md)
 | Avisos | `forja notificaciones activar <conexion> [--con-texto]`, `ver`, `probar`, `desactivar`; por correo SMTP en Ajustes → Correo |
 | Calidad (v3) | `forja validar` (QA y auditoría del sprint entregado), `forja observaciones`; el plan de acción se crea en el panel (Calidad) y siempre pasa por tu aprobación |
 | Historial (v3) | `forja historial`: épica → sprint → historia → tarea con fechas; en el panel, lista de control, calendario y épicas |
-| Servidor (v3) | `forja servidor`: panel para un servidor (Doko…) con login del dueño; sin sesión no responde ninguna ruta ([guía](docs/guias/SERVIDOR.md)) |
+| GitHub (v3) | Con un token en Ajustes → GitHub, al entregar sube la rama `forja/entrega/…` y abre el PR (nunca une ni toca la rama principal); a mano: `forja publicar` |
+| Servidor (v3) | `sudo bash scripts/instalar-servidor.sh --dominio … --dueno …` instala todo en un VPS; `forja servidor`: panel para un servidor (Doko…) con login del dueño; sin sesión no responde ninguna ruta ([guía](docs/guias/SERVIDOR.md)) |
 | Operación | `forja backup crear/listar/verificar/restaurar`; copia estable: `bash scripts/forja-estable.sh` |
 
 Modo demo sin cuota: con los roles en `simulado:sim` y `FORJA_SIMULACION=guion.json`

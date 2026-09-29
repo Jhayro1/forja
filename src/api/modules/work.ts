@@ -7,6 +7,8 @@ import type { ApiModule } from '../server.js';
  */
 export interface WorkBackend {
   agents(): object;
+  delivery(): object;
+  publish(): Promise<object>;
   history(): object;
   historyMarkdown(): string;
   epics(): object;
@@ -32,6 +34,20 @@ export function workModule(backend: WorkBackend): ApiModule {
     name: 'trabajo',
     routes: [
       { method: 'GET', path: /^\/v1\/agentes$/, handler: () => ({ agentes: backend.agents() }) },
+      { method: 'GET', path: /^\/v1\/entrega$/, handler: () => ({ entrega: backend.delivery() }) },
+      {
+        method: 'POST',
+        path: /^\/v1\/entrega\/publicar$/,
+        handler: async () => {
+          try {
+            const r = (await backend.publish()) as { pr?: { url: string } | null; rama: string };
+            return { ok: true, publicacion: r, mensaje: r.pr ? `rama subida y PR listo: ${r.pr.url}` : `rama ${r.rama} subida` };
+          } catch (error) {
+            if (error instanceof ApiError) throw error;
+            throw new ApiError(422, 'publicar', (error as Error).message);
+          }
+        },
+      },
       { method: 'GET', path: /^\/v1\/historial$/, handler: () => ({ historial: backend.history() }) },
       { method: 'GET', path: /^\/v1\/historial\/markdown$/, handler: () => ({ markdown: backend.historyMarkdown() }) },
       { method: 'GET', path: /^\/v1\/epicas$/, handler: () => backend.epics() },

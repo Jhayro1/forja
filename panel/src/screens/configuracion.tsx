@@ -30,7 +30,7 @@ import { toast } from '@/components/ui/toaster';
 import { useAction, useApiQuery } from '@/hooks/use-api';
 import { api } from '@/lib/api';
 import { safeUrl } from '@/lib/format';
-import type { Check, Configuracion as Config, Correo, Cuenta, Effort, LoginState, RoleName, Sistema } from '@/lib/types';
+import type { Check, Configuracion as Config, Correo, Cuenta, Effort, GitHubConf, LoginState, RoleName, Sistema } from '@/lib/types';
 
 const PROVIDER = { claude: 'Claude Code', codex: 'Codex' } as const;
 type Provider = keyof typeof PROVIDER;
@@ -464,6 +464,92 @@ function MailTab() {
   );
 }
 
+// ─────────────────────────── GitHub ───────────────────────────
+
+function GitHubTab() {
+  const q = useApiQuery<{ github: GitHubConf }>('/v1/github');
+  const { run, busy } = useAction();
+  const [token, setToken] = useState('');
+  const g = q.data?.github;
+  const save = (body: object) => void run('/v1/github', body).then((r) => r && setToken(''));
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Token de GitHub</CardTitle>
+          <CardDescription>
+            Con él Forja sube la rama de cada sprint entregado y abre su PR. <strong>Nunca</strong> une el PR, nunca usa <Mono>--force</Mono> y nunca sube a la rama principal.
+          </CardDescription>
+          <CardAction>{g ? <StatusBadge tone={g.configurado ? 'ok' : 'muted'}>{g.configurado ? `listo${g.usuario ? ` · ${g.usuario}` : ''}` : 'sin token'}</StatusBadge> : null}</CardAction>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {g?.desde_entorno ? (
+            <Alert>
+              <AlertTitle>Configurado por el servidor</AlertTitle>
+              <AlertDescription>La variable FORJA_GITHUB_TOKEN manda sobre lo que guardes aquí.</AlertDescription>
+            </Alert>
+          ) : null}
+          <Field
+            label="Token"
+            htmlFor="gh-token"
+            help={g?.configurado ? 'Hay un token guardado (cifrado). Escribe uno nuevo sólo para reemplazarlo.' : 'Se comprueba con GitHub antes de guardarlo y se guarda cifrado.'}
+          >
+            <Input id="gh-token" type="password" autoComplete="off" placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} />
+          </Field>
+        </CardContent>
+        <CardFooter className="flex-wrap gap-2">
+          <Button disabled={busy !== null || !token.trim()} onClick={() => save({ token: token.trim() })}>
+            Guardar y probar
+          </Button>
+          {g?.configurado && !g.desde_entorno ? (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                void run('/v1/github', { borrar: true }, { confirm: { title: '¿Quitar el token?', description: 'Forja dejará de subir ramas a GitHub.', destructive: true, confirm: 'Quitar' } })
+              }
+            >
+              Quitar el token
+            </Button>
+          ) : null}
+        </CardFooter>
+      </Card>
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Qué hace al entregar</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-start gap-3">
+              <Switch id="gh-auto" className="mt-0.5" checked={g?.publicar_al_entregar ?? true} onCheckedChange={(v) => save({ publicar_al_entregar: v })} />
+              <Label htmlFor="gh-auto" className="leading-snug font-normal">
+                Subir la rama automáticamente cuando termina un sprint
+              </Label>
+            </div>
+            <div className="flex items-start gap-3">
+              <Switch id="gh-pr" className="mt-0.5" checked={g?.abrir_pr ?? true} onCheckedChange={(v) => save({ abrir_pr: v })} />
+              <Label htmlFor="gh-pr" className="leading-snug font-normal">
+                Abrir el PR contra la rama principal (sin unirlo)
+              </Label>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Cómo crear el token</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm text-muted-foreground">
+            <p>GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.</p>
+            <p>Repository access: sólo los repos en los que trabaja Forja.</p>
+            <p>
+              Permisos: <strong>Contents</strong> y <strong>Pull requests</strong> en «Read and write».
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────── máquina y cuenta ───────────────────────────
 
 const LEVEL_ICON = { ok: CircleCheckIcon, aviso: TriangleAlertIcon, error: CircleAlertIcon };
@@ -578,6 +664,7 @@ export default function Configuracion() {
           <TabsTrigger value="cuentas">Cuentas de IA</TabsTrigger>
           <TabsTrigger value="modelos">Modelos por rol</TabsTrigger>
           {has('correo') ? <TabsTrigger value="correo">Correo</TabsTrigger> : null}
+          {has('github') ? <TabsTrigger value="github">GitHub</TabsTrigger> : null}
           <TabsTrigger value="maquina">Tu máquina</TabsTrigger>
           {server ? <TabsTrigger value="acceso">Tu acceso</TabsTrigger> : null}
         </TabsList>
@@ -596,6 +683,9 @@ export default function Configuracion() {
         </TabsContent>
         <TabsContent value="correo" className="mt-4">
           <MailTab />
+        </TabsContent>
+        <TabsContent value="github" className="mt-4">
+          <GitHubTab />
         </TabsContent>
         <TabsContent value="maquina" className="mt-4">
           <MachineTab

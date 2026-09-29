@@ -11,6 +11,10 @@ jobs:
   publicar:
     runs-on: ubuntu-24.04
     environment: npm
+    env:
+      # Sin NPM_TOKEN se valida todo igual, pero no se publica en npm (el release de GitHub
+      # con el instalador de Windows lo hace escritorio.yml y no depende de esto).
+      TIENE_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,7 +36,11 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm run probar:paquete
+      - name: sin NPM_TOKEN no se publica en npm
+        if: env.TIENE_TOKEN != 'true'
+        run: echo "::notice::NPM_TOKEN no está configurado: se validó todo, pero no se publica en npm."
       - name: publicar con procedencia
+        if: env.TIENE_TOKEN == 'true'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

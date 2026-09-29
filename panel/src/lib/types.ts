@@ -293,3 +293,11 @@ export type Observaciones = {
   conteo: Record<EstadoObs, number>;
   validacion?: { id: string; commit: string; fecha: string; observaciones: number; comprobaciones: { paso: string; ok: boolean | null }[] } | null;
 };
+
+export type GitHubConf = { configurado: boolean; usuario: string | null; publicar_al_entregar: boolean; abrir_pr: boolean; desde_entorno: boolean };
+export type Entrega = {
+  rama: string | null;
+  lista: boolean;
+  github: { configurado: boolean; usuario: string | null; publicar_al_entregar: boolean } | null;
+  publicada: { rama: string; commit: string; repositorio: string; pr: { url: string; numero: number; nuevo: boolean } | null; fecha: string } | null;
+};

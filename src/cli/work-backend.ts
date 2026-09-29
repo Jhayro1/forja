@@ -1,5 +1,6 @@
 import type { WorkBackend } from '../api/modules/work.js';
 import { activePauses } from '../core/engine.js';
+import { deliveryState, publishDelivery } from '../git/publish-delivery.js';
 import { activeChange, createChange, getChange } from '../planner/session.js';
 import { AccountStore, accountPauseKey } from '../providers/accounts.js';
 import { actionPlanText, OBS_STATES, ObservationService, type ObsState } from '../quality/observations.js';
@@ -102,6 +103,17 @@ export class EngineWorkBackend implements WorkBackend {
 
   history(): object {
     return buildHistory(this.engine);
+  }
+
+  delivery(): object {
+    const change = currentChange(this.engine);
+    return change ? deliveryState(this.engine, change, this.ctx.home) : { rama: null, lista: false, github: null, publicada: null };
+  }
+
+  async publish(): Promise<object> {
+    const change = currentChange(this.engine);
+    if (!change) throw new Error('no hay ningún sprint');
+    return publishDelivery(this.engine, change, { home: this.ctx.home, repoPath: this.ctx.checkout.path });
   }
 
   historyMarkdown(): string {

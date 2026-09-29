@@ -38,6 +38,48 @@ Desde otra terminal, mientras corre: `forja tablero`, `forja estado`, `forja log
 
 ## Bitácora
 
+### 2026-09-29 · v3 (rama `mejoras/v3`) · plan y primera entrega
+
+- **Plan** en [v3/PLAN.md](v3/PLAN.md), con el estado de cada punto en su §12.
+- **Cuentas múltiples**: varias cuentas de Claude y de Codex, cada una con su carpeta de sesión.
+  El motor reparte los agentes a la cuenta menos ocupada, y la pausa por cuota afecta sólo a la
+  cuenta agotada. Se redactan las credenciales de todas.
+- **Correo SMTP**: clave de aplicación guardada cifrada, variables `FORJA_SMTP_*`, correo de
+  prueba y avisos por tipo:
+  - trabajos y runs (desde `job-main`);
+  - pendientes del run, sin repetirse;
+  - respuestas largas del planeador;
+  - observaciones nuevas.
+- **Modo servidor** (`forja servidor`): login del dueño como en Winkstec ERP.
+  - Registro cerrado salvo `FORJA_DUENO_EMAIL`, verificación por código, `scrypt`, bloqueo
+    tras 5 intentos, límites por IP y sesiones persistentes guardadas como hash.
+  - Sin sesión sólo responden `/login` (y sus archivos), `/v1/auth/*` y `/salud`.
+  - `Dockerfile` y [guía](docs/guias/SERVIDOR.md).
+- **Coordinación entre agentes**: bitácora del equipo en el contexto de cada agente (en curso,
+  terminadas con lo que exportan y su resumen, y dependientes) y herramienta MCP `equipo`.
+  - El plan avisa cuando una tarea lee lo que otra escribe en paralelo, y el planificador
+    prefiere el orden seguro.
+  - `pedir_contexto` dice qué tareas cambiaron cada archivo.
+- **Roles nuevos** integrador, auditor y QA. `forja validar` corre QA (perfil completo sobre la
+  entrega y cada criterio con cuatro resultados) y la auditoría (secretos, operaciones
+  destructivas y revisión por modelo).
+- **Observaciones**: estados, deduplicación y plan de acción que siempre pasa por tu
+  aprobación. **Épicas**: épica → sprint → historia → tarea, con historial y calendario.
+- **Panel nuevo con shadcn/ui**:
+  - barra lateral, ⌘K, avisos y siguiente acción calculada en el servidor;
+  - pantallas Resumen, Tablero por columnas, Agentes, Historial, Calidad y Ajustes por
+    pestañas (cuentas, modelos, correo, máquina y acceso);
+  - login de servidor como entrada aparte.
+- **Verificación**:
+  - `npm run check` en verde (lint, typecheck y 357 pruebas).
+  - Capturas con Chromium de todas las pantallas, en claro, oscuro y móvil, con un proyecto de
+    demostración de dos sprints: sin errores de consola ni de CSP.
+  - Registro, verificación y entrada del dueño recorridos en el navegador.
+  - La imagen Docker construye, responde `/salud` y protege todas las rutas.
+- **Límite encontrado**: dentro de un contenedor Docker bubblewrap no puede aislar a los agentes,
+  ni siquiera con `--privileged`. `forja doctor` ahora lo detecta (antes sólo miraba la versión).
+  Ver [SERVIDOR.md](docs/guias/SERVIDOR.md#límite-conocido-los-agentes-y-el-sandbox-dentro-de-un-contenedor).
+
 | Fecha | Punto | Resultado | Verificación |
 |---|---|---|---|
 | 2026-09-24 | Plan v1 + v2 | Documentación y decisiones D2-01 a D2-21 | Revisión con el usuario |

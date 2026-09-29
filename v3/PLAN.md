@@ -1,6 +1,6 @@
 # Forja v3 · Plan de mejoras: seis roles, ciclo completo y panel nuevo
 
-**Fecha:** 2026-09-29 · **Estado:** propuesta, pendiente de aprobación · **Parte de:** `main` en `825de32`
+**Fecha:** 2026-09-29 · **Estado:** en implementación en la rama `mejoras/v3` (ver §12) · **Parte de:** `main` en `825de32`
 
 Este plan aterriza el documento «Sistema de agentes IA para construir proyectos por etapas» (el
 documento de referencia) sobre lo que Forja ya hace. No parte de cero: M0–M6, las mejoras de
@@ -661,8 +661,8 @@ Para correr Forja en un servidor como Doko y usarlo desde el navegador:
   cierra la sesión.
 - **Imagen**: `Dockerfile` en la raíz con Node, git, bubblewrap y los CLI de Claude y Codex, y datos
   persistentes en `/datos` (`FORJA_HOME`, cuentas y proyectos). Guía en `docs/guias/SERVIDOR.md`.
-  El sandbox bwrap necesita namespaces de usuario en el contenedor; si no los hay, `forja doctor` lo
-  dice y se usa `FORJA_SANDBOX=docker` con el socket de Docker.
+  El sandbox bwrap no funciona dentro de un contenedor Docker (probado, §12 V3-732): `forja
+  doctor` lo marca como error, y para ejecutar agentes hay que instalar en el host.
 
 ### 6.10 Correo (SMTP)
 
@@ -925,3 +925,60 @@ Tamaño S/M/L = incertidumbre relativa. **Riesgo alto** = revisión humana de di
 | Recharts/cmdk chocan con la CSP | Prueba CSP en CI (V3-640); alternativas en §6.11 |
 | Migración del almacén de eventos | Eventos nuevos son aditivos; proyecciones reconstruibles; backup previo (`forja backup`) |
 | El panel crece y se vuelve lento | Chunks por pantalla (ya), tablas virtualizadas, ETag/304 (ya) |
+
+## 12. Estado de implementación (2026-09-29, rama `mejoras/v3`)
+
+✅ hecho y probado · ◐ parcial (qué falta) · ○ pendiente.
+
+| ID | Estado | Nota |
+|---|---|---|
+| V3-001 | ✅ | Sonnet 5.5 y GPT-5.6 Sol, Terra y Luna en el catálogo |
+| V3-002 | ◐ | Color por rol (siempre con texto) y fechas en español; falta la página de muestra y comprobar el contraste AA |
+| V3-003 | ✅ | Barra lateral de shadcn colapsable, migas, estado en vivo, avisos y modo demo |
+| V3-004 | ◐ | La pantalla y la tarea abierta viven en la URL (`#/tablero/T-003`); los filtros todavía no |
+| V3-005 | ✅ | Paleta ⌘K: pantallas, acciones posibles y tareas |
+| V3-006 | ◐ | Esqueletos y estados vacíos en las pantallas nuevas; falta un `DataTable` común |
+| V3-110 | ◐ | `siguiente_accion` calculada en el servidor (`src/run/next-action.ts`); falta `forja siguiente` |
+| V3-111 | ○ | Motivos de acciones imposibles desde el servidor |
+| V3-120 | ◐ | Campana con pendientes y cuentas en pausa; faltan los estados leída/resuelta |
+| V3-130 | ✅ | Resumen del proyecto |
+| V3-131 | ○ | «Qué pasó desde tu última visita» |
+| V3-140 | ◐ | «Actividad» es la auditoría existente; faltan los filtros por rol y tarea |
+| V3-200 | ◐ | El rol sale de la ejecución; falta el campo `modulo` |
+| V3-201 | ✅ | Tablero por columnas, franja de detenidas, filtro por rol, búsqueda y vista tabla |
+| V3-202, V3-203 | ○ | Grafo de dependencias y reordenar prioridad |
+| V3-210 | ◐ | Detalle con resumen, registro, cambios e instrucciones; faltan validación, conversación e historial por pestaña |
+| V3-211 | ◐ | Diff con color por línea; faltan resaltado de sintaxis y árbol de archivos |
+| V3-212 | ✅ | `RESUMEN:` del trabajador en tarjetas, detalle e historial |
+| V3-220 | ✅ | Pantalla Agentes (seis roles y cuentas) |
+| V3-300 a V3-303 | ○ | «Requisitos y plan» sigue siendo la pantalla de planeación existente |
+| V3-310 a V3-313 | ○ | Chat lateral con ámbito, clasificación, adjuntos y opciones como botones |
+| V3-320 | ○ | Documentos (hoy: la pantalla de memoria) |
+| V3-400 | ◐ | Observaciones con eventos y proyección; la validación queda como evento con su informe; los escenarios no son entidad propia |
+| V3-401, V3-402 | ✅ | Roles integrador, auditor y QA; clase de hallazgo del revisor |
+| V3-410 | ◐ | `forja validar` y botón «Validar el sprint»; todavía no es una fase automática tras el run |
+| V3-411 | ◐ | QA revisa cada criterio con cuatro resultados; falta la matriz criterio → evidencia en pantalla |
+| V3-412 | ✅ | Secretos y operaciones destructivas sin tokens, más la revisión del modelo; la auditoría de dependencias se declara «no cubierta» |
+| V3-413 | ✅ | Perfil completo sobre la entrega y criterios con paso, fallo, bloqueado y no ejecutado |
+| V3-414 | ✅ | Sustituido por el plan de acción (V3-711): nunca se corrige solo |
+| V3-415 | ✅ | Mismo hallazgo (fuente, tarea, lugar y texto) = una sola observación, aunque lo encuentre otro sprint; si reaparece una «resuelta», se reabre |
+| V3-416 | ○ | Evidencia desactualizada |
+| V3-420, V3-431 | ○ | Aceptar entrega y pantalla Entregas |
+| V3-430 | ✅ | Pantalla Calidad |
+| V3-440 | ◐ | Las tareas `integracion` van al integrador; falta exigir la prueba de contrato |
+| V3-500 | ✅ | Épicas y asignación de sprints con prioridad y fecha objetivo |
+| V3-501 | ◐ | Pestaña Épicas dentro de Historial |
+| V3-502 | ✅ | Lista de control, calendario y exportar a Markdown |
+| V3-510, V3-520, V3-530 | ○ | Modos de autonomía, siguiente sprint propuesto y etapa |
+| V3-600, V3-610, V3-611, V3-620, V3-630 | ○ | Resumen global, vista previa, capturas de QA, publicar (PR) y línea de tiempo |
+| V3-640 | ○ | E2E del panel en CI (hoy se verificó con Chromium a mano) |
+| V3-641 | ◐ | Móvil revisado en Resumen y Tablero |
+| V3-700, V3-701, V3-702 | ✅ | Bitácora del equipo, herramienta MCP `equipo` y orden seguro |
+| V3-703 | ◐ | «Quién cambió este archivo» sale del almacén de eventos en `pedir_contexto`; faltan los nodos en el grafo |
+| V3-704 | ○ | Verificar antes de lanzar |
+| V3-710, V3-711 | ✅ | Observaciones y plan de acción aprobado por el usuario |
+| V3-720, V3-721 | ✅ | Cuentas múltiples y reparto por cuenta |
+| V3-730 | ✅ | `forja servidor` con login del dueño |
+| V3-731 | ◐ | La imagen construye y protege todo; los agentes no pueden aislarse dentro de un contenedor (ver V3-732) |
+| V3-732 | ○ | **Nuevo:** sandbox de agentes en contenedores. Ni `--privileged` sirve para bubblewrap en Docker. Opciones: instalar en el host con systemd, Docker con el socket y rutas iguales, o gVisor |
+| V3-740, V3-741 | ✅ | SMTP con clave cifrada y avisos por tipo |

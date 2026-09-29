@@ -15,6 +15,7 @@ const ALL_OK = {
   'codex --version': { code: 0, stdout: 'codex-cli 0.156.1' },
   'codex login status': { code: 0, stdout: 'Logged in using ChatGPT' },
   'bwrap --version': { code: 0, stdout: 'bubblewrap 0.9.0' },
+  'bwrap --ro-bind / / --unshare-net true': { code: 0 },
 };
 const LINUX = { os: 'linux' as const, wsl: false };
 const DOCKER_OK = {
@@ -64,6 +65,14 @@ describe('doctor', () => {
 
     const sinNada = await runChecks(fakeExec({ ...ALL_OK, 'bwrap --version': { code: 127 } }), LINUX, '24.18.0');
     expect(sinNada.find((c) => c.id === 'sandbox')?.level).toBe('error');
+  });
+
+  it('bubblewrap instalado pero sin namespaces (un contenedor) no cuenta como sandbox', async () => {
+    const sinNamespaces = { ...ALL_OK, 'bwrap --ro-bind / / --unshare-net true': { code: 1, stderr: 'bwrap: No permissions to create new namespace' } };
+    const checks = await runChecks(fakeExec(sinNamespaces), LINUX, '24.18.0');
+    expect(checks.find((c) => c.id === 'sandbox_bwrap')).toMatchObject({ level: 'aviso', detail: expect.stringContaining('no puede crear namespaces') });
+    expect(checks.find((c) => c.id === 'sandbox')?.level).toBe('error');
+    expect(overall(checks)).toBe('error');
   });
 
   it('Docker instalado pero sin poder construir la imagen es un error', async () => {

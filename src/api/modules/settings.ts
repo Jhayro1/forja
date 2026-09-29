@@ -1,12 +1,12 @@
 import { type Effort, isEffort } from '../../providers/catalog.js';
-import { ROLE_NAMES } from '../../registry/config.js';
+import { ROLE_NAMES, V3_ROLES } from '../../registry/config.js';
 import { ApiError } from '../http.js';
 import type { ApiModule } from '../server.js';
 
 export type RoleName = (typeof ROLE_NAMES)[number];
 export { ROLE_NAMES };
 /** `esfuerzo`: absent role = the CLI's default effort. */
-export type SettingsInput = { roles: Record<RoleName, string[]>; esfuerzo: Partial<Record<RoleName, Effort>>; paralelo: number };
+export type SettingsInput = { roles: Partial<Record<RoleName, string[]>>; esfuerzo: Partial<Record<RoleName, Effort>>; paralelo: number };
 
 /** The project's models per role and how many agents work at once (forja.yaml). */
 export interface SettingsBackend {
@@ -17,9 +17,11 @@ export interface SettingsBackend {
 function parseInput(b: Record<string, unknown>): SettingsInput {
   const roles = b.roles as Record<string, unknown> | undefined;
   if (!roles || typeof roles !== 'object') throw new ApiError(422, 'campo_requerido', 'faltan los modelos por rol');
-  const out = {} as Record<RoleName, string[]>;
+  const out: Partial<Record<RoleName, string[]>> = {};
   for (const r of ROLE_NAMES) {
     const list = roles[r];
+    // A panel from before v3 does not send the new roles: they keep their current models.
+    if (list === undefined && (V3_ROLES as readonly string[]).includes(r)) continue;
     if (!Array.isArray(list) || list.some((m) => typeof m !== 'string')) throw new ApiError(422, 'campo_invalido', `«${r}» debe ser una lista de modelos`);
     const clean = (list as string[]).map((m) => m.trim()).filter(Boolean);
     if (clean.length === 0) throw new ApiError(422, 'campo_invalido', `elige al menos un modelo para «${r}»`);

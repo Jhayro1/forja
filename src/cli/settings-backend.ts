@@ -27,6 +27,9 @@ export const ROLE_HELP: Record<string, string> = {
   trabajador: 'Programa las tareas simples, muchas y en paralelo. Conviene uno barato.',
   complejo: 'Programa las tareas difíciles.',
   revisor: 'Revisa lo que hicieron los demás. Mejor si es de otro proveedor que el trabajador.',
+  integrador: 'Conecta APIs, bases de datos y webhooks (tareas de integración). Escribe pruebas de contrato.',
+  auditor: 'Revisa la arquitectura y la seguridad del sprint completo antes de entregarlo. Conviene uno capaz.',
+  qa: 'Convierte los criterios en escenarios y los prueba sobre la entrega.',
 };
 
 /** forja.yaml roles and parallelism, edited in place; the project reopens so the engine uses them. */
@@ -50,7 +53,7 @@ export class ProjectSettingsBackend implements SettingsBackend {
 
   save(input: SettingsInput): object {
     updateConfig(this.ctx.checkout.path, (doc) => {
-      for (const r of ROLE_NAMES) doc.setIn(['roles', r], input.roles[r]);
+      for (const r of ROLE_NAMES) if (input.roles[r]) doc.setIn(['roles', r], input.roles[r]);
       const efforts = ROLE_NAMES.filter((r) => input.esfuerzo[r]);
       if (efforts.length) doc.set('esfuerzo', Object.fromEntries(efforts.map((r) => [r, input.esfuerzo[r]])));
       else doc.delete('esfuerzo');

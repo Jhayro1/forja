@@ -26,7 +26,7 @@ export function testEngine(simulation: Simulation, roles: Partial<ForjaConfig['r
     schema_version: 1,
     project_id: newId('prj'),
     nombre: 'prueba',
-    roles: { planeador: sim, trabajador: sim, complejo: sim, revisor: sim, ...roles },
+    roles: { planeador: sim, trabajador: sim, complejo: sim, revisor: sim, integrador: sim, auditor: sim, qa: sim, ...roles },
   });
   const engine = createEngine({
     store,

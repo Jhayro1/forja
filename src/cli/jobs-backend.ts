@@ -13,6 +13,7 @@ export const PROJECT_JOBS: Record<string, { titulo: string; args: string[] }> = 
   'linea-base': { titulo: 'Medir la línea base (build y tests)', args: ['perfil', 'linea-base'] },
   conformidad: { titulo: 'Probar los modelos configurados', args: ['conformidad'] },
   informe: { titulo: 'Informe final', args: ['informe'] },
+  validar: { titulo: 'Validar el sprint (QA y auditoría)', args: ['validar'] },
 };
 
 export function jobsDir(ctx: EngineContext): string {

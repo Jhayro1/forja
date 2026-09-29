@@ -13,7 +13,8 @@ import type { TaskRow } from '../../store/projections.js';
 export const HOLDING_STATES = ['reservada', 'ejecutando', 'verificando', 'verificada', 'integrando'] as const;
 
 export function levelFor(task: PlanTask, failures: number): Role {
-  const base: Role = task.complejidad === 'alta' ? 'complejo' : 'trabajador';
+  // Integration tasks go to the integrator (v3 §4.3), and escalate like complex ones.
+  const base: Role = task.tipo === 'integracion' ? 'integrador' : task.complejidad === 'alta' ? 'complejo' : 'trabajador';
   if (failures < 2) return base;
   return base === 'trabajador' ? 'complejo' : 'planeador';
 }

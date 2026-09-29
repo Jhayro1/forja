@@ -181,9 +181,13 @@ export function pinnedAvailable(engine: Engine, ref: string): boolean {
   return available(engine, ref);
 }
 
-/** Every model the policy allows in some role (a reassignment must pick one of these). */
+/**
+ * Every model the policy allows for task work (a reassignment must pick one of these).
+ * The auditor and QA review whole sprints and never execute a task, so theirs do not count.
+ */
 export function allowedModels(engine: Engine): string[] {
-  return [...new Set(Object.values(engine.config.roles).flat())];
+  const { auditor: _auditor, qa: _qa, ...taskRoles } = engine.config.roles;
+  return [...new Set(Object.values(taskRoles).flat())];
 }
 
 /** The role's effort (forja.yaml `esfuerzo`) clamped to what `ref` accepts, as a LaunchParams fragment. */

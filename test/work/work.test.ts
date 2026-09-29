@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
 import { actionPlanText, ObservationService } from '../../src/quality/observations.js';
+import { latestValidation, scanDiff, validateSprint } from '../../src/quality/validate.js';
 import { Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
 import { EpicService } from '../../src/work/epics.js';
 import { buildHistory, historyMarkdown } from '../../src/work/history.js';
@@ -12,6 +13,35 @@ afterEach(() => cleanup?.());
 
 /** Every agent writes its files; the reviewer approves but leaves a low-severity note. */
 const agents: Simulation = ({ role, taskId }) => {
+  if (role === 'auditor')
+    return {
+      pasos: [],
+      estructurado: {
+        hallazgos: [
+          {
+            severidad: 'media',
+            clase: 'sugerencia',
+            ubicacion: 'src/uc-002.mjs:1',
+            motivo: 'El saldo no valida números negativos',
+            recomendacion: 'validar',
+            condicion_cierre: 'prueba con negativos',
+          },
+        ],
+        cobertura: ['lógica de saldo'],
+        resumen: 'sin riesgos graves',
+      },
+    };
+  if (role === 'qa')
+    return {
+      pasos: [],
+      estructurado: {
+        escenarios: [
+          { criterio: 'CA-001', resultado: 'paso', pasos: '', esperado: '', obtenido: '', evidencia: 'prueba' },
+          { criterio: 'CA-002', resultado: 'fallo', pasos: 'registrar -5', esperado: 'rechazo', obtenido: 'acepta', evidencia: 'src/uc-001.mjs:1' },
+        ],
+        resumen: 'un fallo',
+      },
+    };
   if (role === 'revisor')
     return {
       pasos: [],
@@ -24,6 +54,26 @@ const agents: Simulation = ({ role, taskId }) => {
     };
   return { pasos: Object.entries(FILES[taskId] ?? {}).map(([ruta, contenido]) => ({ escribir: { ruta, contenido } })), resultado: `Listo.\n\nRESUMEN: ${taskId} ya funciona.` };
 };
+
+describe('revisión determinista del diff', () => {
+  it('encuentra secretos y operaciones destructivas sólo en líneas añadidas', () => {
+    const diff = [
+      '+++ b/db/migracion.sql',
+      '@@ -0,0 +1,3 @@',
+      '+CREATE TABLE x (id int);',
+      '+DROP TABLE clientes;',
+      '+DELETE FROM pedidos;',
+      '+++ b/src/config.ts',
+      '@@ -1,1 +1,2 @@',
+      ' const a = 1;',
+      '+const token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB";',
+      '-DROP TABLE vieja;',
+    ].join('\n');
+    const r = scanDiff(diff);
+    expect(r.destructive).toEqual(['db/migracion.sql:2 borra una tabla, base, esquema o columna', 'db/migracion.sql:3 DELETE sin WHERE']);
+    expect(r.secrets).toEqual(['src/config.ts:2']);
+  });
+});
 
 describe('observaciones', () => {
   it('se registran una sola vez y sólo cambian de estado por caminos permitidos', () => {
@@ -70,5 +120,14 @@ describe.skipIf(!HAS_BWRAP)('historial y observaciones de un run real (agentes s
     expect(h.calendario.filter((e) => e.tipo === 'tarea_unida')).toHaveLength(5);
     expect(h.calendario.some((e) => e.tipo === 'sprint_entregado')).toBe(true);
     expect(historyMarkdown(h)).toContain('- [x] T-003');
+
+    // Validación del sprint: QA y auditor dejan observaciones; nada se corrige solo.
+    const report = await validateSprint(t.engine, { changeId, repoPath: repo, sandbox: HAS_BWRAP });
+    expect(report.comprobaciones.find((c) => c.paso === 'test')?.ok).toBe(true);
+    expect(report.comprobaciones.find((c) => c.paso === 'secretos')?.ok).toBe(true);
+    const after = new ObservationService(t.engine).list();
+    expect(after.map((o) => `${o.source}:${o.kind}`).sort()).toEqual(['auditor:sugerencia', 'qa:defecto', 'revisor:sugerencia']);
+    expect(after.find((o) => o.source === 'qa')?.location).toBe('CA-002');
+    expect(latestValidation(t.engine, changeId)?.observaciones).toBe(2);
   });
 });

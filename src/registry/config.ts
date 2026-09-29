@@ -9,7 +9,9 @@ export const CONFIG_FILE = 'forja.yaml';
 
 /** `[1m]` is Claude Code's suffix for the 1M context window (e.g. `claude:sonnet[1m]`). */
 const ModelRef = z.string().regex(/^(claude|codex|simulado):[A-Za-z0-9._-]+(\[1m\])?$/, 'formato proveedor:modelo, p. ej. claude:haiku');
-export const ROLE_NAMES = ['planeador', 'trabajador', 'complejo', 'revisor'] as const;
+export const ROLE_NAMES = ['planeador', 'trabajador', 'complejo', 'revisor', 'integrador', 'auditor', 'qa'] as const;
+/** Roles added in v3 (§4): configs written before them load with their defaults. */
+export const V3_ROLES = ['integrador', 'auditor', 'qa'] as const;
 
 const CommandRecipe = z
   .object({
@@ -35,6 +37,12 @@ export const ForjaConfig = z
         trabajador: z.array(ModelRef).min(1).default(['claude:haiku', 'codex:gpt-6-luna']),
         complejo: z.array(ModelRef).min(1).default(['claude:sonnet', 'codex:gpt-6-sol']),
         revisor: z.array(ModelRef).min(1).default(['codex:gpt-6-sol', 'claude:sonnet']),
+        /** Tasks of type «integracion»: APIs, data, webhooks (v3 §4.3). */
+        integrador: z.array(ModelRef).min(1).default(['claude:sonnet', 'codex:gpt-6-sol']),
+        /** Architecture and security review of a whole sprint (v3 §4.5). */
+        auditor: z.array(ModelRef).min(1).default(['claude:opus', 'codex:gpt-6-astra']),
+        /** Scenarios from the criteria, run against the delivered branch (v3 §4.6). */
+        qa: z.array(ModelRef).min(1).default(['codex:gpt-6-sol', 'claude:sonnet']),
       })
       .strict()
       .prefault({}),

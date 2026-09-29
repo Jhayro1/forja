@@ -14,6 +14,7 @@ import { registerPilotCommands } from './commands/pilot.js';
 import { registerPlanCommands } from './commands/plan.js';
 import { registerProfileCommands } from './commands/profile.js';
 import { registerProjectCommands } from './commands/projects.js';
+import { registerQualityCommands } from './commands/quality.js';
 import { registerRunCommands } from './commands/run.js';
 import { registerTaskControlCommands } from './commands/task-control.js';
 import { registerUiCommands } from './commands/ui.js';
@@ -74,6 +75,7 @@ registerActionCommands(program);
 registerMcpCommands(program);
 registerMemoryCommands(program);
 registerModelCommands(program);
+registerQualityCommands(program);
 
 // `forja` alone opens the panel in the browser (the simple way in); in a pipe or a
 // script it keeps showing the help, as before.

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
 import type { Prices } from '../plan/estimate.js';
+import { type AccountChoice, type AccountProvider, type AccountStore, accountPauseKey, chooseAccount, PRINCIPAL } from '../providers/accounts.js';
 import { AdapterError, ClaudeAdapter, CodexAdapter, type LaunchParams, type ProviderAdapter, SimulatedAdapter, type ToolProfile } from '../providers/adapters.js';
 import { effortFor } from '../providers/catalog.js';
 import type { ForjaConfig } from '../registry/config.js';
@@ -22,6 +23,8 @@ export type Engine = {
   simulation?: Simulation;
   /** USD per million tokens per `proveedor:modelo` (~/.forja/precios.yaml), to estimate costs a provider does not report. */
   prices?: Prices;
+  /** Accounts per provider (v3 §4.9); without it every launch uses the CLI's default session. */
+  accounts?: AccountStore;
 };
 
 export function createEngine(opts: {
@@ -32,6 +35,7 @@ export function createEngine(opts: {
   simulation?: Simulation;
   adapters?: Partial<Engine['adapters']>;
   prices?: Prices | null;
+  accounts?: AccountStore;
 }): Engine {
   return {
     store: opts.store,
@@ -45,6 +49,7 @@ export function createEngine(opts: {
     ...(opts.runnerScript ? { runnerScript: opts.runnerScript } : {}),
     ...(opts.simulation ? { simulation: opts.simulation } : {}),
     ...(opts.prices ? { prices: opts.prices } : {}),
+    ...(opts.accounts ? { accounts: opts.accounts } : {}),
   };
 }
 
@@ -97,8 +102,10 @@ export function providerPause(engine: Engine, ref: string, now = Date.now()): Pr
   return activePauses(engine, now).find((p) => p.key === pauseKeyOf(ref)) ?? null;
 }
 
-export function pauseProvider(engine: Engine, ref: string, reason: string, ms = 15 * 60_000): void {
-  const key = pauseKeyOf(ref);
+export function pauseProvider(engine: Engine, ref: string, reason: string, ms = 15 * 60_000, account?: string | null): void {
+  const { provider } = parseRef(ref);
+  // With accounts, only the account that ran out is paused: the others keep working.
+  const key = account && isAccountProvider(provider) ? accountPauseKey(provider, account) : pauseKeyOf(ref);
   const until = new Date(Date.now() + ms).toISOString();
   engine.store.execute({ request_id: newId('req'), type: 'pausar_proveedor', input: { key } }, () => ({
     result: null,
@@ -116,18 +123,71 @@ export function resumeProvider(engine: Engine, key: string): boolean {
   return true;
 }
 
-/** First configured model of a role whose provider is not paused. */
+const isAccountProvider = (p: string): p is AccountProvider => p === 'claude' || p === 'codex';
+
+/** Agents running now on one account of a provider (any run of this checkout). */
+function runningOn(engine: Engine, provider: string, alias: string): number {
+  const row = engine.store.db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM task_exec e JOIN tasks t ON t.run_id = e.run_id AND t.task_id = e.task_id WHERE e.provider = ? AND COALESCE(e.account, 'principal') = ? AND t.state IN ('reservada', 'ejecutando')",
+    )
+    .get(provider, alias) as { n: number };
+  return row.n;
+}
+
+/**
+ * The account a launch of `provider` should use. `reparto` spreads task agents over the
+ * least busy account; `orden` keeps planner calls on the first usable one (so resumed
+ * sessions stay on the account that created them). `undefined`: no account registry, the
+ * CLI's default session is used as before. `null`: every account is paused, busy or signed out.
+ */
+export function accountFor(engine: Engine, provider: string, mode: 'reparto' | 'orden'): AccountChoice | null | undefined {
+  if (!engine.accounts || !isAccountProvider(provider)) return undefined;
+  const paused = new Set(activePauses(engine).map((p) => p.key));
+  return chooseAccount(engine.accounts, provider, {
+    paused: (key) => paused.has(key),
+    running: (alias) => (mode === 'orden' ? 0 : runningOn(engine, provider, alias)),
+  });
+}
+
+/** Launch parameters that follow from the chosen account: its session file and its own state folder. */
+export function accountParams(engine: Engine, provider: string, choice: AccountChoice | undefined): Pick<LaunchParams, 'credentialFile' | 'providerStateDir'> {
+  const alias = choice?.alias ?? PRINCIPAL;
+  return {
+    providerStateDir: join(engine.dataDir, 'proveedores', alias === PRINCIPAL ? provider : `${provider}@${alias}`),
+    ...(choice ? { credentialFile: choice.credentialFile } : {}),
+  };
+}
+
+/** Whether `ref` can take a launch now: not paused, and (with accounts) some account free. */
+function available(engine: Engine, ref: string): boolean {
+  const { provider } = parseRef(ref);
+  const choice = accountFor(engine, provider, 'reparto');
+  if (choice === undefined) return !providerPause(engine, ref);
+  return choice !== null;
+}
+
+/** First configured model of a role whose provider is not paused (and has a free account). */
 export function pickCandidate(engine: Engine, role: Role): ProviderRef | null {
   for (const ref of engine.config.roles[role]) {
-    if (providerPause(engine, ref)) continue;
+    if (!available(engine, ref)) continue;
     return { ref, ...parseRef(ref) };
   }
   return null;
 }
 
-/** Every model the policy allows in some role (a reassignment must pick one of these). */
+/** Whether a model pinned by the user can take a launch now. */
+export function pinnedAvailable(engine: Engine, ref: string): boolean {
+  return available(engine, ref);
+}
+
+/**
+ * Every model the policy allows for task work (a reassignment must pick one of these).
+ * The auditor and QA review whole sprints and never execute a task, so theirs do not count.
+ */
 export function allowedModels(engine: Engine): string[] {
-  return [...new Set(Object.values(engine.config.roles).flat())];
+  const { auditor: _auditor, qa: _qa, ...taskRoles } = engine.config.roles;
+  return [...new Set(Object.values(taskRoles).flat())];
 }
 
 /** The role's effort (forja.yaml `esfuerzo`) clamped to what `ref` accepts, as a LaunchParams fragment. */
@@ -151,7 +211,12 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
   const skipped: string[] = [];
   for (const ref of candidates) {
     const { provider, model } = parseRef(ref);
-    const pause = providerPause(engine, ref);
+    const account = accountFor(engine, provider, 'orden');
+    if (account === null) {
+      skipped.push(`${ref}: ninguna cuenta disponible (sin sesión, en pausa o desactivadas)`);
+      continue;
+    }
+    const pause = account === undefined ? providerPause(engine, ref) : null;
     if (pause) {
       skipped.push(`${ref}: en pausa (${pause.reason})`);
       continue;
@@ -168,7 +233,7 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
       ...effortParam(engine.config, opts.role, ref),
       prompt: opts.prompt,
       workspace: opts.workspace,
-      providerStateDir: join(engine.dataDir, 'proveedores', provider),
+      ...accountParams(engine, provider, account),
       tools: opts.tools,
       timeoutMs: opts.timeoutMs ?? engine.config.ejecucion.timeout_min * 60_000,
       ...(opts.workspaceReadOnly ? { workspaceReadOnly: true } : {}),
@@ -193,7 +258,7 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
     recordUsage(engine, opts, launchId, provider, model, outcome);
     const err = outcome.summary.error;
     if (err && (err.category === 'quota' || err.category === 'auth')) {
-      pauseProvider(engine, ref, err.message.slice(0, 120), err.retryAfterMs ?? 15 * 60_000);
+      pauseProvider(engine, ref, err.message.slice(0, 120), err.retryAfterMs ?? 15 * 60_000, account?.alias);
       skipped.push(`${ref}: ${err.category === 'quota' ? 'cuota agotada' : 'sin sesión'} (${err.message.slice(0, 100)})`);
       continue;
     }

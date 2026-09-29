@@ -75,3 +75,12 @@ describe('inicio de sesión de proveedores desde el panel', () => {
     expect(logins.cancel('codex')!.estado).toBe('cancelado');
   });
 });
+
+describe('inicio de sesión en un servidor', () => {
+  it('Codex usa código de dispositivo cuando el navegador no está en esta máquina', async () => {
+    const { loginCommands, LOGIN_COMMANDS } = await import('../../src/cli/provider-login.js');
+    expect(loginCommands({}).codex.args).toEqual(['login']);
+    expect(loginCommands({ FORJA_LOGIN_REMOTO: '1' }).codex.args).toEqual(['login', '--device-auth']);
+    expect(loginCommands({ FORJA_LOGIN_REMOTO: '1' }).claude).toEqual(LOGIN_COMMANDS.claude);
+  });
+});

@@ -19,6 +19,8 @@ type Cached = { etag: string; data: unknown };
 
 export class ApiClient {
   private csrf = '';
+  /** Server mode (forja servidor): a lost session goes back to /login. */
+  server = false;
   private readonly cache = new Map<string, Cached>();
 
   setCsrf(token: string): void {
@@ -45,6 +47,17 @@ export class ApiClient {
     return (await this.parse(res)) as T;
   }
 
+  async delete<T>(path: string): Promise<T> {
+    const res = await fetch(path, { method: 'DELETE', credentials: 'same-origin', headers: { 'X-Forja-CSRF': this.csrf, 'Idempotency-Key': crypto.randomUUID() } });
+    return (await this.parse(res)) as T;
+  }
+
+  /** Signs out (server mode) and returns to the login page. */
+  async logout(): Promise<void> {
+    await fetch('/v1/auth/salir', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Forja-CSRF': this.csrf }, body: '{}' }).catch(() => {});
+    location.replace('/login');
+  }
+
   /** Forget cached reads (after switching project, everything changes). */
   clear(): void {
     this.cache.clear();
@@ -52,6 +65,7 @@ export class ApiClient {
 
   private async parse(res: Response): Promise<unknown> {
     const data = (await res.json().catch(() => ({}))) as { error?: { mensaje?: string; codigo?: string } };
+    if (res.status === 401 && this.server) location.replace('/login');
     if (!res.ok) throw new ApiError(data.error?.mensaje ?? `error ${res.status}`, res.status, data.error?.codigo);
     return data;
   }
@@ -69,6 +83,7 @@ export function takeLinkCode(): string | null {
 
 /** Opens (with a link code) or resumes (with the cookie) the panel session. */
 export async function startSession(code: string | null): Promise<void> {
-  const r = code ? await api.post<{ csrf: string }>('/v1/sesion', { codigo: code }) : await api.get<{ csrf: string }>('/v1/sesion');
+  const r = code ? await api.post<{ csrf: string; servidor?: boolean }>('/v1/sesion', { codigo: code }) : await api.get<{ csrf: string; servidor?: boolean }>('/v1/sesion');
   api.setCsrf(r.csrf);
+  api.server = Boolean(r.servidor);
 }

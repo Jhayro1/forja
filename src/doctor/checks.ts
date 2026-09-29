@@ -63,8 +63,18 @@ export async function runChecks(exec: Exec = realExec, platform: Platform = dete
   let sandboxOk = false;
   if (platform.os === 'linux') {
     const bwrap = await exec('bwrap', ['--version']);
-    sandboxOk = bwrap.code === 0;
+    // Installed is not enough: inside a container without user namespaces bwrap exists but cannot isolate.
+    const works = bwrap.code === 0 ? await exec('bwrap', ['--ro-bind', '/', '/', '--unshare-net', 'true']) : null;
+    sandboxOk = works?.code === 0;
     if (sandboxOk) checks.push({ id: 'sandbox', title: 'Sandbox (bubblewrap)', level: 'ok', detail: bwrap.stdout.trim() });
+    else if (bwrap.code === 0 && process.env.FORJA_SANDBOX !== 'docker')
+      checks.push({
+        id: 'sandbox_bwrap',
+        title: 'Sandbox (bubblewrap)',
+        level: 'aviso',
+        detail: `${bwrap.stdout.trim()} instalado pero no puede crear namespaces (¿contenedor sin permisos?): ${(works?.stderr ?? '').trim().split('\n')[0]?.slice(0, 160) ?? ''}`,
+        fix: 'En un contenedor, dale los permisos que necesita bubblewrap o usa FORJA_SANDBOX=docker (docs/guias/SERVIDOR.md)',
+      });
   }
   if (!sandboxOk) checks.push(await checkDockerSandbox(exec, platform.os === 'linux'));
   return checks;

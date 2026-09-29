@@ -135,7 +135,8 @@ export function registerRunCommands(program: Command): void {
 
         // V2-040: autonomous work only with models certified for the installed CLI version.
         const roles = ctx.config.roles;
-        const refs = [...roles.trabajador, ...roles.complejo, ...roles.revisor];
+        const integrates = latestPlan(ctx.engine, change.change_id)?.plan.tareas.some((t) => t.tipo === 'integracion') ?? false;
+        const refs = [...roles.trabajador, ...roles.complejo, ...roles.revisor, ...(integrates ? roles.integrador : [])];
         const store = ConformanceStore.in(ctx.home);
         let unverified = await conformanceProblems(store, refs, FORJA_VERSION);
         if (unverified.length && !opts.sinConformidad) {

@@ -148,7 +148,7 @@ function FolderBrowser({ onPick }: { onPick: (ruta: string) => void }) {
 
 export default function Proyectos() {
   const q = useApiQuery<ProyectosData>('/v1/proyectos');
-  const { projectChanged } = useApp();
+  const { projectChanged, server } = useApp();
   const { run } = useAction();
   const importFolder = useImport();
   const [ruta, setRuta] = useState('');
@@ -161,7 +161,7 @@ export default function Proyectos() {
 
   return (
     <div className="space-y-10">
-      <PageHeader title="Proyectos" description="Elige en qué repositorio trabaja Forja. Todo se queda en tu PC." />
+      <PageHeader title="Proyectos" description={`Elige en qué repositorio trabaja Forja. Todo se queda en ${server ? 'este servidor' : 'tu PC'}.`} />
       <Section title="Tus proyectos">
         {list.length ? (
           <div className="grid gap-4 md:grid-cols-2">

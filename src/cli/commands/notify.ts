@@ -1,6 +1,8 @@
 import type { Command } from 'commander';
 import { ConnectionError, ConnectionStore } from '../../actions/connections.js';
 import type { SecretResolver } from '../../actions/protocol.js';
+import { MailService } from '../../notify/mail.js';
+import { mailPending } from '../../notify/mail-notices.js';
 import { NotificationError, NotificationService } from '../../notify/notifier.js';
 import { forjaHome } from '../../registry/home.js';
 import { currentChange, runSnapshot } from '../../run/snapshot.js';
@@ -45,10 +47,14 @@ function unattendedVault(): Vault | null {
 export function startRunNotifications(ctx: EngineContext, say: (line: string) => void, everyMs = 10_000): () => Promise<void> {
   const service = notificationService(ctx);
   const policy = service.policy();
-  if (!policy) return async () => {};
-  const conn = ConnectionStore.in(ctx.home)
-    .all()
-    .find((c) => c.name === policy.connection);
+  // Email notices (v3 §5.6) work on their own, with or without a webhook policy.
+  const mail = new MailService(ctx.home);
+  if (!policy && !mail.wants('pendientes')) return async () => {};
+  const conn = policy
+    ? ConnectionStore.in(ctx.home)
+        .all()
+        .find((c) => c.name === policy.connection)
+    : undefined;
   const vault = conn?.secret ? unattendedVault() : null;
   if (conn?.secret && !vault)
     say(`⚠ avisos sin credencial: la conexión «${conn.name}» usa un secreto y la bóveda no se puede abrir sin preguntarte (guarda la clave con forja boveda llavero guardar)`);
@@ -57,7 +63,11 @@ export function startRunNotifications(ctx: EngineContext, say: (line: string) =>
   const round = async () => {
     try {
       const change = currentChange(ctx.engine);
-      if (change) for (const line of await service.notify(runSnapshot(ctx.engine, change).pending, secret)) say(line);
+      if (!change) return;
+      const pending = runSnapshot(ctx.engine, change).pending;
+      if (policy) for (const line of await service.notify(pending, secret)) say(line);
+      const mailed = await mailPending(ctx.store, mail, ctx.config.nombre, pending, say);
+      if (mailed) say(`✉ ${mailed} aviso(s) por correo`);
     } catch (error) {
       say(`⚠ avisos: ${(error as Error).message}`);
     }

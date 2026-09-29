@@ -1,15 +1,20 @@
 import { createInterface } from 'node:readline';
 import type { Command } from 'commander';
 import { type IdempotencyStore, MemoryIdempotencyStore, SqliteIdempotencyStore } from '../../api/idempotency.js';
+import { accountsModule } from '../../api/modules/accounts.js';
 import { connectionsModule } from '../../api/modules/connections.js';
 import { jobsModule } from '../../api/modules/jobs.js';
+import { mailModule } from '../../api/modules/mail.js';
 import { memoryModule } from '../../api/modules/memory.js';
 import { planningModule } from '../../api/modules/planning.js';
 import { projectsModule } from '../../api/modules/projects.js';
 import { runsModule } from '../../api/modules/runs.js';
 import { settingsModule } from '../../api/modules/settings.js';
 import { systemModule } from '../../api/modules/system.js';
+import { workModule } from '../../api/modules/work.js';
+import { OwnerAuth } from '../../api/owner-auth.js';
 import { type ApiModule, ApiServer } from '../../api/server.js';
+import { MailService } from '../../notify/mail.js';
 import { forjaHome } from '../../registry/home.js';
 import { Vault, vaultPaths } from '../../vault/vault.js';
 import { CliError, EXIT, print } from '../context.js';
@@ -22,6 +27,7 @@ import { RegistryProjectsBackend } from '../projects-backend.js';
 import { vaultPassphrase } from '../secret-input.js';
 import { ProjectSettingsBackend } from '../settings-backend.js';
 import { MachineSystemBackend } from '../system-backend.js';
+import { EngineWorkBackend } from '../work-backend.js';
 
 /**
  * Modules the panel offers for a project. Each milestone adds its own module
@@ -35,11 +41,24 @@ export type PanelResources = {
   busy: BusyFlag;
 };
 export type ModuleFactory = (ctx: EngineContext, res: PanelResources) => ApiModule;
+
+/** One planning backend per open project: the chat and the action plans share its «thinking» state. */
+const planners = new WeakMap<EngineContext, EnginePlanningBackend>();
+function plannerFor(ctx: EngineContext, busy: BusyFlag): EnginePlanningBackend {
+  let p = planners.get(ctx);
+  if (!p) {
+    p = new EnginePlanningBackend(ctx, busy);
+    planners.set(ctx, p);
+  }
+  return p;
+}
+
 export const PANEL_MODULES: ModuleFactory[] = [
   (ctx) => runsModule(new EngineRunsBackend(ctx)),
   (ctx, res) => connectionsModule(new EngineConnectionsBackend(ctx, res.vault)),
   (ctx) => memoryModule(new EngineMemoryBackend(ctx)),
-  (ctx, res) => planningModule(new EnginePlanningBackend(ctx, res.busy)),
+  (ctx, res) => planningModule(plannerFor(ctx, res.busy)),
+  (ctx, res) => workModule(new EngineWorkBackend(ctx, plannerFor(ctx, res.busy))),
   (ctx) => jobsModule(new ProjectJobsBackend(ctx)),
   (ctx, res) => settingsModule(new ProjectSettingsBackend(ctx, res.reload)),
 ];
@@ -47,7 +66,12 @@ export const PANEL_MODULES: ModuleFactory[] = [
 /** Modules that work without a project (system setup, choosing a project…). */
 export type GlobalResources = { home: string; projects: PanelProjects; system: MachineSystemBackend };
 export type GlobalModuleFactory = (res: GlobalResources) => ApiModule;
-export const GLOBAL_MODULES: GlobalModuleFactory[] = [(res) => systemModule(res.system), (res) => projectsModule(new RegistryProjectsBackend(res.home, res.projects))];
+export const GLOBAL_MODULES: GlobalModuleFactory[] = [
+  (res) => systemModule(res.system),
+  (res) => accountsModule(res.system),
+  (res) => mailModule(new MailService(res.home)),
+  (res) => projectsModule(new RegistryProjectsBackend(res.home, res.projects)),
+];
 
 /** Replays by Idempotency-Key in the open project's database; in memory while there is none. */
 function idempotencyFor(projects: PanelProjects): IdempotencyStore {
@@ -59,7 +83,12 @@ function idempotencyFor(projects: PanelProjects): IdempotencyStore {
   return { get: (key) => current().get(key), set: (key, answer) => current().set(key, answer) };
 }
 
-export type PanelOptions = { port?: number; vault: Vault | null };
+export type PanelOptions = {
+  port?: number;
+  vault: Vault | null;
+  /** Server mode (`forja servidor`): listen on `host`, everything behind the owner login. */
+  server?: { host: string; publicUrl: string; auth: OwnerAuth };
+};
 
 /** Starts the panel; returns its URL, a way to issue login links, and a stopper. */
 export async function startPanel(opts: PanelOptions): Promise<{ url: string; link: () => string; projects: PanelProjects; stop: () => Promise<void> }> {
@@ -84,6 +113,7 @@ export async function startPanel(opts: PanelOptions): Promise<{ url: string; lin
     project: projects,
     idempotency: idempotencyFor(projects),
     ...(opts.port ? { port: opts.port } : {}),
+    ...(opts.server ? { host: opts.server.host, server: { auth: opts.server.auth, publicUrl: opts.server.publicUrl, trustProxy: process.env.FORJA_CONFIAR_PROXY !== '0' } } : {}),
   });
   const { url } = await server.listen();
   return {
@@ -98,7 +128,60 @@ export async function startPanel(opts: PanelOptions): Promise<{ url: string; lin
   };
 }
 
+/**
+ * Sends the owner's verification or reset code: by email when SMTP is configured, and
+ * otherwise to the server log, which only whoever administers the server can read.
+ */
+function codeSender(home: string) {
+  return async (to: string, purpose: 'verificar' | 'recuperar', code: string): Promise<'correo' | 'registro'> => {
+    const what = purpose === 'verificar' ? 'verificar tu correo' : 'cambiar tu contraseña';
+    const mail = new MailService(home);
+    if (mail.settings()) {
+      try {
+        await mail.sendTo(to, { asunto: `Forja · tu código para ${what}`, texto: `Tu código es ${code}.\nVence en 15 minutos. Si no lo pediste, ignora este correo.` });
+        return 'correo';
+      } catch (error) {
+        print(`⚠ no se pudo enviar el código por correo: ${(error as Error).message}`);
+      }
+    }
+    print(`[forja] código para ${what} (${to}): ${code} — vence en 15 minutos`);
+    return 'registro';
+  };
+}
+
 export function registerUiCommands(program: Command): void {
+  program
+    .command('servidor')
+    .description('sirve el panel en un servidor (Doko…) con login del dueño: sin sesión no responde ninguna ruta')
+    .option('--puerto <n>', 'puerto (por defecto $PORT o 8080)', (v) => Number.parseInt(v, 10))
+    .option('--host <ip>', 'dirección en la que escuchar', '0.0.0.0')
+    .action(async (opts: { puerto?: number; host: string }) => {
+      const publicUrl = process.env.FORJA_URL_PUBLICA;
+      const owner = process.env.FORJA_DUENO_EMAIL;
+      if (!publicUrl || !/^https?:\/\/[^/]+\/?$/.test(publicUrl)) throw new CliError('define FORJA_URL_PUBLICA con la URL pública, por ejemplo https://forja.tudominio.com', EXIT.input);
+      if (!owner) throw new CliError('define FORJA_DUENO_EMAIL con el correo del dueño: es el único que puede registrarse y entrar', EXIT.input);
+      const port = opts.puerto ?? Number.parseInt(process.env.PORT ?? '8080', 10);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new CliError('el puerto debe estar entre 1 y 65535');
+      const home = forjaHome();
+      let auth: OwnerAuth;
+      try {
+        auth = new OwnerAuth(home, owner, codeSender(home));
+      } catch (error) {
+        throw new CliError((error as Error).message, EXIT.input);
+      }
+      // The owner's browser is elsewhere: provider sign-ins use device codes (see provider-login.ts).
+      process.env.FORJA_LOGIN_REMOTO = '1';
+      const panel = await startPanel({ vault: null, port, server: { host: opts.host, publicUrl, auth } });
+      print(`Forja (modo servidor) escuchando en ${opts.host}:${port} · ${panel.url}`);
+      print(auth.status().registro_abierto ? `Registro abierto sólo para ${auth.ownerEmail}: entra a ${panel.url}/login y crea la cuenta.` : 'Registro cerrado. Sólo el dueño puede entrar.');
+      await new Promise<void>((resolve) => {
+        process.once('SIGINT', resolve);
+        process.once('SIGTERM', resolve);
+      });
+      print('Servidor detenido.');
+      await panel.stop();
+    });
+
   program
     .command('ui')
     .description('abre el panel web local (sólo en esta máquina: 127.0.0.1)')

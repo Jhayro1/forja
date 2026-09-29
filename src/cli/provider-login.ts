@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 
 export type LoginProvider = 'claude' | 'codex';
 export type LoginStatus = 'iniciando' | 'esperando' | 'listo' | 'error' | 'cancelado';
-export type LoginView = { proveedor: LoginProvider; estado: LoginStatus; url: string | null; pide_codigo: boolean; salida: string[]; mensaje: string | null };
+export type LoginView = { proveedor: LoginProvider; cuenta: string; estado: LoginStatus; url: string | null; pide_codigo: boolean; salida: string[]; mensaje: string | null };
 
 /**
  * How each official CLI signs in without a terminal (checked in F0): both print a
@@ -15,27 +15,41 @@ export const LOGIN_COMMANDS: Record<LoginProvider, { file: string; args: string[
   codex: { file: 'codex', args: ['login'], asksCode: false },
 };
 
+/**
+ * On a server (`forja servidor`) the browser is not on this machine, so Codex's callback to
+ * localhost:1455 can never arrive: it signs in with a device code instead, shown in the panel.
+ */
+export function loginCommands(env: NodeJS.ProcessEnv = process.env): typeof LOGIN_COMMANDS {
+  if (env.FORJA_LOGIN_REMOTO !== '1') return LOGIN_COMMANDS;
+  return { ...LOGIN_COMMANDS, codex: { file: 'codex', args: ['login', '--device-auth'], asksCode: false } };
+}
+
 const URL_RE = /https:\/\/\S+/;
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\r/g;
 const MAX_MS = 10 * 60_000;
 
 type Session = { view: LoginView; child: ChildProcess; timer: NodeJS.Timeout; codeSent: () => void };
 
-/** Sign-in sessions of the provider CLIs, driven from the panel. One per provider. */
+const keyOf = (provider: LoginProvider, account: string) => `${provider}@${account}`;
+
+/**
+ * Sign-in sessions of the provider CLIs, driven from the panel. One per account:
+ * `env` points the CLI at that account's session folder (v3 §4.9).
+ */
 export class ProviderLogins {
-  private readonly sessions = new Map<LoginProvider, Session>();
+  private readonly sessions = new Map<string, Session>();
 
   constructor(
-    private readonly commands = LOGIN_COMMANDS,
+    private readonly commands = loginCommands(),
     private readonly maxMs = MAX_MS,
   ) {}
 
-  start(provider: LoginProvider): LoginView {
-    this.cancel(provider, true);
+  start(provider: LoginProvider, account = 'principal', env: Record<string, string> = {}): LoginView {
+    this.cancel(provider, true, account);
     const cmd = this.commands[provider];
-    const view: LoginView = { proveedor: provider, estado: 'iniciando', url: null, pide_codigo: false, salida: [], mensaje: null };
+    const view: LoginView = { proveedor: provider, cuenta: account, estado: 'iniciando', url: null, pide_codigo: false, salida: [], mensaje: null };
     let codeSent = false;
-    const child = spawn(cmd.file, cmd.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NO_COLOR: '1' } });
+    const child = spawn(cmd.file, cmd.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env, NO_COLOR: '1' } });
     const onText = (chunk: Buffer) => {
       const text = chunk.toString('utf8').replace(ANSI, '');
       for (const line of text.split('\n')) if (line.trim()) view.salida.push(line.trim());
@@ -68,22 +82,27 @@ export class ProviderLogins {
     const session: Session = {
       view,
       child,
-      timer: setTimeout(() => this.cancel(provider), this.maxMs),
+      timer: setTimeout(() => this.cancel(provider, false, account), this.maxMs),
       codeSent: () => {
         codeSent = true;
       },
     };
     session.timer.unref();
-    this.sessions.set(provider, session);
+    this.sessions.set(keyOf(provider, account), session);
     return view;
   }
 
-  get(provider: LoginProvider): LoginView | null {
-    return this.sessions.get(provider)?.view ?? null;
+  get(provider: LoginProvider, account = 'principal'): LoginView | null {
+    return this.sessions.get(keyOf(provider, account))?.view ?? null;
   }
 
-  submitCode(provider: LoginProvider, code: string): LoginView {
-    const s = this.sessions.get(provider);
+  /** Every sign-in session (all accounts), for the panel. */
+  all(): LoginView[] {
+    return [...this.sessions.values()].map((s) => s.view);
+  }
+
+  submitCode(provider: LoginProvider, code: string, account = 'principal'): LoginView {
+    const s = this.sessions.get(keyOf(provider, account));
     if (s?.view.estado !== 'esperando') throw new Error('no hay un inicio de sesión esperando un código');
     if (!s.view.pide_codigo) throw new Error(`${provider} no pide código: termina de iniciar sesión en el navegador`);
     const clean = code.trim();
@@ -95,8 +114,8 @@ export class ProviderLogins {
     return s.view;
   }
 
-  cancel(provider: LoginProvider, quiet = false): LoginView | null {
-    const s = this.sessions.get(provider);
+  cancel(provider: LoginProvider, quiet = false, account = 'principal'): LoginView | null {
+    const s = this.sessions.get(keyOf(provider, account));
     if (!s) return null;
     clearTimeout(s.timer);
     if (s.view.estado === 'iniciando' || s.view.estado === 'esperando') {
@@ -108,6 +127,6 @@ export class ProviderLogins {
   }
 
   close(): void {
-    for (const p of [...this.sessions.keys()]) this.cancel(p, true);
+    for (const s of [...this.sessions.values()]) this.cancel(s.view.proveedor, true, s.view.cuenta);
   }
 }

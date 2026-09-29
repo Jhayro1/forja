@@ -130,3 +130,7 @@ modelos con esfuerzo por rol ([ADR-015](docs/decisiones/ADR-015-catalogo-modelos
 | 9.5 | P2 | Comprobar `ultra` (Codex) y `ultracode` (Claude) contra los CLI reales | Salen de la documentación; `ultracode` no se ofrece todavía |
 | 9.6 | P3 | Aligerar la distro (~355 MB) | Casi todo son los binarios nativos de Claude Code y Codex; se podrían instalar al primer uso |
 | 9.7 | P3 | Pruebas E2E del panel en CI | Hoy se validó a mano con Playwright (flujo completo con agentes simulados); convertirlo en una prueba automática |
+
+## 10. Plan v3 (seis roles, ciclo completo y panel nuevo)
+
+Plan del 2026-09-29 en [v3/PLAN.md](v3/PLAN.md): Auditor, QA e Integrador; validar y aceptar; épicas e historial; coordinación entre agentes; cuentas múltiples; correo SMTP; modo servidor; panel nuevo con shadcn/ui. El estado de cada punto (hecho, parcial o pendiente) está en su §12. P1 nuevo: **V3-732**, porque dentro de un contenedor Docker los agentes no pueden aislarse con bubblewrap.

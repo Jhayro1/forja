@@ -12,7 +12,17 @@ import { type CommandContext, runCommand } from './commands.js';
 export const ReviewOutput = z
   .object({
     criterios: z.array(z.object({ id: z.string(), veredicto: z.enum(['cumple', 'no_cumple', 'no_verificable']), evidencia: z.string() }).strict()),
-    hallazgos: z.array(z.object({ severidad: z.enum(['alta', 'media', 'baja']), ubicacion: z.string(), motivo: z.string() }).strict()),
+    hallazgos: z.array(
+      z
+        .object({
+          severidad: z.enum(['alta', 'media', 'baja']),
+          /** Only a «defecto» can reject; a «requisito_nuevo» is scope for the user, never a silent fix (v3 §4.4). */
+          clase: z.enum(['defecto', 'sugerencia', 'requisito_nuevo']),
+          ubicacion: z.string(),
+          motivo: z.string(),
+        })
+        .strict(),
+    ),
     veredicto: z.enum(['aprobado', 'rechazado']),
     resumen: z.string(),
   })
@@ -163,7 +173,7 @@ export async function verifyTask(
     return { ok: false, steps, feedback: '', environmentFailure: true };
   }
   const review = parsed.data;
-  const serious = review.hallazgos.filter((h) => h.severidad === 'alta');
+  const serious = review.hallazgos.filter((h) => h.severidad === 'alta' && h.clase === 'defecto');
   const unmet = review.criterios.filter((x) => x.veredicto === 'no_cumple');
   if (review.veredicto === 'rechazado' && (serious.length > 0 || unmet.length > 0)) {
     steps.push({ paso: 'revision', ok: false, detalle: review.resumen });

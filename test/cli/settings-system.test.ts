@@ -41,7 +41,7 @@ describe('configuración del proyecto desde el panel', () => {
     let reloads = 0;
     const b = new ProjectSettingsBackend(ctx, () => reloads++);
     const read = b.read() as { roles: { rol: string; modelos: string[] }[]; paralelo: number; sugerencias: string[] };
-    expect(read.roles.map((r) => r.rol)).toEqual(['planeador', 'trabajador', 'complejo', 'revisor']);
+    expect(read.roles.map((r) => r.rol)).toEqual(['planeador', 'trabajador', 'complejo', 'revisor', 'integrador', 'auditor', 'qa']);
     expect(read.sugerencias).toContain('claude:opus');
     b.save({
       roles: { planeador: ['claude:opus[1m]'], trabajador: ['claude:haiku'], complejo: ['claude:sonnet'], revisor: ['claude:sonnet'] },
@@ -55,6 +55,8 @@ describe('configuración del proyecto desde el panel', () => {
     expect(cfg.roles.revisor).toEqual(['claude:sonnet']);
     expect(cfg.esfuerzo).toEqual({ planeador: 'max', revisor: 'high' });
     expect(cfg.ejecucion.paralelo).toBe(5);
+    // Un panel anterior a v3 no manda los roles nuevos: conservan sus modelos.
+    expect(cfg.roles.auditor).toEqual(['claude:opus', 'codex:gpt-6-astra']);
     // Sin esfuerzos, la clave desaparece y cada CLI usa su valor por defecto.
     b.save({ roles: cfg.roles, esfuerzo: {}, paralelo: 5 });
     expect(readConfig(ctx.checkout.path).esfuerzo).toEqual({});

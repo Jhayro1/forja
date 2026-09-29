@@ -1,7 +1,9 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { AccountProviderName, AccountsBackend } from '../api/modules/accounts.js';
 import type { Provider, SystemBackend } from '../api/modules/system.js';
 import { detectPlatform, type Exec, overall, realExec, runChecks } from '../doctor/checks.js';
+import { AccountStore, PRINCIPAL } from '../providers/accounts.js';
 import { JobRunner } from './jobs.js';
 import { ProviderLogins } from './provider-login.js';
 
@@ -19,9 +21,10 @@ export function npmBin(nodePath = process.execPath): string {
 const CACHE_MS = 30_000;
 
 /** `forja doctor` plus installing and signing in to the providers, for the panel. */
-export class MachineSystemBackend implements SystemBackend {
+export class MachineSystemBackend implements SystemBackend, AccountsBackend {
   private cache: { at: number; value: object } | null = null;
   private readonly jobs: JobRunner;
+  readonly accountStore: AccountStore;
 
   constructor(
     home: string,
@@ -31,6 +34,7 @@ export class MachineSystemBackend implements SystemBackend {
     private readonly npm: string = npmBin(),
   ) {
     this.jobs = jobs ?? new JobRunner(join(home, 'trabajos'));
+    this.accountStore = new AccountStore(home);
   }
 
   async overview(refresh: boolean): Promise<object> {
@@ -62,7 +66,7 @@ export class MachineSystemBackend implements SystemBackend {
 
   login(provider: Provider): object {
     this.cache = null;
-    return this.logins.start(provider);
+    return this.logins.start(provider, PRINCIPAL, this.accountStore.envFor(provider, PRINCIPAL));
   }
 
   loginState(provider: Provider): object | null {
@@ -75,6 +79,42 @@ export class MachineSystemBackend implements SystemBackend {
 
   cancelLogin(provider: Provider): object | null {
     return this.logins.cancel(provider);
+  }
+
+  accounts(): object {
+    return this.accountStore.list().map((a) => ({
+      ...a,
+      sesion_iniciada: this.accountStore.signedIn(a.proveedor, a.alias),
+      carpeta: this.accountStore.configDir(a.proveedor, a.alias),
+      inicio_sesion: this.logins.get(a.proveedor, a.alias),
+    }));
+  }
+
+  addAccount(provider: AccountProviderName, alias: string): object {
+    return this.accountStore.add(provider, alias);
+  }
+
+  updateAccount(provider: AccountProviderName, alias: string, patch: { activa?: boolean; max_agentes?: number | null }): object {
+    return this.accountStore.update(provider, alias, patch);
+  }
+
+  removeAccount(provider: AccountProviderName, alias: string): void {
+    this.logins.cancel(provider, true, alias);
+    this.accountStore.remove(provider, alias);
+  }
+
+  accountLogin(provider: AccountProviderName, alias: string): object {
+    if (!this.accountStore.get(provider, alias)) throw new Error(`no existe la cuenta ${provider}@${alias}`);
+    this.cache = null;
+    return this.logins.start(provider, alias, this.accountStore.envFor(provider, alias));
+  }
+
+  accountCode(provider: AccountProviderName, alias: string, code: string): object {
+    return this.logins.submitCode(provider, code, alias);
+  }
+
+  accountCancel(provider: AccountProviderName, alias: string): object | null {
+    return this.logins.cancel(provider, false, alias);
   }
 
   close(): void {

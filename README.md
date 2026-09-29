@@ -12,6 +12,8 @@ Orquestador **open source** de agentes de código. Separa el trabajo en dos:
 Funciona con las **suscripciones** de Claude y Codex: maneja sus CLI oficiales
 (`claude -p`, `codex exec`) y nunca toca tus credenciales de esos servicios.
 
+> **v3 en curso** (rama `mejoras/v3`): seis roles, cuentas múltiples, coordinación entre agentes, observaciones con plan de acción, épicas e historial, correo SMTP, modo servidor con login y panel nuevo. Plan y estado en [v3/PLAN.md](v3/PLAN.md).
+>
 > Estado: **M0–M6 implementados, con las mejoras de [MEJORAS.md](MEJORAS.md)** (falta la prueba con Claude y Codex reales: ver [MEJORAS.md](MEJORAS.md#0-lo-que-necesita-tu-máquina-p1)). Bitácora en
 > [PROGRESO.md](PROGRESO.md); mejoras y pendientes en [MEJORAS.md](MEJORAS.md).
 
@@ -36,7 +38,7 @@ forja                                             # abre el panel en el navegado
 npm install && npm run check                      # desarrollo: typecheck + tests (Linux con bubblewrap)
 ```
 
-Guías: [instalar](docs/guias/INSTALAR.md) · [app de escritorio](docs/guias/ESCRITORIO.md) · [recuperación](docs/guias/RECUPERACION.md) · [seguridad](docs/guias/SEGURIDAD.md) · [limitaciones](docs/guias/LIMITACIONES.md) · [Forja sobre Forja](docs/guias/FORJA-SOBRE-FORJA.md).
+Guías: [instalar](docs/guias/INSTALAR.md) · [servidor](docs/guias/SERVIDOR.md) · [app de escritorio](docs/guias/ESCRITORIO.md) · [recuperación](docs/guias/RECUPERACION.md) · [seguridad](docs/guias/SEGURIDAD.md) · [limitaciones](docs/guias/LIMITACIONES.md) · [Forja sobre Forja](docs/guias/FORJA-SOBRE-FORJA.md).
 
 | Paso | Comandos |
 |---|---|
@@ -50,13 +52,16 @@ Guías: [instalar](docs/guias/INSTALAR.md) · [app de escritorio](docs/guias/ESC
 | Observar | `forja tablero`, `estado`, `preguntas`, `tarea T-001`, `logs T-001 -f`, `informe` (todos con `--json`) |
 | Decidir | `forja responder T-001 "…"`, `reintentar T-001 "nota"`; rehacer el plan a mitad: `detener` → `dividir` → `aprobar plan` → `run` |
 | Panel web | `forja` (o `forja ui`): se abre en el navegador; elige proyecto, configura Claude/Codex, conversa con el planeador y ejecuta todo con botones. Sólo 127.0.0.1 |
-| Modelos | `forja modelos`: todos los modelos de Claude y Codex con su esfuerzo de razonamiento; se eligen por rol en el panel o en `forja.yaml` (`roles`, `esfuerzo`) |
+| Modelos y cuentas | `forja modelos`: todos los modelos de Claude y Codex con su esfuerzo; se eligen por rol (planeador, trabajador, complejo, revisor, integrador, auditor, qa) en el panel o en `forja.yaml`. Varias cuentas por proveedor en Ajustes → Cuentas de IA |
 | Modelos | `forja conformidad [proveedor:modelo…]`, `forja conformidad --listar` |
 | Piloto | `forja piloto [--aplicar]`: mide los runs y recomienda N |
 | Secretos | `forja boveda iniciar/guardar/listar/cambiar-clave/verificar/restaurar` |
 | Servicios externos | `forja conexion nueva/vincular/probar`, `forja accion proponer/aprobar/ejecutar/conciliar`, `forja acciones`, `forja mcp registrar/vincular`, `forja auditoria` |
 | Memoria | `forja memoria construir/buscar/contexto/evaluar`, `forja memoria lecciones/aprobar/rechazar`; `contexto.modo: grafo` en forja.yaml |
-| Avisos | `forja notificaciones activar <conexion> [--con-texto]`, `ver`, `probar`, `desactivar` |
+| Avisos | `forja notificaciones activar <conexion> [--con-texto]`, `ver`, `probar`, `desactivar`; por correo SMTP en Ajustes → Correo |
+| Calidad (v3) | `forja validar` (QA y auditoría del sprint entregado), `forja observaciones`; el plan de acción se crea en el panel (Calidad) y siempre pasa por tu aprobación |
+| Historial (v3) | `forja historial`: épica → sprint → historia → tarea con fechas; en el panel, lista de control, calendario y épicas |
+| Servidor (v3) | `forja servidor`: panel para un servidor (Doko…) con login del dueño; sin sesión no responde ninguna ruta ([guía](docs/guias/SERVIDOR.md)) |
 | Operación | `forja backup crear/listar/verificar/restaurar`; copia estable: `bash scripts/forja-estable.sh` |
 
 Modo demo sin cuota: con los roles en `simulado:sim` y `FORJA_SIMULACION=guion.json`

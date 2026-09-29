@@ -1,10 +1,11 @@
+import { nextAction } from './next-action.js';
 import type { RunSnapshot } from './snapshot.js';
 
 /**
  * Stable JSON shape of a snapshot, shared by `--json` output and the local API
  * (field names in Spanish are part of the public contract, v2/10).
  */
-export function snapshotJson(s: RunSnapshot, runner: { pid: number } | null) {
+export function snapshotJson(s: RunSnapshot, runner: { pid: number } | null, openObservations = 0) {
   return {
     modo_demo: s.demo,
     cambio: { id: s.change.change_id, titulo: s.change.title, fase: s.change.phase },
@@ -23,10 +24,16 @@ export function snapshotJson(s: RunSnapshot, runner: { pid: number } | null) {
       actividad: t.activity,
       error: t.exec.last_error,
       pregunta: t.state === 'esperando_respuesta' ? t.exec.question : null,
+      tipo: t.kind,
+      depende_de: t.dependsOn,
+      rol: t.exec.level,
+      cuenta: t.exec.account,
+      resumen: t.exec.summary,
     })),
     pendientes: s.pending,
     proveedores_en_pausa: s.providerPauses.map((p) => ({ proveedor: p.key, hasta: new Date(p.until).toISOString(), motivo: p.reason })),
     consumo: s.usage,
     siguiente: s.nextStep,
+    siguiente_accion: nextAction(s, openObservations),
   };
 }

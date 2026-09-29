@@ -112,6 +112,10 @@ export class EngineContextProvider implements ContextProvider {
   }
 
   /** What a file defines, imports and who depends on it (the agent reads its content itself). */
+  private changedBy(path: string): string[] {
+    return tasksThatChanged(this.engine, path);
+  }
+
   private fileRelations(path: string): string {
     return this.withGraph((g) => {
       const id = fileId(path.replace(/^\.\//, ''));
@@ -142,9 +146,33 @@ export class EngineContextProvider implements ContextProvider {
             .join(', ') || '—'
         }`,
       ];
+      const changes = this.changedBy(path.replace(/^\.\//, ''));
+      if (changes.length) lines.push('Cambiado por tareas ya unidas:', ...changes.map((c) => `  ${c}`));
       return lines.join('\n');
     });
   }
+}
+
+/** Integrated tasks (any run of the checkout) whose change touched `path`, with what they did (v3 §4.8). */
+export function tasksThatChanged(engine: Engine, path: string, limit = 8): string[] {
+  const rows = engine.store.db
+    .prepare(
+      "SELECT e.run_id, e.task_id, e.files, e.summary, t.title FROM task_exec e JOIN tasks t ON t.run_id = e.run_id AND t.task_id = e.task_id WHERE t.state = 'integrada' AND e.files LIKE ? ORDER BY e.updated_seq DESC LIMIT 50",
+    )
+    .all(`%${JSON.stringify(path).slice(1, -1)}%`) as { run_id: string; task_id: string; files: string; summary: string | null; title: string }[];
+  const out: string[] = [];
+  for (const r of rows) {
+    let files: string[] = [];
+    try {
+      files = JSON.parse(r.files) as string[];
+    } catch {
+      continue;
+    }
+    if (!files.includes(path)) continue;
+    out.push(`${r.task_id} (${r.run_id}) ${r.title}${r.summary ? ` — ${r.summary}` : ''}`);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /** Requests recorded for a run (or all), newest last. */

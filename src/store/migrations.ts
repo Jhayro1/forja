@@ -279,6 +279,50 @@ const MIGRATIONS: readonly string[] = [
   -- Lecciones: hashes del ámbito al aprobarlas (vencen cuando cambian sus archivos, MEJORAS 5.7).
   ALTER TABLE lessons ADD COLUMN hashes TEXT;
   `,
+  `
+  -- v3: cuenta del proveedor con la que corrió cada tarea (§4.9) y su resumen de producto.
+  ALTER TABLE task_exec ADD COLUMN account TEXT;
+  ALTER TABLE task_exec ADD COLUMN summary TEXT;
+  `,
+  `
+  -- v3: observaciones de revisión, auditoría y QA (§5.1.1) y épicas que agrupan sprints (§3).
+  CREATE TABLE observations (
+    obs_id      TEXT PRIMARY KEY,
+    change_id   TEXT NOT NULL,
+    run_id      TEXT,
+    task_id     TEXT,
+    source      TEXT NOT NULL,
+    severity    TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    location    TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    evidence    TEXT,
+    commit_sha  TEXT,
+    state       TEXT NOT NULL,
+    reason      TEXT,
+    plan_change TEXT,
+    created_at  TEXT NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  CREATE INDEX observations_change ON observations(change_id, state);
+
+  CREATE TABLE epics (
+    epic_id     TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    goal        TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    target_date TEXT,
+    created_at  TEXT NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  CREATE TABLE change_epics (
+    change_id   TEXT PRIMARY KEY,
+    epic_id     TEXT,
+    priority    INTEGER NOT NULL DEFAULT 0,
+    target_date TEXT,
+    updated_seq INTEGER NOT NULL
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

@@ -10,12 +10,14 @@ import { resumeProvider } from '../core/engine.js';
 import { McpRegistry } from '../mcp/registry.js';
 import { GraphStore } from '../memory/graph-store.js';
 import { hashFilesIn, LessonService } from '../memory/lessons.js';
+import { MailService, panelLink } from '../notify/mail.js';
 import { currentApproval, gateProblems } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import { estimatePlan } from '../plan/estimate.js';
 import { waves } from '../plan/plan.js';
 import { closureBlockers, openQuestions } from '../planner/discovery.js';
 import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, plannerScratch, runPlannerTurn, transcript } from '../planner/session.js';
+import { ObservationService } from '../quality/observations.js';
 import { runningOrchestrator } from '../run/process.js';
 import type { TaskView } from '../run/snapshot.js';
 import { currentChange } from '../run/snapshot.js';
@@ -42,7 +44,8 @@ export class EngineRunsBackend implements RunsBackend {
   state(): object {
     const snap = this.board.snapshot();
     if (!snap) return { cambio: null };
-    return { proyecto: this.ctx.config.nombre, ...snapshotJson(snap, runningOrchestrator(this.ctx.dataDir)), registro: snap.run ? this.board.runLog(snap.run.run_id) : [] };
+    const open = new ObservationService(this.ctx.engine).list({ change_id: snap.change.change_id, states: ['abierta'] }).length;
+    return { proyecto: this.ctx.config.nombre, ...snapshotJson(snap, runningOrchestrator(this.ctx.dataDir), open), registro: snap.run ? this.board.runLog(snap.run.run_id) : [] };
   }
 
   private find(id: string): TaskView | null {
@@ -215,6 +218,16 @@ export class EnginePlanningBackend implements PlanningBackend {
     private readonly busy: BusyFlag = { set: () => {} },
   ) {}
 
+  /** Email notice about the planner (v3 §5.6). Never throws: a notice cannot break the chat. */
+  private mailChat(message: { asunto: string; texto: string }): void {
+    try {
+      if (!this.ctx.home) return;
+      void new MailService(this.ctx.home).notice('chat', message).catch(() => undefined);
+    } catch {
+      // Without mail settings there is nothing to send.
+    }
+  }
+
   private chat(): object {
     return { pensando: this.thinking, error: this.lastError, planeador: this.ctx.config.roles.planeador[0] };
   }
@@ -244,9 +257,22 @@ export class EnginePlanningBackend implements PlanningBackend {
           change = listChanges(engine).find((c) => c.change_id === id)!;
         }
         const inputs = change.mode === 'mejora' ? { workspace: this.ctx.checkout.path, evidence: await repoEvidence(this.ctx.checkout.path) } : { workspace: plannerScratch(engine) };
+        const started = Date.now();
         await runPlannerTurn(engine, { changeId: change.change_id, userText, ...inputs, closing: opts.cerrar });
+        // A long answer deserves an email (v3 §5.6): the user may have left the tab.
+        if (Date.now() - started > 60_000) {
+          const reply = transcript(engine, change.change_id).at(-1)?.planner_text ?? '';
+          this.mailChat({
+            asunto: `Forja · ${this.ctx.config.nombre}: el planeador respondió`,
+            texto: `Cambio: ${change.title}\n\n${reply.slice(0, 3000)}${panelLink()}`,
+          });
+        }
       } catch (error) {
         this.lastError = (error as Error).message;
+        this.mailChat({
+          asunto: `Forja · ${this.ctx.config.nombre}: el planeador no pudo responder`,
+          texto: `${this.lastError.slice(0, 2000)}${panelLink()}`,
+        });
       } finally {
         this.thinking = null;
         this.busy.set(null);

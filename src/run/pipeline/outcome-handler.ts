@@ -3,6 +3,7 @@ import { captureTask, resetWorktree } from '../../git/workspace.js';
 import { readOutcome } from '../../runtime/launch-service.js';
 import { launchStatus, spawnRunner } from '../../runtime/launcher.js';
 import { extractQuestion } from '../context.js';
+import { extractSummary } from '../team.js';
 import type { RunContext } from './run-context.js';
 
 /**
@@ -34,9 +35,11 @@ export class OutcomeHandler {
     }
     const err = outcome.summary.error;
     if (err && (err.category === 'quota' || err.category === 'auth')) {
-      pauseProvider(engine, `${exec.provider}:${exec.model}`, err.message.slice(0, 100), err.retryAfterMs ?? 15 * 60_000);
+      pauseProvider(engine, `${exec.provider}:${exec.model}`, err.message.slice(0, 100), err.retryAfterMs ?? 15 * 60_000, exec.account);
       ctx.move(taskId, 'lista', 'proveedor_no_disponible', err.message);
-      ctx.log(`⏸ ${exec.provider}: ${err.category === 'quota' ? 'cuota agotada' : 'sin sesión'}; ${taskId} usará otro modelo`);
+      ctx.log(
+        `⏸ ${exec.provider}${exec.account && exec.account !== 'principal' ? `@${exec.account}` : ''}: ${err.category === 'quota' ? 'cuota agotada' : 'sin sesión'}; ${taskId} usará otra cuenta u otro modelo`,
+      );
       return;
     }
     const question = extractQuestion(outcome.summary.text);
@@ -74,7 +77,7 @@ export class OutcomeHandler {
       ctx.qualityFailure(taskId, `El intento no produjo cambios (${why}).`);
       return;
     }
-    ctx.exec(taskId, { candidate_sha: capture.sha, files: JSON.stringify(capture.changes.map((c) => c.path)) });
+    ctx.exec(taskId, { candidate_sha: capture.sha, files: JSON.stringify(capture.changes.map((c) => c.path)), summary: extractSummary(outcome.summary.text) });
     ctx.move(taskId, 'verificando', 'proceso_terminado');
     ctx.log(`✎ ${taskId}: ${capture.changes.length} archivo(s) cambiados; verificando`);
   }

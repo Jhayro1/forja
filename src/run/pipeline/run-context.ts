@@ -7,6 +7,7 @@ import type { TaskState, TransitionReason } from '../../domain/task-state.js';
 import type { Plan, PlanTask } from '../../plan/plan.js';
 import { preexistingFailures } from '../../profile/baseline.js';
 import { ClaudeAdapter, CodexAdapter } from '../../providers/adapters.js';
+import { ObservationService } from '../../quality/observations.js';
 import { secretsFromFile } from '../../runtime/runner.js';
 import { Redactor } from '../../security/redact.js';
 import { latestSpec } from '../../spec/generate.js';
@@ -52,7 +53,9 @@ export class RunContext {
     };
     this.onLog = opts.onLog;
     this.preexisting = preexistingFailures(engine, this.plan.perfil);
-    for (const f of [ClaudeAdapter.credentialFile(), CodexAdapter.credentialFile()]) {
+    // Every account's session file (v3 §4.9), not only the CLI defaults: none may reach a log.
+    const accountFiles = engine.accounts?.list().map((a) => engine.accounts!.credentialFile(a.proveedor, a.alias)) ?? [];
+    for (const f of new Set([ClaudeAdapter.credentialFile(), CodexAdapter.credentialFile(), ...accountFiles])) {
       if (existsSync(f)) for (const v of secretsFromFile(f)) this.redactor.add({ name: 'credencial_proveedor', value: v });
     }
   }
@@ -101,9 +104,28 @@ export class RunContext {
     if (failures >= max) {
       this.move(taskId, 'bloqueada', 'bloqueo', `falló ${failures} veces: ${first}`);
       this.log(`✘ ${taskId} bloqueada tras ${failures} intentos`);
+      // A blocked task is a defect to plan for, not only a status (v3 §5.1.1).
+      this.observe({
+        task_id: taskId,
+        source: 'verificacion',
+        severity: 'alta',
+        kind: 'defecto',
+        location: taskId,
+        text: `La tarea no pasó la verificación tras ${failures} intentos: ${first}`,
+        evidence: feedback.slice(0, 2000),
+      });
     } else {
       this.move(taskId, 'lista', 'fallo_calidad', first);
       this.log(`↻ ${taskId} reintenta (${failures}/${max}): ${first.slice(0, 120)}`);
+    }
+  }
+
+  /** Records an observation of this run; never breaks the run if it cannot. */
+  observe(o: Omit<Parameters<ObservationService['record']>[0], 'change_id' | 'run_id'>): void {
+    try {
+      new ObservationService(this.engine).record({ ...o, change_id: this.run.change_id, run_id: this.run.run_id });
+    } catch (error) {
+      this.log(`⚠ no se pudo guardar una observación: ${(error as Error).message}`);
     }
   }
 

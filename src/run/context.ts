@@ -6,6 +6,7 @@ import type { Plan, PlanTask } from '../plan/plan.js';
 import { compose, loadPrompt } from '../planner/prompts.js';
 import type { Spec } from '../spec/spec.js';
 import { acceptanceFilesFor } from '../verify/verify.js';
+import type { TeamLedger } from './team.js';
 
 export type ContextManifest = { prompt_hash: string; fragments: { id: string; reason: string; bytes: number }[]; excluded: string[] };
 
@@ -39,6 +40,8 @@ export async function buildWorkerPrompt(input: {
   related?: { path: string; reason: string }[];
   /** Approved lessons for this task (never policy: approved decisions win). */
   lessons?: { id: string; text: string }[];
+  /** What the other agents of the run are doing and did (v3 §4.8). */
+  team?: TeamLedger | null;
 }): Promise<{ prompt: string; manifest: ContextManifest }> {
   const { spec, task, plan } = input;
   const fragments: ContextManifest['fragments'] = [];
@@ -88,6 +91,7 @@ export async function buildWorkerPrompt(input: {
     fragments.push({ id: r.path, reason: `grafo: ${r.reason}`, bytes: size });
   }
   for (const l of input.lessons ?? []) fragments.push({ id: l.id, reason: 'lección aprobada', bytes: l.text.length });
+  if (input.team) fragments.push({ id: 'equipo', reason: 'otras tareas del run (en curso, terminadas y dependientes)', bytes: JSON.stringify(input.team).length });
 
   const c = plan.perfil.comandos;
   const verify = (['typecheck', 'build', 'lint', 'test'] as const).map((k) => (c[k] ? `${k}: ${[c[k]!.executable, ...c[k]!.args].join(' ')}` : null)).filter(Boolean);
@@ -118,6 +122,7 @@ export async function buildWorkerPrompt(input: {
           },
         }
       : {}),
+    ...(input.team ? { equipo: input.team } : {}),
     archivos_del_proyecto: tree.length > 300 ? [...tree.slice(0, 300), `… y ${tree.length - 300} más`] : tree,
     contenido_de_archivos: files,
     ...(excluded.length ? { archivos_no_incluidos: `Léelos si los necesitas: ${excluded.join(', ')}` } : {}),

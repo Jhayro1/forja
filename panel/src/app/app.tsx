@@ -7,9 +7,13 @@ import { Shell } from './shell';
 // Each screen is its own chunk: the first load only brings what it shows.
 const SCREENS: Record<ViewId, ComponentType> = {
   inicio: lazy(() => import('@/screens/inicio')),
+  sprint: lazy(() => import('@/screens/sprint')),
+  tablero: lazy(() => import('@/screens/tablero')),
+  agentes: lazy(() => import('@/screens/agentes')),
+  historial: lazy(() => import('@/screens/historial')),
+  calidad: lazy(() => import('@/screens/calidad')),
   proyectos: lazy(() => import('@/screens/proyectos')),
   configuracion: lazy(() => import('@/screens/configuracion')),
-  resumen: lazy(() => import('@/screens/tareas')),
   planeacion: lazy(() => import('@/screens/planeacion')),
   acciones: lazy(() => import('@/screens/acciones')),
   conexiones: lazy(() => import('@/screens/conexiones')),

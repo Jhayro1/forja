@@ -25,6 +25,7 @@ export function loginCommands(env: NodeJS.ProcessEnv = process.env): typeof LOGI
 }
 
 const URL_RE = /https:\/\/\S+/;
+const PROMPT = /^\s*Paste code here if prompted\s*>\s*/i;
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\r/g;
 const MAX_MS = 10 * 60_000;
 
@@ -52,7 +53,11 @@ export class ProviderLogins {
     const child = spawn(cmd.file, cmd.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env, NO_COLOR: '1' } });
     const onText = (chunk: Buffer) => {
       const text = chunk.toString('utf8').replace(ANSI, '');
-      for (const line of text.split('\n')) if (line.trim()) view.salida.push(line.trim());
+      // Claude's prompt has no newline, so a chunk may glue it to the next message: drop it.
+      for (const raw of text.split('\n')) {
+        const line = raw.replace(PROMPT, '').trim();
+        if (line) view.salida.push(line);
+      }
       view.salida = view.salida.slice(-40);
       const url = URL_RE.exec(text)?.[0];
       if (url && !view.url) {

@@ -1,0 +1,12 @@
+# /etc/apparmor.d/forja-bwrap — Ubuntu 24.04 impide crear namespaces de usuario a procesos sin
+# privilegios (kernel.apparmor_restrict_unprivileged_userns=1). Este perfil se lo permite SÓLO a
+# bubblewrap, que es el sandbox de los agentes de Forja. Es la forma que recomienda Ubuntu para
+# aplicaciones que usan namespaces. Cargar: apparmor_parser -r /etc/apparmor.d/forja-bwrap
+abi <abi/4.0>,
+include <tunables/global>
+
+profile forja-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+
+  include if exists <local/forja-bwrap>
+}

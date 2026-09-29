@@ -218,6 +218,16 @@ export class EnginePlanningBackend implements PlanningBackend {
     private readonly busy: BusyFlag = { set: () => {} },
   ) {}
 
+  /** Email notice about the planner (v3 §5.6). Never throws: a notice cannot break the chat. */
+  private mailChat(message: { asunto: string; texto: string }): void {
+    try {
+      if (!this.ctx.home) return;
+      void new MailService(this.ctx.home).notice('chat', message).catch(() => undefined);
+    } catch {
+      // Without mail settings there is nothing to send.
+    }
+  }
+
   private chat(): object {
     return { pensando: this.thinking, error: this.lastError, planeador: this.ctx.config.roles.planeador[0] };
   }
@@ -252,14 +262,14 @@ export class EnginePlanningBackend implements PlanningBackend {
         // A long answer deserves an email (v3 §5.6): the user may have left the tab.
         if (Date.now() - started > 60_000) {
           const reply = transcript(engine, change.change_id).at(-1)?.planner_text ?? '';
-          void new MailService(this.ctx.home).notice('chat', {
+          this.mailChat({
             asunto: `Forja · ${this.ctx.config.nombre}: el planeador respondió`,
             texto: `Cambio: ${change.title}\n\n${reply.slice(0, 3000)}${panelLink()}`,
           });
         }
       } catch (error) {
         this.lastError = (error as Error).message;
-        void new MailService(this.ctx.home).notice('chat', {
+        this.mailChat({
           asunto: `Forja · ${this.ctx.config.nombre}: el planeador no pudo responder`,
           texto: `${this.lastError.slice(0, 2000)}${panelLink()}`,
         });

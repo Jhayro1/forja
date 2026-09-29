@@ -15,6 +15,15 @@ export const LOGIN_COMMANDS: Record<LoginProvider, { file: string; args: string[
   codex: { file: 'codex', args: ['login'], asksCode: false },
 };
 
+/**
+ * On a server (`forja servidor`) the browser is not on this machine, so Codex's callback to
+ * localhost:1455 can never arrive: it signs in with a device code instead, shown in the panel.
+ */
+export function loginCommands(env: NodeJS.ProcessEnv = process.env): typeof LOGIN_COMMANDS {
+  if (env.FORJA_LOGIN_REMOTO !== '1') return LOGIN_COMMANDS;
+  return { ...LOGIN_COMMANDS, codex: { file: 'codex', args: ['login', '--device-auth'], asksCode: false } };
+}
+
 const URL_RE = /https:\/\/\S+/;
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\r/g;
 const MAX_MS = 10 * 60_000;
@@ -31,7 +40,7 @@ export class ProviderLogins {
   private readonly sessions = new Map<string, Session>();
 
   constructor(
-    private readonly commands = LOGIN_COMMANDS,
+    private readonly commands = loginCommands(),
     private readonly maxMs = MAX_MS,
   ) {}
 

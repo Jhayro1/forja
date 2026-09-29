@@ -73,7 +73,10 @@ Se probó el 2026-09-29 en un VPS con Ubuntu 24.04 y Docker 29:
 resuelto, hay dos caminos:
 
 1. **Instalar Forja directamente en el servidor, sin contenedor**, con `forja servidor` como
-   servicio de systemd detrás del proxy. En el host bubblewrap sí funciona.
+   servicio de systemd, y publicarlo con una «puerta» (un nginx sin privilegios) en la
+   plataforma. Las plantillas y la explicación están en [`deploy/`](../../deploy/README.md). En
+   Ubuntu 24.04, un usuario sin privilegios necesita el perfil de AppArmor para bubblewrap que
+   trae esa carpeta.
 2. **Usar el contenedor sólo para planear y revisar**, y ejecutar los runs en una máquina con
    sandbox.
 

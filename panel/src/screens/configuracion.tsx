@@ -76,7 +76,9 @@ function AccountLogin({ c }: { c: Cuenta }) {
   return (
     <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
       <p className="text-sm">
-        {s.pide_codigo ? '1. Abre la página e inicia sesión con ESTA cuenta. 2. Copia el código. 3. Pégalo aquí.' : 'Abre la página e inicia sesión con esta cuenta; se completa solo.'}
+        {s.pide_codigo
+          ? '1. Abre la página e inicia sesión con ESTA cuenta. 2. Copia el código. 3. Pégalo aquí.'
+          : 'Abre la página e inicia sesión con esta cuenta (si abajo aparece un código, escríbelo en esa página); se completa solo.'}
       </p>
       {url ? (
         <Button asChild size="sm">
@@ -91,6 +93,7 @@ function AccountLogin({ c }: { c: Cuenta }) {
           <Button onClick={() => (code.trim() ? void run(`${base}/codigo`, { codigo: code.trim() }) : toast('Pega el código', 'error'))}>Enviar</Button>
         </div>
       ) : null}
+      {!s.pide_codigo && s.salida?.length ? <pre className="max-h-32 overflow-auto rounded-md bg-background p-2 font-mono text-xs whitespace-pre-wrap">{s.salida.slice(-6).join('\n')}</pre> : null}
       {s.mensaje ? <p className="text-xs text-muted-foreground">{s.mensaje}</p> : null}
       {cancel}
     </div>

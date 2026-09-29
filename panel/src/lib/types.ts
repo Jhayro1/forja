@@ -44,6 +44,8 @@ export type LoginState = {
   url?: string | null;
   pide_codigo?: boolean;
   mensaje?: string | null;
+  /** Last lines of the CLI (a device code for Codex on a server shows up here). */
+  salida?: string[];
 };
 export type Sistema = {
   estado: Level;

@@ -169,6 +169,8 @@ export function registerUiCommands(program: Command): void {
       } catch (error) {
         throw new CliError((error as Error).message, EXIT.input);
       }
+      // The owner's browser is elsewhere: provider sign-ins use device codes (see provider-login.ts).
+      process.env.FORJA_LOGIN_REMOTO = '1';
       const panel = await startPanel({ vault: null, port, server: { host: opts.host, publicUrl, auth } });
       print(`Forja (modo servidor) escuchando en ${opts.host}:${port} · ${panel.url}`);
       print(auth.status().registro_abierto ? `Registro abierto sólo para ${auth.ownerEmail}: entra a ${panel.url}/login y crea la cuenta.` : 'Registro cerrado. Sólo el dueño puede entrar.');

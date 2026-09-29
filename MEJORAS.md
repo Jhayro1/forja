@@ -133,4 +133,4 @@ modelos con esfuerzo por rol ([ADR-015](docs/decisiones/ADR-015-catalogo-modelos
 
 ## 10. Plan v3 (seis roles, ciclo completo y panel nuevo)
 
-Propuesta del 2026-09-29 en [v3/PLAN.md](v3/PLAN.md): Auditor, QA e Integrador; fases validar, aceptar y publicar; hoja de ruta; panel nuevo con shadcn/ui. Backlog V3-001 a V3-641.
+Plan del 2026-09-29 en [v3/PLAN.md](v3/PLAN.md): Auditor, QA e Integrador; validar y aceptar; épicas e historial; coordinación entre agentes; cuentas múltiples; correo SMTP; modo servidor; panel nuevo con shadcn/ui. El estado de cada punto (hecho, parcial o pendiente) está en su §12. P1 nuevo: **V3-732**, porque dentro de un contenedor Docker los agentes no pueden aislarse con bubblewrap.

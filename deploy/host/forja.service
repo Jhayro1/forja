@@ -1,0 +1,37 @@
+# Forja en modo servidor como servicio de systemd (plan de despliegue v3).
+# Corre en el host (no en un contenedor) porque los agentes necesitan bubblewrap.
+# Instalar: copiar a /etc/systemd/system/forja.service, crear /etc/forja/forja.env (0600) y
+#   systemctl daemon-reload && systemctl enable --now forja
+[Unit]
+Description=Forja (modo servidor)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=forja
+Group=forja
+WorkingDirectory=/opt/forja/actual
+# FORJA_URL_PUBLICA, FORJA_DUENO_EMAIL, FORJA_SMTP_* y, opcional, PORT.
+EnvironmentFile=/etc/forja/forja.env
+Environment=NODE_ENV=production HOME=/var/lib/forja/home FORJA_HOME=/var/lib/forja/datos
+# Los CLI de Claude y Codex del usuario forja (npm install -g --prefix /opt/forja/cli …).
+Environment=PATH=/opt/forja/cli/bin:/usr/local/bin:/usr/bin:/bin
+# Sólo en la IP de la red de Docker que usa la puerta de Doko: nunca en la IP pública.
+ExecStart=/usr/bin/node /opt/forja/actual/dist/cli/bin.js servidor --host 172.19.0.1 --puerto 8090
+Restart=on-failure
+RestartSec=5
+# Que los agentes no le quiten recursos a lo que ya está en producción.
+MemoryMax=6G
+CPUQuota=200%
+Nice=10
+IOSchedulingClass=idle
+TasksMax=2048
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/forja
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

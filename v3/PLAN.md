@@ -982,3 +982,4 @@ Tamaño S/M/L = incertidumbre relativa. **Riesgo alto** = revisión humana de di
 | V3-731 | ◐ | La imagen construye y protege todo; los agentes no pueden aislarse dentro de un contenedor (ver V3-732) |
 | V3-732 | ○ | **Nuevo:** sandbox de agentes en contenedores. Ni `--privileged` sirve para bubblewrap en Docker. Opciones: instalar en el host con systemd, Docker con el socket y rutas iguales, o gVisor |
 | V3-740, V3-741 | ✅ | SMTP con clave cifrada y avisos por tipo |
+| V3-733 | ◐ | **Nuevo:** despliegue en dos piezas (Forja con systemd en el host y una puerta nginx publicada por la plataforma), en `deploy/`. La puerta está probada con las restricciones de Doko y Codex inicia sesión con código de dispositivo en el servidor; falta ejecutarlo en Doko |

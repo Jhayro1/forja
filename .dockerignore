@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+dist
+panel/dist
+panel/dist-escritorio
+desktop/src-tauri/target
+desktop/distro/salida
+.git
+.forja-dev
+coverage
+*.log
+.env
+.env.*

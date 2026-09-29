@@ -182,8 +182,15 @@ export class MailService {
     const s = this.settings();
     if (!s) throw new MailError('el correo no está configurado');
     if (!s.destinatario) throw new MailError('falta el destinatario de los avisos');
+    await this.sendTo(s.destinatario, message);
+  }
+
+  /** Sends to a given address with the configured server (login codes go to the owner). */
+  async sendTo(to: string, message: Message): Promise<void> {
+    const s = this.settings();
+    if (!s) throw new MailError('el correo no está configurado');
     try {
-      await this.sender(s, { asunto: message.asunto.slice(0, 200), texto: message.texto.slice(0, 20_000) });
+      await this.sender({ ...s, destinatario: to }, { asunto: message.asunto.slice(0, 200), texto: message.texto.slice(0, 20_000) });
     } catch (error) {
       throw new MailError(`no se pudo enviar el correo: ${(error as Error).message}`);
     }

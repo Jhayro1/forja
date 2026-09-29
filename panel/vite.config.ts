@@ -14,9 +14,12 @@ export default defineConfig({
     emptyOutDir: true,
     assetsInlineLimit: 0,
     modulePreload: { polyfill: false },
+    // forja servidor reads the manifest to serve, without a session, only the login's files.
+    manifest: true,
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        login: fileURLToPath(new URL('./login.html', import.meta.url)),
       },
     },
   },

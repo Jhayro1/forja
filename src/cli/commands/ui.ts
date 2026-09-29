@@ -11,6 +11,7 @@ import { projectsModule } from '../../api/modules/projects.js';
 import { runsModule } from '../../api/modules/runs.js';
 import { settingsModule } from '../../api/modules/settings.js';
 import { systemModule } from '../../api/modules/system.js';
+import { OwnerAuth } from '../../api/owner-auth.js';
 import { type ApiModule, ApiServer } from '../../api/server.js';
 import { MailService } from '../../notify/mail.js';
 import { forjaHome } from '../../registry/home.js';
@@ -67,7 +68,12 @@ function idempotencyFor(projects: PanelProjects): IdempotencyStore {
   return { get: (key) => current().get(key), set: (key, answer) => current().set(key, answer) };
 }
 
-export type PanelOptions = { port?: number; vault: Vault | null };
+export type PanelOptions = {
+  port?: number;
+  vault: Vault | null;
+  /** Server mode (`forja servidor`): listen on `host`, everything behind the owner login. */
+  server?: { host: string; publicUrl: string; auth: OwnerAuth };
+};
 
 /** Starts the panel; returns its URL, a way to issue login links, and a stopper. */
 export async function startPanel(opts: PanelOptions): Promise<{ url: string; link: () => string; projects: PanelProjects; stop: () => Promise<void> }> {
@@ -92,6 +98,7 @@ export async function startPanel(opts: PanelOptions): Promise<{ url: string; lin
     project: projects,
     idempotency: idempotencyFor(projects),
     ...(opts.port ? { port: opts.port } : {}),
+    ...(opts.server ? { host: opts.server.host, server: { auth: opts.server.auth, publicUrl: opts.server.publicUrl, trustProxy: process.env.FORJA_CONFIAR_PROXY !== '0' } } : {}),
   });
   const { url } = await server.listen();
   return {
@@ -106,7 +113,58 @@ export async function startPanel(opts: PanelOptions): Promise<{ url: string; lin
   };
 }
 
+/**
+ * Sends the owner's verification or reset code: by email when SMTP is configured, and
+ * otherwise to the server log, which only whoever administers the server can read.
+ */
+function codeSender(home: string) {
+  return async (to: string, purpose: 'verificar' | 'recuperar', code: string): Promise<'correo' | 'registro'> => {
+    const what = purpose === 'verificar' ? 'verificar tu correo' : 'cambiar tu contraseña';
+    const mail = new MailService(home);
+    if (mail.settings()) {
+      try {
+        await mail.sendTo(to, { asunto: `Forja · tu código para ${what}`, texto: `Tu código es ${code}.\nVence en 15 minutos. Si no lo pediste, ignora este correo.` });
+        return 'correo';
+      } catch (error) {
+        print(`⚠ no se pudo enviar el código por correo: ${(error as Error).message}`);
+      }
+    }
+    print(`[forja] código para ${what} (${to}): ${code} — vence en 15 minutos`);
+    return 'registro';
+  };
+}
+
 export function registerUiCommands(program: Command): void {
+  program
+    .command('servidor')
+    .description('sirve el panel en un servidor (Doko…) con login del dueño: sin sesión no responde ninguna ruta')
+    .option('--puerto <n>', 'puerto (por defecto $PORT o 8080)', (v) => Number.parseInt(v, 10))
+    .option('--host <ip>', 'dirección en la que escuchar', '0.0.0.0')
+    .action(async (opts: { puerto?: number; host: string }) => {
+      const publicUrl = process.env.FORJA_URL_PUBLICA;
+      const owner = process.env.FORJA_DUENO_EMAIL;
+      if (!publicUrl || !/^https?:\/\/[^/]+\/?$/.test(publicUrl)) throw new CliError('define FORJA_URL_PUBLICA con la URL pública, por ejemplo https://forja.tudominio.com', EXIT.input);
+      if (!owner) throw new CliError('define FORJA_DUENO_EMAIL con el correo del dueño: es el único que puede registrarse y entrar', EXIT.input);
+      const port = opts.puerto ?? Number.parseInt(process.env.PORT ?? '8080', 10);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new CliError('el puerto debe estar entre 1 y 65535');
+      const home = forjaHome();
+      let auth: OwnerAuth;
+      try {
+        auth = new OwnerAuth(home, owner, codeSender(home));
+      } catch (error) {
+        throw new CliError((error as Error).message, EXIT.input);
+      }
+      const panel = await startPanel({ vault: null, port, server: { host: opts.host, publicUrl, auth } });
+      print(`Forja (modo servidor) escuchando en ${opts.host}:${port} · ${panel.url}`);
+      print(auth.status().registro_abierto ? `Registro abierto sólo para ${auth.ownerEmail}: entra a ${panel.url}/login y crea la cuenta.` : 'Registro cerrado. Sólo el dueño puede entrar.');
+      await new Promise<void>((resolve) => {
+        process.once('SIGINT', resolve);
+        process.once('SIGTERM', resolve);
+      });
+      print('Servidor detenido.');
+      await panel.stop();
+    });
+
   program
     .command('ui')
     .description('abre el panel web local (sólo en esta máquina: 127.0.0.1)')

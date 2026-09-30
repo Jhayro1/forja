@@ -37,7 +37,7 @@ for (const [label, url] of [
       expect((await runRead(target(), 'SELECT nombre FROM clientes')).rows).toEqual([['Ana']]);
       // The database's own barrier: a READ ONLY transaction.
       await expect(runRead(target(), "INSERT INTO clientes VALUES (2, 'Beto')")).rejects.toThrow();
-      expect((await runRead(target(), 'SELECT COUNT(*) FROM clientes')).rows[0]![0]).toBe(u!.motor === 'postgres' ? '1' : 1);
+      expect((await runRead(target(), 'SELECT COUNT(*) FROM clientes')).rows[0]![0]).toBe('1');
     });
 
     it('las reglas de punta a punta: crear con aprobación, cambiar lo propio, nunca lo que ya existía', async () => {
@@ -62,7 +62,7 @@ for (const [label, url] of [
       for (const sql of ['DELETE FROM clientes', 'ALTER TABLE clientes ADD COLUMN x INT', 'DROP TABLE clientes']) {
         expect((await svc.requestChange(who, { conn: 'real', base: u!.base!, sql, motivo: 'intentar tocar lo existente', para_que: 'la prueba' })).state, sql).toBe('bloqueada');
       }
-      expect((await runRead(target(), 'SELECT COUNT(*) FROM clientes')).rows[0]![0]).toBe(u!.motor === 'postgres' ? '1' : 1);
+      expect((await runRead(target(), 'SELECT COUNT(*) FROM clientes')).rows[0]![0]).toBe('1');
       const drop = await svc.requestChange(who, { conn: 'real', base: u!.base!, sql: 'DROP TABLE forja_pagos', motivo: 'ya no hace falta la tabla', para_que: 'limpiar' });
       expect((await svc.approve(drop.req_id)).state).toBe('ejecutada');
       expect(svc.objects()).toEqual([]);

@@ -67,7 +67,7 @@ describe('edición ligera: modo directo', () => {
   it('en Windows el gateway usa una tubería con nombre', () => {
     const pipe = localSocketPath('C:\\Users\\x\\AppData\\Local\\Temp\\fmcp-1\\abc', 'p.sock', 'win32');
     expect(pipe.startsWith('\\\\.\\pipe\\forja-')).toBe(true);
-    expect(localSocketPath('/tmp/fmcp-1/abc', 'p.sock', 'linux')).toBe('/tmp/fmcp-1/abc/p.sock');
+    expect(localSocketPath('/tmp/fmcp-1/abc', 'p.sock', 'linux')).toBe(join('/tmp/fmcp-1/abc', 'p.sock'));
   });
 
   it('un bloque corre de punta a punta sin sandbox propio, con verificación e integración', async () => {

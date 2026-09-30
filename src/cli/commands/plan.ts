@@ -3,6 +3,7 @@ import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { Command } from 'commander';
 import { NoProviderError } from '../../core/engine.js';
+import { databasesForPrompt } from '../../db/project.js';
 import { approvePlan, currentApproval, gateProblems } from '../../plan/approve.js';
 import { dividePlan, latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
@@ -77,8 +78,10 @@ async function turn(ctx: EngineContext, changeId: string, mode: 'idea' | 'mejora
   const stop = spinner(`pensando con ${extras.model ?? ctx.config.roles.planeador[0]}…`);
   try {
     const attachments = extras.files?.length ? saveAttachments(ctx.engine.dataDir, changeId, extras.files) : [];
+    const databases = await databasesForPrompt(ctx.engine, ctx.home);
     return await runPlannerTurn(ctx.engine, {
       changeId,
+      databases,
       userText,
       ...(await planningInputs(ctx, mode)),
       closing,
@@ -264,7 +267,9 @@ export function registerPlanCommands(program: Command): void {
         const stop = spinner(`especificando con ${ctx.config.roles.planeador[0]}…`);
         let result: Awaited<ReturnType<typeof generateSpec>>;
         try {
+          const databases = await databasesForPrompt(ctx.engine, ctx.home);
           result = await generateSpec(ctx.engine, {
+            databases,
             changeId: change.change_id,
             repoPath: ctx.checkout.path,
             projectId: ctx.config.project_id,

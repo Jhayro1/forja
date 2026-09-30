@@ -107,6 +107,8 @@ export async function runPlannerTurn(
     /** The model picked in the chat (`proveedor:modelo`), instead of the planner role's order. */
     model?: string;
     effort?: Effort;
+    /** Schema of the project's linked databases (db/service.ts schemaForPrompt), when there are any. */
+    databases?: object | null;
   },
 ): Promise<TurnResult> {
   const change = getChange(engine, input.changeId);
@@ -120,6 +122,7 @@ export async function runPlannerTurn(
     estado: stateForPrompt(state),
     evidencia_del_repositorio: input.evidence,
     documentos_adjuntos: attachmentsForPrompt(engine.dataDir, input.changeId),
+    bases_de_datos: input.databases ?? null,
     mensaje_usuario: input.userText ?? (state.turnos === 0 ? `(inicio) La idea del usuario es: ${state.idea}` : '(el usuario no escribió nada nuevo)'),
   });
   const schema = llmSchema(PlannerTurnOutput);

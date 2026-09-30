@@ -87,7 +87,7 @@ describe('chat del planeador desde el panel', () => {
     b.send('Implementa lo de @plan.md', { nuevo: false, cerrar: false, adjuntos: [{ name: 'plan.md', text: plan }], modelo: 'simulado:elegido', esfuerzo: 'high' });
     expect((b.overview() as { chat: { pensando: { adjuntos: string[]; modelo: string } } }).chat.pensando).toMatchObject({ adjuntos: ['plan.md'], modelo: 'simulado:elegido' });
     await until(() => (b.overview() as Overview).chat.pensando === null);
-    const o = b.overview() as Overview & { conversacion: { usuario: string; adjuntos: string[]; modelo: string }[] };
+    const o = b.overview() as unknown as Overview & { conversacion: { usuario: string; adjuntos: string[]; modelo: string }[] };
     expect(o.chat.error).toBeNull();
     // A short idea with documents is also the first message (not only the title).
     expect(o.conversacion.at(-1)).toMatchObject({ usuario: 'Implementa lo de @plan.md', adjuntos: ['plan.md'], modelo: 'simulado:elegido' });
@@ -97,7 +97,7 @@ describe('chat del planeador desde el panel', () => {
     b.send('¿Y el saldo?', { nuevo: false, cerrar: false });
     await until(() => (b.overview() as Overview).chat.pensando === null);
     expect(prompts.at(-1)).toContain('CONTENIDO-DEL-PLAN');
-    const last = (b.overview() as Overview & { conversacion: { adjuntos: string[]; modelo: string }[] }).conversacion.at(-1)!;
+    const last = (b.overview() as unknown as { conversacion: { adjuntos: string[]; modelo: string }[] }).conversacion.at(-1)!;
     expect(last.adjuntos).toEqual([]);
     expect(last.modelo).toBe('simulado:sim');
   });

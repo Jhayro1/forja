@@ -49,6 +49,7 @@ export const TEXTOS = {
   ],
   pendiente: {
     pregunta_tarea: 'pregunta de un agente',
+    solicitud_bd: 'solicitud a la base de datos',
     tarea_bloqueada: 'tarea bloqueada',
     tarea_pausada: 'tarea pausada',
     pregunta_spec: 'pregunta de la especificación',

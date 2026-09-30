@@ -62,3 +62,39 @@ jobs:
           if ($salida -notmatch 'Forja Ligera') { throw 'doctor no reconoce la edicion ligera' }
           $global:LASTEXITCODE = 0
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Forja.lnk")) { throw 'falta el acceso del menu Inicio' }
+
+  # Bases de datos reales (docs/guias/BASES-DE-DATOS.md): el controlador, la transacción de sólo
+  # lectura y las reglas (crear con aprobación, nunca tocar lo que ya existía) contra MySQL y PostgreSQL.
+  bases-reales:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: solo-para-ci
+          MYSQL_DATABASE: prueba
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -psolo-para-ci"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: solo-para-ci
+          POSTGRES_DB: prueba
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: pruebas contra MySQL y PostgreSQL
+        run: npx vitest run test/db
+        env:
+          FORJA_BD_MYSQL: mysql://root:solo-para-ci@127.0.0.1:3306/prueba
+          FORJA_BD_PG: postgres://postgres:solo-para-ci@127.0.0.1:5432/prueba

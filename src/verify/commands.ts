@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
@@ -20,6 +20,8 @@ export type CommandContext = {
   networkHosts?: string[];
   sandbox: boolean;
   timeoutMs: number;
+  /** Secret variables for the project's commands (a linked test database): never on disk in the order. */
+  secretEnv?: Record<string, string>;
 };
 
 /**
@@ -69,6 +71,12 @@ export async function runCommand(ctx: CommandContext, cwd: string, recipe: Comma
     kill_grace_ms: 3000,
     redact_files: [],
   };
+  if (ctx.secretEnv && Object.keys(ctx.secretEnv).length) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = join(dir, 'variables.json');
+    writeFileSync(file, JSON.stringify(ctx.secretEnv), { mode: 0o600 });
+    order.secret_env_file = file;
+  }
   const started = Date.now();
   writeOrder(dir, order);
   spawnRunner(dir, ctx.runnerScript ?? DEFAULT_RUNNER_SCRIPT);

@@ -2,12 +2,14 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Engine } from '../../core/engine.js';
 import { changeTaskState } from '../../core/task-commands.js';
+import { dbServiceFor } from '../../db/project.js';
 import { newId } from '../../domain/ids.js';
 import type { TaskState, TransitionReason } from '../../domain/task-state.js';
 import type { Plan, PlanTask } from '../../plan/plan.js';
 import { preexistingFailures } from '../../profile/baseline.js';
 import { ClaudeAdapter, CodexAdapter } from '../../providers/adapters.js';
 import { ObservationService } from '../../quality/observations.js';
+import { forjaHome } from '../../registry/home.js';
 import { secretsFromFile } from '../../runtime/runner.js';
 import { Redactor } from '../../security/redact.js';
 import { latestSpec } from '../../spec/generate.js';
@@ -15,6 +17,16 @@ import type { Spec } from '../../spec/spec.js';
 import { listTasks, type TaskRow } from '../../store/projections.js';
 import type { CommandContext } from '../../verify/commands.js';
 import { type ExecPatch, type ExecRow, getExec, getRun, patchExec, RunError, type RunRow } from '../records.js';
+
+/** Variables of the linked test databases, for the project's commands only (docs/guias/BASES-DE-DATOS.md). */
+function testDatabaseEnv(engine: Engine): { secretEnv?: Record<string, string> } {
+  try {
+    const env = dbServiceFor(engine, forjaHome()).testEnv();
+    return Object.keys(env).length ? { secretEnv: env } : {};
+  } catch {
+    return {};
+  }
+}
 
 /** How many environment failures in a row a task tolerates before it is blocked (MEJORAS 4.6). */
 export const MAX_ENV_FAILURES = 3;
@@ -50,6 +62,7 @@ export class RunContext {
       sandbox: opts.sandbox ?? true,
       timeoutMs: engine.config.ejecucion.timeout_min * 60_000,
       ...(engine.runnerScript ? { runnerScript: engine.runnerScript } : {}),
+      ...testDatabaseEnv(engine),
     };
     this.onLog = opts.onLog;
     this.preexisting = preexistingFailures(engine, this.plan.perfil);

@@ -3,6 +3,7 @@ import type { Command } from 'commander';
 import { type IdempotencyStore, MemoryIdempotencyStore, SqliteIdempotencyStore } from '../../api/idempotency.js';
 import { accountsModule } from '../../api/modules/accounts.js';
 import { connectionsModule } from '../../api/modules/connections.js';
+import { databasesModule } from '../../api/modules/databases.js';
 import { githubModule } from '../../api/modules/github.js';
 import { jobsModule } from '../../api/modules/jobs.js';
 import { mailModule } from '../../api/modules/mail.js';
@@ -15,6 +16,7 @@ import { systemModule } from '../../api/modules/system.js';
 import { workModule } from '../../api/modules/work.js';
 import { OwnerAuth } from '../../api/owner-auth.js';
 import { type ApiModule, ApiServer } from '../../api/server.js';
+import { dbServiceFor } from '../../db/project.js';
 import { GitHubSettings } from '../../git/publish.js';
 import { MailService } from '../../notify/mail.js';
 import { forjaHome } from '../../registry/home.js';
@@ -63,6 +65,7 @@ export const PANEL_MODULES: ModuleFactory[] = [
   (ctx, res) => workModule(new EngineWorkBackend(ctx, plannerFor(ctx, res.busy))),
   (ctx) => jobsModule(new ProjectJobsBackend(ctx)),
   (ctx, res) => settingsModule(new ProjectSettingsBackend(ctx, res.reload)),
+  (ctx) => databasesModule(dbServiceFor(ctx.engine, ctx.home)),
 ];
 
 /** Modules that work without a project (system setup, choosing a project…). */

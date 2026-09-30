@@ -7,6 +7,7 @@ import type { PlanningBackend, SendOptions } from '../api/modules/planning.js';
 import type { RunsBackend } from '../api/modules/runs.js';
 import type { EventFeed } from '../api/server.js';
 import { resumeProvider } from '../core/engine.js';
+import { databasesForPrompt } from '../db/project.js';
 import { McpRegistry } from '../mcp/registry.js';
 import { GraphStore } from '../memory/graph-store.js';
 import { hashFilesIn, LessonService } from '../memory/lessons.js';
@@ -274,8 +275,10 @@ export class EnginePlanningBackend implements PlanningBackend {
         const inputs = change.mode === 'mejora' ? { workspace: this.ctx.checkout.path, evidence: await repoEvidence(this.ctx.checkout.path) } : { workspace: plannerScratch(engine) };
         const started = Date.now();
         const attachments = files.length ? saveAttachments(engine.dataDir, change.change_id, files) : [];
+        const databases = await databasesForPrompt(engine, this.ctx.home);
         await runPlannerTurn(engine, {
           changeId: change.change_id,
+          databases,
           userText,
           ...inputs,
           closing: opts.cerrar,

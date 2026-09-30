@@ -16,8 +16,10 @@ export function isWsl(readProcVersion: () => string = () => readFileSync('/proc/
  * (`\\wsl.localhost\Ubuntu\home\x`, `\\wsl$\Ubuntu\home\x`); anything else is
  * returned trimmed, unchanged.
  */
-export function fromUserPath(input: string): string {
+export function fromUserPath(input: string, platform: NodeJS.Platform = process.platform): string {
   const text = input.trim().replace(/^["']|["']$/g, '');
+  // Native Windows (ligera edition): a Windows path is already the right path.
+  if (platform === 'win32') return text;
   const drive = /^([A-Za-z]):[\\/]?(.*)$/.exec(text);
   if (drive) {
     const rest = drive[2]!.replace(/\\/g, '/').replace(/\/+$/, '');

@@ -1,7 +1,8 @@
 import { pauseProvider, type Role, recordUsage } from '../../core/engine.js';
 import { captureTask, resetWorktree } from '../../git/workspace.js';
+import type { Usage } from '../../providers/normalized.js';
 import { readOutcome } from '../../runtime/launch-service.js';
-import { launchStatus, spawnRunner } from '../../runtime/launcher.js';
+import { killOrphanAgent, launchStatus, spawnRunner } from '../../runtime/launcher.js';
 import { extractQuestion } from '../context.js';
 import { extractSummary } from '../team.js';
 import type { RunContext } from './run-context.js';
@@ -28,7 +29,10 @@ export class OutcomeHandler {
     }
     const outcome = await readOutcome(exec.launch_dir, exec.provider === 'codex' ? 'codex' : 'claude');
     recordUsage(engine, { role: (exec.level as Role) ?? 'trabajador', scope: { run_id: run.run_id, task_id: taskId } }, exec.launch_id!, exec.provider ?? '?', exec.model ?? '?', outcome);
+    // The session can be continued by this task's retry or the next task of a block.
+    if (outcome.summary.sessionId) ctx.exec(taskId, { session_id: outcome.summary.sessionId, context_tokens: contextTokens(outcome.summary.usage) });
     if (status.state === 'interrumpido') {
+      killOrphanAgent(exec.launch_dir);
       // Interruption is not a quality failure (R09): relaunch on the same workspace.
       ctx.environmentFailure(taskId, 'el agente se interrumpió', { feedback: 'El proceso anterior se interrumpió. Tu trabajo parcial sigue en el directorio: revísalo y termina la tarea.' });
       return;
@@ -86,3 +90,14 @@ export class OutcomeHandler {
 /** A candidate equal to its base: the agent changed nothing and the task is verified as already met. */
 export const isNoChangeCandidate = (exec: { candidate_sha: string | null; base_sha: string | null; files: string | null }): boolean =>
   exec.candidate_sha !== null && exec.candidate_sha === exec.base_sha && (exec.files ?? '[]') === '[]';
+
+/**
+ * Approximate size of the session's context after its last turn: what the last turn read
+ * (fresh + cached input). Providers that report cumulative totals overestimate it, which
+ * only makes the handover to a new session happen earlier.
+ */
+export function contextTokens(usage: readonly Usage[]): number | null {
+  const last = usage.at(-1);
+  if (!last || last.inputTokens === null) return null;
+  return last.inputTokens + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0);
+}

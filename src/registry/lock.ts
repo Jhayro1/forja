@@ -1,4 +1,5 @@
 import { linkSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { pidExists } from '../util/proc.js';
 
 /**
  * Process identity = pid + start time, so a recycled pid is not mistaken for
@@ -17,11 +18,19 @@ export function processStart(pid: number): string | null {
   }
 }
 
+/**
+ * Without /proc (Windows, macOS) the start time is not cheap to read: the identity is
+ * marked «sin-proc» and liveness falls back to «the pid exists». A recycled pid can be
+ * mistaken for the owner there, which only delays the takeover of a stale lock.
+ */
+const NO_PROC = 'sin-proc';
+
 export function currentIdentity(): ProcessIdentity {
-  return { pid: process.pid, start: processStart(process.pid) ?? 'desconocido' };
+  return { pid: process.pid, start: processStart(process.pid) ?? (process.platform === 'linux' ? 'desconocido' : NO_PROC) };
 }
 
 export function isAlive(identity: ProcessIdentity): boolean {
+  if (identity.start === NO_PROC) return pidExists(identity.pid);
   const start = processStart(identity.pid);
   return start !== null && start === identity.start;
 }

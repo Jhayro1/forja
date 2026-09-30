@@ -50,6 +50,10 @@ export type ExecRow = {
   account: string | null;
   /** What the agent says it did, in product language (shown on the board). */
   summary: string | null;
+  /** The agent's session in the last attempt, to continue it in the next task of a block. */
+  session_id: string | null;
+  /** How full that session's context was at its last turn (tokens). */
+  context_tokens: number | null;
 };
 
 const EMPTY_EXEC: Omit<ExecRow, 'run_id' | 'task_id'> = {
@@ -75,6 +79,8 @@ const EMPTY_EXEC: Omit<ExecRow, 'run_id' | 'task_id'> = {
   pinned_model: null,
   account: null,
   summary: null,
+  session_id: null,
+  context_tokens: null,
 };
 
 export type ExecPatch = Partial<Omit<ExecRow, 'run_id' | 'task_id'>>;

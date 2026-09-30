@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { MailService, panelLink } from '../notify/mail.js';
 import { forjaHome } from '../registry/home.js';
 import { currentIdentity } from '../registry/lock.js';
+import { killTree } from '../util/proc.js';
 import { tailLines } from './jobs.js';
 
 /**
@@ -27,16 +28,23 @@ const log = openSync(join(dir, 'salida.log'), 'a', 0o600);
 const child = spawn(order.file, order.args, {
   cwd: order.cwd,
   stdio: ['ignore', log, log],
-  detached: true,
-  env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+  // Own process group on Linux/macOS; on Windows «detached» would open a console.
+  detached: process.platform !== 'win32',
+  windowsHide: true,
+  env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', FORJA_TRABAJO_DIR: dir },
 });
 closeSync(log);
 // The command leads its own process group: a forced cancel kills the whole group directly.
 if (child.pid) writeJson('hijo.json', { pid: child.pid });
 
 const forward = (signal: NodeJS.Signals) => {
+  if (!child.pid) return;
+  if (process.platform === 'win32') {
+    killTree(child.pid);
+    return;
+  }
   try {
-    if (child.pid) process.kill(-child.pid, signal);
+    process.kill(-child.pid, signal);
   } catch {
     // Already gone.
   }

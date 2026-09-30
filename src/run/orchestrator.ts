@@ -36,7 +36,14 @@ export type OrchestratorOptions = {
   gateway?: GatewayHost;
   /** `forja run --solo`: launch only this task (its dependencies must already be integrated). */
   only?: string;
+  /**
+   * One agent for a block of tasks (ligera/PLAN.md F4): only these tasks, one at a time,
+   * all with `model` if given, continuing the same session from one task to the next.
+   */
+  block?: BlockOptions;
 };
+
+export type BlockOptions = { tasks: string[]; model?: string };
 
 export type RunSummary = { runId: string; state: RunState; counts: Record<string, number>; branch: string; deliveryBranch: string | null };
 
@@ -78,7 +85,7 @@ export class Orchestrator {
     this.parallel = opts.parallel ?? engine.config.ejecucion.paralelo;
     this.dependents = dependentCounts(this.ctx.plan);
     const graph = new GraphContext(this.ctx);
-    this.launcher = new TaskLauncher(this.ctx, opts.gateway, graph);
+    this.launcher = new TaskLauncher(this.ctx, opts.gateway, graph, opts.block);
     this.outcomes = new OutcomeHandler(this.ctx);
     this.verifier = new TaskVerifier(this.ctx, opts.review ?? true);
     this.integrator = new Integrator(this.ctx, (worktree, sha) => graph.indexIntegration(worktree, sha));
@@ -121,7 +128,12 @@ export class Orchestrator {
           aggregate_type: 'run',
           aggregate_id: this.runId,
           run_id: this.runId,
-          payload: { paralelo: this.parallel, revisor: this.opts.review ?? true, ...(this.opts.only ? { solo: this.opts.only } : {}) },
+          payload: {
+            paralelo: this.opts.block ? 1 : this.parallel,
+            revisor: this.opts.review ?? true,
+            ...(this.opts.only ? { solo: this.opts.only } : {}),
+            ...(this.opts.block ? { bloque: this.opts.block.tasks, ...(this.opts.block.model ? { modelo: this.opts.block.model } : {}) } : {}),
+          },
         },
       ],
     }));
@@ -206,7 +218,14 @@ export class Orchestrator {
       this.ctx.log('⏸ presupuesto agotado: el run se pausa (no se escala de modelo)');
       return null;
     }
-    for (const id of selectLaunches({ plan: this.ctx.plan, tasks, parallel: this.parallel, only: this.opts.only ?? null, dependents: this.dependents })) {
+    for (const id of selectLaunches({
+      plan: this.ctx.plan,
+      tasks,
+      parallel: this.parallel,
+      only: this.opts.block?.tasks ?? this.opts.only ?? null,
+      sequential: this.opts.block !== undefined,
+      dependents: this.dependents,
+    })) {
       this.jobs.spawn(`lanzar:${id}`, () => this.launcher.launch(id));
     }
     return null;
@@ -224,7 +243,16 @@ export class Orchestrator {
       if (DONE.has(only.state)) return this.finish('pausado', `modo --solo: ${only.task_id} ${only.state}; el resto del plan sigue pendiente (forja run)`);
       if (NEEDS_USER.has(only.state)) return this.finish('bloqueado', `modo --solo: ${only.task_id} necesita atención (${only.state})`);
     }
-    const ready = now.filter((t) => t.state === 'lista' && (!only || t.task_id === only.task_id));
+    const block = this.opts.block ? new Set(this.opts.block.tasks) : null;
+    if (block) {
+      const mine = now.filter((t) => block.has(t.task_id));
+      const attention = mine.filter((t) => NEEDS_USER.has(t.state));
+      // One agent stops at the first problem and asks, instead of working ahead of it.
+      if (attention.length) return this.finish('bloqueado', `bloque detenido: ${attention.map((t) => `${t.task_id} (${t.state})`).join(', ')} necesita tu atención`);
+      if (mine.every((t) => DONE.has(t.state))) return this.finish('pausado', `bloque terminado (${mine.map((t) => t.task_id).join(', ')}); el resto del plan sigue pendiente`);
+    }
+    const inScope = (id: string) => (only ? id === only.task_id : block ? block.has(id) : true);
+    const ready = now.filter((t) => t.state === 'lista' && inScope(t.task_id));
     const starved = this.launcher.starvedForMs;
     if (ready.length > 0 && starved !== null && starved > 60_000) {
       return this.finish('pausado', 'no hay modelos disponibles (cuota agotada o sin sesión); vuelve a ejecutar más tarde');

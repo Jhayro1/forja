@@ -3,6 +3,7 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, re
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isAlive, type ProcessIdentity } from '../registry/lock.js';
+import { killTree } from '../util/proc.js';
 import { FILES, LaunchOrder, LaunchResult, type SpoolRecord } from './order.js';
 
 export const DEFAULT_RUNNER_SCRIPT = fileURLToPath(new URL('./runner-main.js', import.meta.url));
@@ -32,7 +33,7 @@ export function writeOrder(dir: string, order: LaunchOrder): void {
 /** Starts a detached runner. Repeating it is safe: a second runner exits on the launch lock. */
 export function spawnRunner(dir: string, runnerScript = DEFAULT_RUNNER_SCRIPT): number | undefined {
   const logFd = openSync(join(dir, 'runner.err'), 'a', 0o600);
-  const child = spawn(process.execPath, [runnerScript, dir], { detached: true, stdio: ['ignore', 'ignore', logFd] });
+  const child = spawn(process.execPath, [runnerScript, dir], { detached: true, stdio: ['ignore', 'ignore', logFd], windowsHide: true });
   closeSync(logFd);
   child.unref();
   return child.pid;
@@ -80,12 +81,34 @@ export function readSpool(dir: string, afterSeq = 0): SpoolRecord[] {
   return out;
 }
 
-/** Asks the runner to stop (it kills its sandbox and writes the result). */
+/**
+ * Asks the runner to stop (it kills its sandbox and writes the result). The request is
+ * a file the runner polls, plus SIGTERM where signals exist: on Windows a «signal»
+ * would kill the runner outright and leave the agent running without a result.
+ */
 export function cancelLaunch(dir: string): boolean {
   const status = launchStatus(dir);
   if (status.state !== 'corriendo') return false;
+  writeFileSync(join(dir, FILES.cancel), new Date().toISOString(), { mode: 0o600 });
+  if (process.platform === 'win32') return true;
   try {
     process.kill(status.runner.pid, 'SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A runner that died in «directo» mode leaves its agent behind (no --die-with-parent
+ * without a sandbox): kill that tree before the task is relaunched on the same worktree.
+ */
+export function killOrphanAgent(dir: string): boolean {
+  const path = join(dir, FILES.agent);
+  if (!existsSync(path) || existsSync(join(dir, FILES.result))) return false;
+  try {
+    const { pid } = JSON.parse(readFileSync(path, 'utf8')) as { pid: number };
+    killTree(pid, 'SIGKILL');
     return true;
   } catch {
     return false;

@@ -323,6 +323,12 @@ const MIGRATIONS: readonly string[] = [
     updated_seq INTEGER NOT NULL
   );
   `,
+  `
+  -- Forja Ligera (ligera/PLAN.md F4): la sesión del agente y cuánto contexto lleva, para
+  -- que un solo agente siga en la misma sesión de una tarea del bloque a la siguiente.
+  ALTER TABLE task_exec ADD COLUMN session_id TEXT;
+  ALTER TABLE task_exec ADD COLUMN context_tokens INTEGER;
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

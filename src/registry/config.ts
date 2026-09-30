@@ -58,6 +58,12 @@ export const ForjaConfig = z
         lote_max: z.number().int().min(2).max(16).default(4),
         /** Longest a verified task waits for others still in verification to join its batch. */
         lote_espera_s: z.number().int().min(0).max(600).default(20),
+        /**
+         * Block mode (one agent, ligera/PLAN.md F4): the next task continues the previous
+         * task's session while its context is below this; past it, a new session starts
+         * with the team ledger as the handover summary.
+         */
+        sesion_max_tokens: z.number().int().min(10_000).max(2_000_000).default(140_000),
       })
       .strict()
       .prefault({}),

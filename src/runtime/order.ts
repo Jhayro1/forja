@@ -47,6 +47,12 @@ export const LaunchOrder = z
         .strict(),
       /** Only for Forja's own tests: runs the command without isolation. */
       z.object({ mode: z.literal('ninguno') }).strict(),
+      /**
+       * Ligera edition (ADR-016): no sandbox of Forja's own. The agent runs as the
+       * user, in its own worktree, limited only by its CLI's permissions. Unlike
+       * «ninguno», the runner owns the whole process tree (kills it on cancel/timeout).
+       */
+      z.object({ mode: z.literal('directo') }).strict(),
     ]),
     timeout_ms: z.number().int().positive(),
     kill_grace_ms: z.number().int().positive().default(5000),
@@ -86,4 +92,8 @@ export const FILES = {
   heartbeat: 'latido',
   lock: 'runner.lock',
   proxy: 'proxy.sock',
+  /** Written by `cancelLaunch`: Windows has no SIGTERM, so the runner also polls for it. */
+  cancel: 'cancelar',
+  /** Pid of the agent process in «directo» mode, to kill a tree left behind by a dead runner. */
+  agent: 'agente.json',
 } as const;

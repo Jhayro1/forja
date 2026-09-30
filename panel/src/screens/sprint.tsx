@@ -111,8 +111,12 @@ function ChatView({ pl, isNew, onSent }: { pl: Planeacion; isNew: boolean; onSen
   const turns = isNew ? [] : pl.conversacion;
   const disc = isNew ? null : pl.descubrimiento;
   const thinking = chat?.pensando ?? null;
+  // Braces on purpose: an effect must return nothing or a cleanup function. Recent Chrome/Edge
+  // make scrollIntoView return a Promise, and React would call it on unmount (blank panel).
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll to the end whenever a message arrives.
-  useEffect(() => end.current?.scrollIntoView({ block: 'nearest' }), [turns.length, thinking]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'nearest' });
+  }, [turns.length, thinking]);
 
   const addFiles = (added: Attachment[]) => {
     setFiles((f) => [...f, ...added]);

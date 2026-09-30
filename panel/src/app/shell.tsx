@@ -1,6 +1,7 @@
 import { BellIcon, CheckIcon, ChevronsUpDownIcon, FolderPlusIcon, LogOutIcon, MonitorIcon, MoonIcon, SearchIcon, SunIcon } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { CommandPalette } from '@/components/command-palette';
+import { ScreenBoundary } from '@/components/error-boundary';
 import { Badge } from '@/components/ui/badge';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -302,7 +303,7 @@ export function Shell({ live, children }: { live: LiveStatus; children: ReactNod
           </div>
         </header>
         <main id="contenido" tabIndex={-1} className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-6 lg:p-8">
-          {children}
+          <ScreenBoundary resetKey={view}>{children}</ScreenBoundary>
         </main>
       </SidebarInset>
       <CommandPalette open={palette} onOpenChange={setPalette} onOpenTask={(id) => openTask(id)} />

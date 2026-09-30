@@ -215,7 +215,7 @@ function Alerts({ estado }: { estado: EstadoV3 | undefined }) {
 }
 
 export function Shell({ live, children }: { live: LiveStatus; children: ReactNode }) {
-  const { view, project, has, server, openTask } = useApp();
+  const { view, project, has, server, ligera, openTask } = useApp();
   const [palette, setPalette] = useState(false);
   const est = useApiQuery<{ estado: EstadoV3 }>(project && has('runs') ? '/v1/estado' : null);
   const estado = est.data?.estado;
@@ -277,6 +277,15 @@ export function Shell({ live, children }: { live: LiveStatus; children: ReactNod
           {estado?.modo_demo ? (
             <Badge variant="outline" className="ml-2 border-warning/40 bg-warning/15">
               Modo demo
+            </Badge>
+          ) : null}
+          {ligera ? (
+            <Badge
+              variant="outline"
+              className="ml-2 hidden border-warning/40 bg-warning/15 sm:inline-flex"
+              title="Forja Ligera: cada tarea trabaja en su propia rama y carpeta, pero el agente tiene tus mismos permisos en el resto del equipo. Úsalo con proyectos en los que confías."
+            >
+              Ligera · modo directo
             </Badge>
           ) : null}
           <div className="ml-auto flex items-center gap-1">

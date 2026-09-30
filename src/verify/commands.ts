@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
 import { resolveExecutable } from '../providers/adapters.js';
@@ -9,6 +9,7 @@ import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds } from '../runtime/sandbox.js';
 import { activeSandboxMode } from '../runtime/sandbox-mode.js';
 import { buildAgentEnv } from '../security/env.js';
+import { commandArgv } from '../util/proc.js';
 
 export type CommandRun = { ok: boolean; exitCode: number | null; status: string; output: string; launchId: string; durationMs: number };
 
@@ -32,6 +33,10 @@ export async function runCommand(ctx: CommandContext, cwd: string, recipe: Comma
   mkdirSync(join(cache, 'npm'), { recursive: true, mode: 0o700 });
   const home = homedir();
   const exe = resolveExecutable(recipe.executable) ?? recipe.executable;
+  // Ligera edition: the command runs as the user, with the user's npm cache (faster, and
+  // there is no sandbox that would need a separate one).
+  const direct = ctx.sandbox && activeSandboxMode() === 'directo';
+  const npmCache = direct ? {} : { npm_config_cache: join(home, '.npm') };
   const order: LaunchOrder = {
     protocol_version: 1,
     launch_id: launchId,
@@ -40,23 +45,26 @@ export async function runCommand(ctx: CommandContext, cwd: string, recipe: Comma
     task_id: 'comando',
     attempt: 1,
     provider: 'comando',
-    argv: [exe, ...recipe.args, ...extraArgs],
+    argv: [...commandArgv(exe), ...recipe.args, ...extraArgs],
     env: buildAgentEnv(process.env, {
       home,
-      tmpdir: '/tmp',
-      extra: { CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', npm_config_cache: join(home, '.npm'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' },
+      tmpdir: direct ? tmpdir() : '/tmp',
+      windows: direct && process.platform === 'win32',
+      extra: { CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', ...npmCache, npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' },
     }),
     cwd: 'cwd' in recipe && recipe.cwd && recipe.cwd !== '.' ? join(cwd, recipe.cwd) : cwd,
-    sandbox: ctx.sandbox
-      ? {
-          mode: activeSandboxMode(),
-          home,
-          mounts: [{ src: join(cache, 'npm'), dest: join(home, '.npm'), rw: true }],
-          read_only: binaryBinds([exe, process.execPath]),
-          network_hosts: ctx.networkHosts ?? [],
-          workspace_read_only: false,
-        }
-      : { mode: 'ninguno' },
+    sandbox: direct
+      ? { mode: 'directo' }
+      : ctx.sandbox
+        ? {
+            mode: activeSandboxMode(),
+            home,
+            mounts: [{ src: join(cache, 'npm'), dest: join(home, '.npm'), rw: true }],
+            read_only: binaryBinds([exe, process.execPath]),
+            network_hosts: ctx.networkHosts ?? [],
+            workspace_read_only: false,
+          }
+        : { mode: 'ninguno' },
     timeout_ms: ctx.timeoutMs,
     kill_grace_ms: 3000,
     redact_files: [],

@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { ensureSandboxImage } from '../runtime/docker-sandbox.js';
+import { isLigera } from '../runtime/edition.js';
+import { commandArgv, resolveCommand } from '../util/proc.js';
 
 export type Level = 'ok' | 'aviso' | 'error';
 export type Check = { id: string; title: string; level: Level; detail: string; fix?: string };
@@ -9,7 +11,10 @@ export type Exec = (file: string, args: string[]) => Promise<{ code: number; std
 
 export const realExec: Exec = (file, args) =>
   new Promise((resolve) => {
-    execFile(file, args, { timeout: 20_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    // On Windows «claude»/«codex» are .cmd shims or .exe files: resolve them like the adapters do.
+    const resolved = process.platform === 'win32' ? resolveCommand(file) : null;
+    const [cmd, ...pre] = resolved ? commandArgv(resolved) : [file];
+    execFile(cmd!, [...pre, ...args], { timeout: 20_000, maxBuffer: 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       const code = error ? (typeof error.code === 'number' ? error.code : 127) : 0;
       resolve({ code, stdout: String(stdout), stderr: String(stderr) });
     });
@@ -29,8 +34,9 @@ export function detectPlatform(readProcVersion: () => string = () => readFileSyn
 /** node:sqlite without a flag (22.13); CI runs Node 22 and 24 (MEJORAS 3.11). */
 const MIN_NODE = [22, 13] as const;
 
-export async function runChecks(exec: Exec = realExec, platform: Platform = detectPlatform(), nodeVersion = process.versions.node): Promise<Check[]> {
+export async function runChecks(exec: Exec = realExec, platform: Platform = detectPlatform(), nodeVersion = process.versions.node, ligera = isLigera()): Promise<Check[]> {
   const checks: Check[] = [];
+  if (ligera) return ligeraChecks(exec, platform, nodeVersion);
 
   // Platform (D2-19, ADR-012): Linux (bwrap), o cualquier SO con Docker (macOS, Windows
   // nativo, o Linux si bwrap no sirve). Windows también sigue funcionando vía WSL2.
@@ -77,6 +83,45 @@ export async function runChecks(exec: Exec = realExec, platform: Platform = dete
       });
   }
   if (!sandboxOk) checks.push(await checkDockerSandbox(exec, platform.os === 'linux'));
+  return checks;
+}
+
+/**
+ * Ligera edition (ADR-016): no sandbox to check. What matters is Node, Git and at least
+ * one of the user's own CLIs with a session; the lack of isolation is always reported.
+ */
+async function ligeraChecks(exec: Exec, platform: Platform, nodeVersion: string): Promise<Check[]> {
+  const checks: Check[] = [];
+  const os = platform.os === 'win32' ? 'Windows' : platform.os === 'darwin' ? 'macOS' : platform.wsl ? 'Linux en WSL2' : 'Linux';
+  checks.push({ id: 'plataforma', title: 'Plataforma', level: 'ok', detail: `${os} · Forja Ligera` });
+  const [major = 0, minor = 0] = nodeVersion.split('.').map(Number);
+  const nodeOk = major > MIN_NODE[0] || (major === MIN_NODE[0] && minor >= MIN_NODE[1]);
+  checks.push({ id: 'node', title: 'Node.js', level: nodeOk ? 'ok' : 'error', detail: `v${nodeVersion}`, ...(nodeOk ? {} : { fix: `Se necesita Node ${MIN_NODE.join('.')} o superior` }) });
+  const git = await exec('git', ['--version']);
+  checks.push(
+    git.code === 0
+      ? { id: 'git', title: 'Git', level: 'ok', detail: git.stdout.trim() }
+      : { id: 'git', title: 'Git', level: 'error', detail: 'no instalado', fix: 'Instala Git (winget install Git.Git)' },
+  );
+  const claude = await checkClaude(exec);
+  const codex = await checkCodex(exec);
+  checks.push(claude, codex);
+  if (claude.level !== 'ok' && codex.level !== 'ok') {
+    checks.push({
+      id: 'agentes',
+      title: 'Agentes',
+      level: 'error',
+      detail: 'ni Claude Code ni Codex tienen sesión: hace falta al menos uno',
+      fix: 'Ejecuta «claude» o «codex login» (se abre tu navegador)',
+    });
+  }
+  checks.push({
+    id: 'aislamiento',
+    title: 'Aislamiento',
+    level: 'aviso',
+    detail: 'modo directo: cada tarea trabaja en su propia rama y carpeta, pero el agente tiene tus mismos permisos en el resto del equipo',
+    fix: 'Úsalo con proyectos en los que confías; para aislamiento completo usa Forja Completa (WSL o servidor)',
+  });
   return checks;
 }
 

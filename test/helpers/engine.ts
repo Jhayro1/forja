@@ -14,7 +14,7 @@ export const HAS_BWRAP = spawnSync('bwrap', ['--ro-bind', '/', '/', 'true']).sta
 
 /** dist/ is built once by test/global-setup.ts; this only checks it is there. */
 export function ensureBuilt(): void {
-  if (!existsSync(join(ROOT, 'dist/cli/main.js'))) execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore' });
+  if (!existsSync(join(ROOT, 'dist/cli/main.js'))) execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'ignore', shell: process.platform === 'win32' });
 }
 
 export function testEngine(simulation: Simulation, roles: Partial<ForjaConfig['roles']> = {}): { engine: Engine; dir: string; cleanup(): void } {

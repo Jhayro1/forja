@@ -54,6 +54,16 @@ export class ProjectJobsBackend implements JobsBackend {
     return this.runner.start(kind, this.command(kind));
   }
 
+  startBlock(tasks: string[], model: string | null): object {
+    const who = model ? ` · ${model}` : '';
+    return this.runner.start('run-bloque', {
+      title: `Un agente: ${tasks.length === 1 ? tasks[0] : `${tasks[0]} … ${tasks.at(-1)} (${tasks.length} tareas)`}${who}`,
+      file: process.execPath,
+      args: [this.bin, '--proyecto', this.ctx.checkout.checkout_id, 'run', '--tareas', tasks.join(','), ...(model ? ['--modelo', model] : [])],
+      cwd: this.ctx.checkout.path,
+    });
+  }
+
   cancel(id: string, force: boolean): object {
     return this.runner.cancel(id, force);
   }

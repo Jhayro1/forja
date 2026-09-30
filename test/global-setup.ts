@@ -7,5 +7,6 @@ import { resolve } from 'node:path';
  * dist/ while another was executing it (an intermittent failure).
  */
 export default function setup(): void {
-  execFileSync('npm', ['run', 'build'], { cwd: resolve(import.meta.dirname, '..'), stdio: 'ignore' });
+  // Windows: npm is npm.cmd, which only runs through a shell.
+  execFileSync('npm', ['run', 'build'], { cwd: resolve(import.meta.dirname, '..'), stdio: 'ignore', shell: process.platform === 'win32' });
 }

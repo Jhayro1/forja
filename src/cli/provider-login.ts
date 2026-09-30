@@ -1,4 +1,5 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { spawnCommand } from '../util/proc.js';
 
 export type LoginProvider = 'claude' | 'codex';
 export type LoginStatus = 'iniciando' | 'esperando' | 'listo' | 'error' | 'cancelado';
@@ -50,7 +51,7 @@ export class ProviderLogins {
     const cmd = this.commands[provider];
     const view: LoginView = { proveedor: provider, cuenta: account, estado: 'iniciando', url: null, pide_codigo: false, salida: [], mensaje: null };
     let codeSent = false;
-    const child = spawn(cmd.file, cmd.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env, NO_COLOR: '1' } });
+    const child = spawnCommand(cmd.file, cmd.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env, NO_COLOR: '1' } });
     const onText = (chunk: Buffer) => {
       const text = chunk.toString('utf8').replace(ANSI, '');
       // Claude's prompt has no newline, so a chunk may glue it to the next message: drop it.

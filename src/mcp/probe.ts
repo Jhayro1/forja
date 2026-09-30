@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { localSocketPath } from '../util/proc.js';
 import { FORJA_VERSION } from '../version.js';
 import { MCP_PROTOCOL } from './external.js';
 import { RPC, RpcError, serveRpc } from './jsonrpc.js';
@@ -25,7 +26,7 @@ export class McpProbe {
 
   static async start(): Promise<McpProbe> {
     const dir = mkdtempSync(join(tmpdir(), 'fmcp-probe-'));
-    const socket = join(dir, 'p.sock');
+    const socket = localSocketPath(dir, 'p.sock');
     let probe: McpProbe | null = null;
     const server = createServer((s) =>
       serveRpc(s, s, async (method, params) => {

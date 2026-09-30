@@ -1,7 +1,9 @@
-import { BotIcon, KanbanSquareIcon, ListIcon, SearchIcon, SquareIcon, TriangleAlertIcon } from 'lucide-react';
+import { BotIcon, KanbanSquareIcon, ListIcon, PlayIcon, SearchIcon, SquareIcon, TriangleAlertIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useApp } from '@/app/context';
+import { BlockRunDialog } from '@/components/block-run';
 import { EmptyState, Mono, PageHeader, Section, StatusBadge, taskTone } from '@/components/common';
+import { JobCard } from '@/components/job-card';
 import { RoleBadge } from '@/components/role-badge';
 import { PendingCard, TaskSheet } from '@/components/task-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -13,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useAction, useApiQuery } from '@/hooks/use-api';
 import { activityText, hora, tokens } from '@/lib/format';
-import type { EstadoV3, TareaV3 } from '@/lib/types';
+import type { EstadoV3, TareaV3, Trabajos } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 /** Board columns of v3 §3: the domain keeps its 13 states, the board groups them. */
@@ -63,7 +65,10 @@ export default function Tablero() {
   const [mode, setMode] = useState<'columnas' | 'tabla'>('columnas');
   const [filter, setFilter] = useState('');
   const [role, setRole] = useState<string>('todos');
+  const [blockOpen, setBlockOpen] = useState(false);
   const q = useApiQuery<{ estado: EstadoV3 }>('/v1/estado', { fastPoll: (d) => Boolean(d?.estado.run?.activo) });
+  const jobs = useApiQuery<Trabajos>('/v1/trabajos', { fastPoll: (j) => j?.trabajos[0]?.estado === 'corriendo' });
+  const blockJob = jobs.data?.trabajos.find((j) => j.tipo === 'run-bloque') ?? null;
   const d = q.data?.estado;
   const tasks = useMemo(() => {
     const text = filter.trim().toLowerCase();
@@ -86,6 +91,7 @@ export default function Tablero() {
     );
 
   const held = tasks.filter((t) => HELD.includes(t.estado));
+  const canRunBlock = ['aprobar', 'ejecutar'].includes(d.cambio.fase) && d.tareas.some((t) => !['integrada', 'cancelada', 'invalidada'].includes(t.estado));
   const pct = d.progreso.total ? Math.round((100 * d.progreso.integradas) / d.progreso.total) : 0;
   const roles = [...new Set((d.tareas ?? []).map((t) => t.rol).filter(Boolean))] as string[];
 
@@ -108,9 +114,15 @@ export default function Tablero() {
             >
               <SquareIcon /> Detener
             </Button>
+          ) : canRunBlock ? (
+            <Button onClick={() => setBlockOpen(true)}>
+              <PlayIcon /> Ejecutar con un agente
+            </Button>
           ) : null
         }
       />
+      {blockJob && (blockJob.estado === 'corriendo' || d.run?.activo) ? <JobCard job={blockJob} base="/v1/trabajos" /> : null}
+      <BlockRunDialog open={blockOpen} onOpenChange={setBlockOpen} tasks={d.tareas} />
       {d.run ? <Progress value={pct} aria-label="Avance del sprint" /> : null}
 
       {d.proveedores_en_pausa?.length ? (

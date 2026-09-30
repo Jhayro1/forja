@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentIdentity, LockFile } from '../registry/lock.js';
 import { Redactor } from '../security/redact.js';
+import { killTree } from '../util/proc.js';
 import { dockerArgs } from './docker-sandbox.js';
 import { AllowlistProxy, hostMatcher } from './netproxy.js';
 import { FILES, LaunchOrder, type LaunchResult, type SpoolRecord } from './order.js';
@@ -109,10 +110,16 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
   const startedAt = new Date().toISOString();
   const heartbeatPath = join(dir, FILES.heartbeat);
   writeFileSync(heartbeatPath, '');
+  const cancelPath = join(dir, FILES.cancel);
   const beat = setInterval(() => {
     const now = new Date();
     utimesSync(heartbeatPath, now, now);
   }, HEARTBEAT_MS);
+  // Windows has no SIGTERM between processes: a cancel is also a file the runner watches.
+  const cancelWatch = setInterval(() => {
+    if (existsSync(cancelPath)) onCancel();
+  }, 1000);
+  if (existsSync(cancelPath)) cancelRequested = true;
 
   let proxy: AllowlistProxy | null = null;
   let socketDir: string | null = null;
@@ -166,11 +173,17 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
     // bwrap/docker are themselves host processes: they need the host's PATH (and, for
     // docker, HOME to find its client config) to be found and run at all. Everything the
     // *sandboxed* process gets was already set with --setenv/-e above, from `order.env`.
+    const direct = order.sandbox.mode === 'ninguno' || order.sandbox.mode === 'directo';
     child = spawn(file, args, {
       cwd: order.cwd,
-      env: order.sandbox.mode === 'ninguno' ? order.env : { PATH: process.env.PATH ?? '/usr/bin:/bin', ...(order.sandbox.mode === 'docker' ? { HOME: process.env.HOME ?? '/root' } : {}) },
+      env: direct ? order.env : { PATH: process.env.PATH ?? '/usr/bin:/bin', ...(order.sandbox.mode === 'docker' ? { HOME: process.env.HOME ?? '/root' } : {}) },
       stdio: [order.stdin_text !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      // «directo»: the agent leads its own process group so the whole tree can be killed
+      // (there is no pid namespace to do it for us). Never a console window on Windows.
+      detached: order.sandbox.mode === 'directo' && process.platform !== 'win32',
+      windowsHide: true,
     });
+    if (order.sandbox.mode === 'directo' && child.pid) writeAtomic(join(dir, FILES.agent), JSON.stringify({ pid: child.pid }));
   } catch (error) {
     return finish('error_inicio', null, null, (error as Error).message);
   }
@@ -187,9 +200,15 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
   child.stderr!.setEncoding('utf8').on('data', (c: string) => emit('stderr', err.push(c)));
 
   let reason: LaunchResult['status'] = 'terminado';
+  const tree = order.sandbox.mode === 'directo';
   const stop = (why: LaunchResult['status']) => {
     if (reason !== 'terminado') return;
     reason = why;
+    if (tree && child.pid) {
+      killTree(child.pid, 'SIGTERM');
+      setTimeout(() => killTree(child.pid!, 'SIGKILL'), order.kill_grace_ms).unref();
+      return;
+    }
     child.kill('SIGTERM');
     setTimeout(() => child.kill('SIGKILL'), order.kill_grace_ms).unref();
   };
@@ -211,6 +230,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
 
   async function finish(status: LaunchResult['status'], exitCode: number | null, sig: NodeJS.Signals | null, detail?: string): Promise<LaunchResult> {
     clearInterval(beat);
+    clearInterval(cancelWatch);
     await proxy?.stop();
     if (socketDir) rmSync(socketDir, { recursive: true, force: true });
     const result: LaunchResult = {

@@ -9,7 +9,23 @@ quieres, en un PR en GitHub.
 rama principal, nunca une un PR y nunca usa `--force`. Tus claves se guardan cifradas y nunca
 llegan a los agentes.
 
-Elige cómo instalarlo:
+Hay **dos versiones**, del mismo código:
+
+| | **Forja Ligera** (nueva) | **Forja Completa** |
+|---|---|---|
+| Instalación | Un comando, un par de minutos. Sin WSL ni Ubuntu | App `.exe` con WSL, un comando en Linux o un VPS |
+| Agentes | **Uno**, que hace la tarea o el bloque que elijas en la misma sesión | Varios en paralelo, coordinados |
+| Claude y Codex | Los que ya tienes en tu PC, con tu sesión | Instalados dentro de Forja |
+| Aislamiento | Rama y carpeta propias, sin sandbox (el agente tiene tus permisos) | Sandbox propio por agente |
+| Dónde | Windows, macOS, Linux | Windows (WSL), Linux, VPS |
+
+**Forja Ligera** tiene su propia guía: [LIGERA.md](LIGERA.md). En Windows se instala así:
+
+```powershell
+irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/ligera.ps1 | iex
+```
+
+El resto de este manual es para **Forja Completa**. Elige cómo instalarla:
 
 | Dónde | Cómo | Para qué |
 |---|---|---|

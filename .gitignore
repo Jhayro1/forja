@@ -7,3 +7,4 @@ coverage/
 .env.*
 desktop/distro/salida/
 panel/dist-escritorio/
+build/

@@ -29,9 +29,10 @@ type Script = {
   salir_con?: number;
 };
 
-const [scriptPath, model = 'simulado'] = process.argv.slice(2);
+const [scriptPath, model = 'simulado', resumeId] = process.argv.slice(2);
 const script = JSON.parse(readFileSync(scriptPath!, 'utf8')) as Script;
-const sessionId = randomUUID();
+// Like the real CLIs: a resumed session keeps its id.
+const sessionId = resumeId ?? randomUUID();
 const emit = (o: unknown) => process.stdout.write(`${JSON.stringify(o)}\n`);
 
 let prompt = '';

@@ -6,7 +6,7 @@ import type { TaskRow } from '../../store/projections.js';
  * Pure launch policy (ADR-002): which ready tasks start now. No I/O, so every
  * rule is unit-testable: free slots, resources held until integration (two tasks
  * never write the same files at once), critical path first, and `only` for
- * `forja run --solo`.
+ * `forja run --solo` and for a block run by one agent (`forja run --tareas`).
  */
 
 /** States that hold a task's resources: from reservation until integrated. */
@@ -43,12 +43,26 @@ export function dependentCounts(plan: Plan): Map<string, number> {
   return memo;
 }
 
-export function selectLaunches(input: { plan: Plan; tasks: TaskRow[]; parallel: number; only?: string | null; dependents?: Map<string, number> }): string[] {
+/** States in which a task needs the user: a block (one agent) stops there instead of going on. */
+export const NEEDS_USER_STATES = ['bloqueada', 'esperando_respuesta', 'pausada'] as const;
+
+/**
+ * `only`: the tasks that may launch (`--solo`, or a block's tasks). `sequential` (block
+ * mode, one agent): nothing new starts while any task is still on its way to integration,
+ * nor while a task of the block waits for the user — the agent never works ahead of a
+ * problem it has not solved.
+ */
+export function selectLaunches(input: { plan: Plan; tasks: TaskRow[]; parallel: number; only?: string | readonly string[] | null; sequential?: boolean; dependents?: Map<string, number> }): string[] {
   const { plan, tasks } = input;
-  const running = tasks.filter((t) => t.state === 'reservada' || t.state === 'ejecutando').length;
-  let slots = input.parallel - running;
-  if (slots <= 0) return [];
+  const only = input.only == null ? null : new Set(typeof input.only === 'string' ? [input.only] : input.only);
   const holding = tasks.filter((t) => (HOLDING_STATES as readonly string[]).includes(t.state));
+  if (input.sequential) {
+    if (holding.length > 0) return [];
+    if (tasks.some((t) => (!only || only.has(t.task_id)) && (NEEDS_USER_STATES as readonly string[]).includes(t.state))) return [];
+  }
+  const running = tasks.filter((t) => t.state === 'reservada' || t.state === 'ejecutando').length;
+  let slots = (input.sequential ? 1 : input.parallel) - running;
+  if (slots <= 0) return [];
   const held = new Set(holding.flatMap((t) => taskResources(plan, t.task_id)));
   const dependents = input.dependents ?? dependentCounts(plan);
   // Files being written right now: a task that reads them would work on an outdated copy,
@@ -57,7 +71,7 @@ export function selectLaunches(input: { plan: Plan; tasks: TaskRow[]; parallel: 
   const readsInFlight = (id: string) => (plan.tareas.find((p) => p.id === id)?.lee ?? []).some((g) => writing.some((w) => globsMayOverlap(g, w)));
   const conflict = new Map(tasks.map((t) => [t.task_id, readsInFlight(t.task_id) ? 1 : 0]));
   const ready = tasks
-    .filter((t) => t.state === 'lista' && (!input.only || t.task_id === input.only))
+    .filter((t) => t.state === 'lista' && (!only || only.has(t.task_id)))
     .sort((a, b) => (conflict.get(a.task_id) ?? 0) - (conflict.get(b.task_id) ?? 0) || (dependents.get(b.task_id) ?? 0) - (dependents.get(a.task_id) ?? 0) || a.task_id.localeCompare(b.task_id));
   const out: string[] = [];
   for (const t of ready) {

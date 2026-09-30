@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { ActionService } from '../actions/protocol.js';
 import type { ContextProvider, RequestScope } from '../memory/context-requests.js';
 import { MCP_SOCKET_NAME } from '../providers/adapters.js';
+import { localSocketPath } from '../util/proc.js';
 import { FORJA_VERSION } from '../version.js';
 import type { ExternalMcp, McpTool, ToolResult } from './external.js';
 import { MCP_PROTOCOL } from './external.js';
@@ -204,9 +205,10 @@ export class GatewayHost {
   async socketFor(origin: string, key: string, scope: RequestScope = null, team?: () => Promise<string>): Promise<string> {
     const folder = join(this.dir, createHash('sha256').update(key).digest('hex').slice(0, 12));
     mkdirSync(folder, { recursive: true, mode: 0o700 });
-    const path = join(folder, MCP_SOCKET_NAME);
+    // A named pipe on Windows (ligera edition runs natively there); a unix socket elsewhere.
+    const path = localSocketPath(folder, MCP_SOCKET_NAME);
     this.servers.get(path)?.close();
-    rmSync(path, { force: true });
+    if (process.platform !== 'win32') rmSync(path, { force: true });
     const server = createServer((socket) =>
       serveRpc(socket, socket, gatewayHandler({ origin, actions: this.actions, externals: this.externals, scope, ...(this.context ? { context: this.context } : {}), ...(team ? { team } : {}) })),
     );

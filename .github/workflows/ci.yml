@@ -31,3 +31,34 @@ jobs:
       - run: npm test
       - name: instalación limpia del paquete (V2-043)
         run: npm run probar:paquete
+
+  # Forja Ligera corre nativa en Windows (ligera/PLAN.md F1/F7): sus pruebas de punta a punta
+  # con el agente simulado, y el instalador de un comando con el paquete recién armado.
+  windows-ligera:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # El paquete raíz (Forja Completa) declara os: linux; la edición ligera no.
+      - run: npm ci --force
+      - run: npm run build
+      - name: pruebas de la edición ligera en Windows nativo
+        run: npx vitest run test/ligera test/run/block.test.ts test/doctor
+      - name: paquete de Forja Ligera
+        run: node scripts/empaquetar-ligera.mjs
+      - name: instalador de un comando (PowerShell 5.1, como en un Windows recién instalado)
+        shell: powershell
+        run: |
+          $env:FORJA_PAQUETE = "$PWD\build\ligera\forja-ligera.tgz"
+          $env:FORJA_SIN_ABRIR = '1'
+          Get-Content scripts\ligera.ps1 -Raw | Invoke-Expression
+          & "$env:LOCALAPPDATA\Forja\forja.cmd" --version
+          # Sin Claude ni Codex en el runner, doctor termina en «falta algo»: se revisa lo que dice.
+          $salida = & "$env:LOCALAPPDATA\Forja\forja.cmd" doctor 2>&1 | Out-String
+          Write-Host $salida
+          if ($salida -notmatch 'Forja Ligera') { throw 'doctor no reconoce la edicion ligera' }
+          $global:LASTEXITCODE = 0
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Forja.lnk")) { throw 'falta el acceso del menu Inicio' }

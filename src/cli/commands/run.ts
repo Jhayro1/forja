@@ -10,14 +10,17 @@ import { activeChange, getChange } from '../../planner/session.js';
 import { ConformanceStore, conformanceProblems, mcpGaps, uncertifiedModels } from '../../providers/conformance.js';
 import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { readableLog } from '../../run/activity.js';
+import { BlockError, checkBlockModel, resolveBlock } from '../../run/block.js';
 import { modelOf, progressLine, STATE_ICON, STATE_LABEL, taskActivityLine, taskDetailLines } from '../../run/describe.js';
-import { answerTaskQuestion, getExec, Orchestrator, RunError, type RunSummary, startOrResumeRun, unblockTask } from '../../run/orchestrator.js';
-import { acquireOrchestratorLock, RUN_PURPOSE, requestStop, runningOrchestrator } from '../../run/process.js';
+import { answerTaskQuestion, type BlockOptions, getExec, Orchestrator, RunError, type RunSummary, startOrResumeRun, unblockTask } from '../../run/orchestrator.js';
+import { acquireOrchestratorLock, clearStopRequests, RUN_PURPOSE, requestStop, runningOrchestrator, stopRequested } from '../../run/process.js';
 import { RunLog } from '../../run/run-log.js';
 import { SELF_HOST_WARNING, supervisesItself } from '../../run/self-host.js';
 import { compactTokens, costLabel, currentChange, type RunSnapshot, runSnapshot } from '../../run/snapshot.js';
 import { snapshotJson } from '../../run/snapshot-json.js';
+import { isLigera } from '../../runtime/edition.js';
 import { readSpool } from '../../runtime/launcher.js';
+import { latestSpec } from '../../spec/generate.js';
 import { listTasks } from '../../store/projections.js';
 import { runBoard } from '../../tui/app.js';
 import { DirWatchSet, Waker } from '../../util/waker.js';
@@ -130,156 +133,224 @@ export function registerRunCommands(program: Command): void {
     .option('--sin-conformidad', 'permite modelos sin conformidad aprobada con la versión instalada de su CLI (queda registrado)')
     .option('--probar-conformidad', 'si hay modelos sin conformidad (p. ej. tras actualizar su CLI), los prueba antes de ejecutar')
     .option('--solo <tarea>', 'ejecuta sólo esa tarea (para depurarla); sus dependencias deben estar integradas')
-    .action(async (opts: { paralelo?: number; estimar?: boolean; sinRevisor?: boolean; tablero?: boolean; sinConformidad?: boolean; probarConformidad?: boolean; solo?: string }, cmd: Command) => {
-      const g = cmd.optsWithGlobals<GlobalOptions>();
-      if (opts.paralelo !== undefined && (!Number.isInteger(opts.paralelo) || opts.paralelo < 1 || opts.paralelo > 16)) {
-        throw new CliError('--paralelo debe ser un número entre 1 y 16');
-      }
-      const ctx = openEngine(g);
-      let lock: LockFile | null = null;
-      try {
-        const change = activeChange(ctx.engine);
-        if (!change) throw new CliError('no hay un cambio en curso: empieza con forja planear', EXIT.precondition);
-        if (opts.estimar) {
-          const current = latestPlan(ctx.engine, change.change_id);
-          if (!current) throw new CliError('todavía no hay plan; ejecuta forja dividir', EXIT.precondition);
-          const estimate = estimatePlan(current.plan, { ...ctx.config, ejecucion: { ...ctx.config.ejecucion, paralelo: opts.paralelo ?? ctx.config.ejecucion.paralelo } }, loadPrices(ctx.home));
-          if (g.json) return printJson({ estimacion: estimate });
-          print(`Estimación para «${change.title}» (no se ejecutó nada):`);
-          showPlan(current.plan, estimate);
-          return;
+    .option('--tareas <ids>', 'UN solo agente hace estas tareas (T-001,T-003), una tras otra y en la misma sesión; agrega las dependencias que falten')
+    .option('--bloque <caso>', 'como --tareas, con todas las tareas de un caso de uso (p. ej. CU-01, o «base»)')
+    .option('--modelo <ref>', 'con --tareas/--bloque: quién hace el bloque (p. ej. claude:sonnet, codex:gpt-6-sol)')
+    .action(
+      async (
+        opts: {
+          paralelo?: number;
+          estimar?: boolean;
+          sinRevisor?: boolean;
+          tablero?: boolean;
+          sinConformidad?: boolean;
+          probarConformidad?: boolean;
+          solo?: string;
+          tareas?: string;
+          bloque?: string;
+          modelo?: string;
+        },
+        cmd: Command,
+      ) => {
+        const g = cmd.optsWithGlobals<GlobalOptions>();
+        if (opts.paralelo !== undefined && (!Number.isInteger(opts.paralelo) || opts.paralelo < 1 || opts.paralelo > 16)) {
+          throw new CliError('--paralelo debe ser un número entre 1 y 16');
         }
+        const blockMode = opts.tareas !== undefined || opts.bloque !== undefined;
+        if (opts.tareas !== undefined && opts.bloque !== undefined) throw new CliError('usa --tareas o --bloque, no los dos');
+        if (blockMode && opts.solo) throw new CliError('--solo y --tareas/--bloque no se combinan: un bloque de una tarea es --tareas T-001');
+        if (opts.modelo !== undefined && !blockMode) throw new CliError('--modelo va con --tareas o --bloque (para todo el plan, usa los roles de forja.yaml o forja reasignar)');
+        const ctx = openEngine(g);
+        let lock: LockFile | null = null;
+        try {
+          const change = activeChange(ctx.engine);
+          if (!change) throw new CliError('no hay un cambio en curso: empieza con forja planear', EXIT.precondition);
+          if (opts.estimar) {
+            const current = latestPlan(ctx.engine, change.change_id);
+            if (!current) throw new CliError('todavía no hay plan; ejecuta forja dividir', EXIT.precondition);
+            const estimate = estimatePlan(current.plan, { ...ctx.config, ejecucion: { ...ctx.config.ejecucion, paralelo: opts.paralelo ?? ctx.config.ejecucion.paralelo } }, loadPrices(ctx.home));
+            if (g.json) return printJson({ estimacion: estimate });
+            print(`Estimación para «${change.title}» (no se ejecutó nada):`);
+            showPlan(current.plan, estimate);
+            return;
+          }
 
-        // V2-040: autonomous work only with models certified for the installed CLI version.
-        const roles = ctx.config.roles;
-        const integrates = latestPlan(ctx.engine, change.change_id)?.plan.tareas.some((t) => t.tipo === 'integracion') ?? false;
-        const refs = [...roles.trabajador, ...roles.complejo, ...roles.revisor, ...(integrates ? roles.integrador : [])];
-        const store = ConformanceStore.in(ctx.home);
-        let unverified = await conformanceProblems(store, refs, FORJA_VERSION);
-        if (unverified.length && !opts.sinConformidad) {
-          // A new CLI version (or an untested model) can be certified right here (MEJORAS 3.8).
-          const pending = await uncertifiedModels(store, refs, FORJA_VERSION);
-          print(`Modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}`);
-          if (opts.probarConformidad || (!g.json && (await confirm('¿Probarlos ahora? Consume un poco de cuota de cada uno.')))) {
-            await certifyModels(
-              ctx,
-              pending.map((p) => p.ref),
-              { quiet: g.json === true },
+          // V2-040: autonomous work only with models certified for the installed CLI version.
+          const roles = ctx.config.roles;
+          const integrates = latestPlan(ctx.engine, change.change_id)?.plan.tareas.some((t) => t.tipo === 'integracion') ?? false;
+          let blockModel: string | undefined;
+          try {
+            blockModel = opts.modelo !== undefined ? checkBlockModel(ctx.engine, opts.modelo) : undefined;
+          } catch (error) {
+            throw new CliError((error as Error).message, EXIT.input);
+          }
+          // A block with a chosen model only needs that model (and the reviewer) certified.
+          const refs = blockModel ? [blockModel, ...roles.revisor] : [...roles.trabajador, ...roles.complejo, ...roles.revisor, ...(integrates ? roles.integrador : [])];
+          const store = ConformanceStore.in(ctx.home);
+          let unverified = await conformanceProblems(store, refs, FORJA_VERSION);
+          if (unverified.length && !opts.sinConformidad) {
+            // A new CLI version (or an untested model) can be certified right here (MEJORAS 3.8).
+            const pending = await uncertifiedModels(store, refs, FORJA_VERSION);
+            print(`Modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}`);
+            // Ligera edition: certifying is part of the first use, not a separate step to remember.
+            if (opts.probarConformidad || isLigera() || (!g.json && (await confirm('¿Probarlos ahora? Consume un poco de cuota de cada uno.')))) {
+              await certifyModels(
+                ctx,
+                pending.map((p) => p.ref),
+                { quiet: g.json === true },
+              );
+              unverified = await conformanceProblems(store, refs, FORJA_VERSION);
+            }
+          }
+          if (unverified.length && !opts.sinConformidad) {
+            throw new CliError(
+              `modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}\nPruébalos con: forja conformidad (o forja run --probar-conformidad; bajo tu responsabilidad, forja run --sin-conformidad)`,
+              EXIT.precondition,
             );
-            unverified = await conformanceProblems(store, refs, FORJA_VERSION);
           }
-        }
-        if (unverified.length && !opts.sinConformidad) {
-          throw new CliError(
-            `modelos sin conformidad aprobada:\n${unverified.map((u) => `  - ${u}`).join('\n')}\nPruébalos con: forja conformidad (o forja run --probar-conformidad; bajo tu responsabilidad, forja run --sin-conformidad)`,
-            EXIT.precondition,
-          );
-        }
 
-        try {
-          lock = acquireOrchestratorLock(ctx.dataDir, RUN_PURPOSE);
-        } catch (error) {
-          if (error instanceof LockHeldError) {
-            throw new CliError(`${error.message}. Míralo con forja tablero o detenlo con forja detener`, EXIT.precondition);
+          try {
+            lock = acquireOrchestratorLock(ctx.dataDir, RUN_PURPOSE);
+          } catch (error) {
+            if (error instanceof LockHeldError) {
+              throw new CliError(`${error.message}. Míralo con forja tablero o detenlo con forja detener`, EXIT.precondition);
+            }
+            throw error;
           }
-          throw error;
-        }
 
-        let started: Awaited<ReturnType<typeof startOrResumeRun>>;
-        try {
-          started = await startOrResumeRun(ctx.engine, { changeId: change.change_id, repoPath: ctx.checkout.path });
-        } catch (error) {
-          if (error instanceof RunError) throw domainError(error);
-          throw error;
-        }
-        const { runId } = started;
-        const only = opts.solo ? soloTarget(ctx, runId, opts.solo) : undefined;
-        const log = RunLog.of(ctx.dataDir, runId);
-        const board = Boolean(opts.tablero && process.stdout.isTTY && process.stdin.isTTY && !g.json);
-        let echo = !board && !g.json;
-        const say = (line: string) => {
-          const entry = log.append(line);
-          if (echo) print(entry);
-        };
-        if (ctx.engine.simulation) say(DEMO_NOTICE);
-        say(started.resumed ? `↺ se retoma el run ${runId}` : `▶ run ${runId} iniciado sobre ${ctx.checkout.path}`);
-        if (unverified.length) say(`⚠ se ejecuta con modelos sin conformidad aprobada (--sin-conformidad): ${unverified.join('; ')}`);
-        if (only) say(`· modo --solo: sólo se lanza ${only}`);
-        if (started.inherited.length) say(`  heredadas del run anterior (ya integradas y sin cambios): ${started.inherited.join(', ')}`);
-        for (const r of started.redone) say(`  ↻ ${r.task} se rehace: ${r.reason}`);
+          let started: Awaited<ReturnType<typeof startOrResumeRun>>;
+          try {
+            started = await startOrResumeRun(ctx.engine, { changeId: change.change_id, repoPath: ctx.checkout.path });
+          } catch (error) {
+            if (error instanceof RunError) throw domainError(error);
+            throw error;
+          }
+          const { runId } = started;
+          const only = opts.solo ? soloTarget(ctx, runId, opts.solo) : undefined;
+          let block: BlockOptions | undefined;
+          // Ligera edition: the whole plan is ONE agent's block unless the user picked tasks.
+          if (isLigera() && !blockMode && !only && opts.paralelo === undefined) {
+            const pending = listTasks(ctx.store.db, runId)
+              .filter((t) => !['integrada', 'cancelada', 'invalidada'].includes(t.state))
+              .map((t) => t.task_id);
+            if (pending.length) block = { tasks: pending };
+          }
+          if (blockMode) {
+            const plan = latestPlan(ctx.engine, change.change_id)!.plan;
+            try {
+              const r = resolveBlock({
+                plan,
+                spec: latestSpec(ctx.engine, change.change_id)?.spec ?? null,
+                tasks: listTasks(ctx.store.db, runId),
+                ...(opts.tareas !== undefined ? { ids: opts.tareas.split(',') } : {}),
+                ...(opts.bloque !== undefined ? { story: opts.bloque } : {}),
+              });
+              block = { tasks: r.tasks, ...(blockModel ? { model: blockModel } : {}) };
+              if (r.added.length) print(`· se agregan dependencias que faltaban: ${r.added.join(', ')}`);
+            } catch (error) {
+              if (error instanceof BlockError) throw new CliError(error.message, EXIT.precondition);
+              throw error;
+            }
+          }
+          const log = RunLog.of(ctx.dataDir, runId);
+          const board = Boolean(opts.tablero && process.stdout.isTTY && process.stdin.isTTY && !g.json);
+          let echo = !board && !g.json;
+          const say = (line: string) => {
+            const entry = log.append(line);
+            if (echo) print(entry);
+          };
+          if (ctx.engine.simulation) say(DEMO_NOTICE);
+          say(started.resumed ? `↺ se retoma el run ${runId}` : `▶ run ${runId} iniciado sobre ${ctx.checkout.path}`);
+          if (unverified.length) say(`⚠ se ejecuta con modelos sin conformidad aprobada (--sin-conformidad): ${unverified.join('; ')}`);
+          if (only) say(`· modo --solo: sólo se lanza ${only}`);
+          if (block) say(`· un solo agente${block.model ? ` (${block.model})` : ''} hace el bloque ${block.tasks.join(' → ')}, en orden y en la misma sesión`);
+          if (started.inherited.length) say(`  heredadas del run anterior (ya integradas y sin cambios): ${started.inherited.join(', ')}`);
+          for (const r of started.redone) say(`  ↻ ${r.task} se rehace: ${r.reason}`);
 
-        const controller = new AbortController();
-        let interrupts = 0;
-        const onSignal = () => {
-          interrupts++;
-          if (interrupts === 1) {
-            controller.abort();
-            if (!echo) print('⏸ deteniendo: esperando a que los agentes en curso terminen (Ctrl-C otra vez para salir ya; se retoman con forja run)');
+          const controller = new AbortController();
+          let interrupts = 0;
+          const onSignal = () => {
+            interrupts++;
+            if (interrupts === 1) {
+              controller.abort();
+              if (!echo) print('⏸ deteniendo: esperando a que los agentes en curso terminen (Ctrl-C otra vez para salir ya; se retoman con forja run)');
+            } else {
+              print('✘ salida inmediata: los agentes en curso siguen en segundo plano y forja run los reconcilia al volver');
+              lock?.release();
+              process.exit(130);
+            }
+          };
+          process.on('SIGINT', onSignal);
+          process.on('SIGTERM', onSignal);
+          // Stop requests as files too (the panel on Windows, forja detener): polled, not signalled.
+          clearStopRequests(ctx.dataDir);
+          const stopPoll = setInterval(() => {
+            if (!controller.signal.aborted && stopRequested(ctx.dataDir)) {
+              clearStopRequests(ctx.dataDir);
+              onSignal();
+            }
+          }, 1000);
+          stopPoll.unref();
+
+          const gateway = await gatewayForProject(ctx, say);
+          const noMcp = gateway ? await mcpGaps(store, [...roles.trabajador, ...roles.complejo], FORJA_VERSION) : [];
+          if (noMcp.length) say(`⚠ sin prueba MCP aprobada: ${noMcp.join(', ')}; esos modelos podrían no poder proponer acciones (forja conformidad)`);
+          if (gateway)
+            say(
+              `· gateway MCP activo: conexiones vinculadas${gateway.externals.length ? ` y ${gateway.externals.map((e) => e.def.name).join(', ')}` : ''} (los agentes sólo proponen; nada se ejecuta sin tu aprobación)`,
+            );
+          const orchestrator = new Orchestrator(ctx.engine, ctx.checkout.path, runId, {
+            ...(gateway ? { gateway } : {}),
+            ...(opts.paralelo ? { parallel: opts.paralelo } : {}),
+            review: !opts.sinRevisor,
+            ...(only ? { only } : {}),
+            ...(block ? { block } : {}),
+            signal: controller.signal,
+            onLog: say,
+          });
+          if (supervisesItself(ctx.checkout.path)) say(SELF_HOST_WARNING);
+          const stopNotifications = startRunNotifications(ctx, say);
+          let summary: RunSummary;
+          try {
+            let settled = false;
+            const loop = orchestrator.loop().finally(() => (settled = true));
+            if (board) {
+              await runBoard(new EngineBoardSource(ctx), { until: loop.catch(() => undefined) });
+              echo = true;
+              if (!settled && !controller.signal.aborted) print('El tablero se cerró; el run sigue en esta terminal (Ctrl-C para detenerlo).');
+            }
+            summary = await loop;
+          } finally {
+            process.off('SIGINT', onSignal);
+            process.off('SIGTERM', onSignal);
+            clearInterval(stopPoll);
+            await stopNotifications();
+            gateway?.close();
+          }
+
+          // Re-read the change: the run moved its phase (aprobar → ejecutar → entregado).
+          const s = runSnapshot(ctx.engine, getChange(ctx.engine, change.change_id));
+          if (g.json) {
+            printJson({ resumen: summary, estado: snapshotJson(s, null) });
           } else {
-            print('✘ salida inmediata: los agentes en curso siguen en segundo plano y forja run los reconcilia al volver');
-            lock?.release();
-            process.exit(130);
+            print();
+            print(
+              summary.state === 'completado'
+                ? `✔ Listo: ${s.integrated}/${s.total} tareas integradas en ${summary.deliveryBranch}. main no se tocó.`
+                : `■ Run ${summary.state}: ${s.integrated}/${s.total} integradas.`,
+            );
+            if (summary.state === 'completado') print(`  Revisa: git log --oneline ${summary.deliveryBranch} · informe: forja informe`);
+            if (summary.state === 'completado') await autoPublish(ctx, getChange(ctx.engine, change.change_id));
+            showPending(s);
+            if (summary.state !== 'completado') print(`Siguiente paso: ${s.nextStep}`);
           }
-        };
-        process.on('SIGINT', onSignal);
-        process.on('SIGTERM', onSignal);
-
-        const gateway = await gatewayForProject(ctx, say);
-        const noMcp = gateway ? await mcpGaps(store, [...roles.trabajador, ...roles.complejo], FORJA_VERSION) : [];
-        if (noMcp.length) say(`⚠ sin prueba MCP aprobada: ${noMcp.join(', ')}; esos modelos podrían no poder proponer acciones (forja conformidad)`);
-        if (gateway)
-          say(
-            `· gateway MCP activo: conexiones vinculadas${gateway.externals.length ? ` y ${gateway.externals.map((e) => e.def.name).join(', ')}` : ''} (los agentes sólo proponen; nada se ejecuta sin tu aprobación)`,
-          );
-        const orchestrator = new Orchestrator(ctx.engine, ctx.checkout.path, runId, {
-          ...(gateway ? { gateway } : {}),
-          ...(opts.paralelo ? { parallel: opts.paralelo } : {}),
-          review: !opts.sinRevisor,
-          ...(only ? { only } : {}),
-          signal: controller.signal,
-          onLog: say,
-        });
-        if (supervisesItself(ctx.checkout.path)) say(SELF_HOST_WARNING);
-        const stopNotifications = startRunNotifications(ctx, say);
-        let summary: RunSummary;
-        try {
-          let settled = false;
-          const loop = orchestrator.loop().finally(() => (settled = true));
-          if (board) {
-            await runBoard(new EngineBoardSource(ctx), { until: loop.catch(() => undefined) });
-            echo = true;
-            if (!settled && !controller.signal.aborted) print('El tablero se cerró; el run sigue en esta terminal (Ctrl-C para detenerlo).');
-          }
-          summary = await loop;
+          process.exitCode = exitCodeFor(summary, controller.signal.aborted);
         } finally {
-          process.off('SIGINT', onSignal);
-          process.off('SIGTERM', onSignal);
-          await stopNotifications();
-          gateway?.close();
+          lock?.release();
+          ctx.close();
         }
-
-        // Re-read the change: the run moved its phase (aprobar → ejecutar → entregado).
-        const s = runSnapshot(ctx.engine, getChange(ctx.engine, change.change_id));
-        if (g.json) {
-          printJson({ resumen: summary, estado: snapshotJson(s, null) });
-        } else {
-          print();
-          print(
-            summary.state === 'completado'
-              ? `✔ Listo: ${s.integrated}/${s.total} tareas integradas en ${summary.deliveryBranch}. main no se tocó.`
-              : `■ Run ${summary.state}: ${s.integrated}/${s.total} integradas.`,
-          );
-          if (summary.state === 'completado') print(`  Revisa: git log --oneline ${summary.deliveryBranch} · informe: forja informe`);
-          if (summary.state === 'completado') await autoPublish(ctx, getChange(ctx.engine, change.change_id));
-          showPending(s);
-          if (summary.state !== 'completado') print(`Siguiente paso: ${s.nextStep}`);
-        }
-        process.exitCode = exitCodeFor(summary, controller.signal.aborted);
-      } finally {
-        lock?.release();
-        ctx.close();
-      }
-    });
+      },
+    );
 
   program
     .command('estado')

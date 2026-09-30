@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { TEXTOS } from '../i18n/textos.js';
+import { edition } from '../runtime/edition.js';
 import { FeedBroadcaster, type FeedEvent } from './broadcaster.js';
 import { ApiError, cookie, readJson, SECURITY_HEADERS, send, sendError } from './http.js';
 import { type IdempotencyStore, MemoryIdempotencyStore } from './idempotency.js';
@@ -465,11 +466,11 @@ export class ApiServer {
       const session = code ? this.sessions.exchange(code) : null;
       if (!session) throw new ApiError(401, 'codigo_invalido', 'el código no es válido, ya se usó o venció', false, 'vuelve a ejecutar forja ui');
       const maxAge = Math.max(0, Math.floor((session.expiresAt - Date.now()) / 1000));
-      return send(res, 200, { csrf: session.csrf }, { 'Set-Cookie': `${this.cookieName}=${session.id}; ${this.cookieFlags}; Max-Age=${maxAge}` });
+      return send(res, 200, { csrf: session.csrf, edicion: edition() }, { 'Set-Cookie': `${this.cookieName}=${session.id}; ${this.cookieFlags}; Max-Age=${maxAge}` });
     }
     const session = this.lookup.get(cookie(req, this.cookieName));
     if (!session) throw new ApiError(401, 'sin_sesion', 'no hay sesión', false, this.opts.server ? '/login' : 'forja ui');
-    if (method === 'GET') return send(res, 200, { csrf: session.csrf, servidor: Boolean(this.opts.server) });
+    if (method === 'GET') return send(res, 200, { csrf: session.csrf, servidor: Boolean(this.opts.server), edicion: edition() });
     if (method === 'DELETE') {
       if (!safeEqual(String(req.headers['x-forja-csrf'] ?? ''), session.csrf)) throw new ApiError(403, 'csrf', 'falta o no coincide el token CSRF');
       this.lookup.revoke(session.id);

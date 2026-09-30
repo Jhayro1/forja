@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { newId } from '../domain/ids.js';
 import { isAlive, type ProcessIdentity } from '../registry/lock.js';
+import { killTree } from '../util/proc.js';
 
 export const JOB_MAIN = fileURLToPath(new URL('./job-main.js', import.meta.url));
 export const FORJA_BIN = fileURLToPath(new URL('./bin.js', import.meta.url));
@@ -77,7 +78,7 @@ export class JobRunner {
     writeFileSync(join(dir, 'trabajo.json'), JSON.stringify(meta));
     writeFileSync(join(dir, 'orden.json'), JSON.stringify({ file: cmd.file, args: cmd.args, cwd: cmd.cwd }));
     const err = openSync(join(dir, 'vigilante.err'), 'a', 0o600);
-    const watcher = spawn(process.execPath, [this.watcher, dir], { detached: true, stdio: ['ignore', 'ignore', err], env: { ...process.env, ...env } });
+    const watcher = spawn(process.execPath, [this.watcher, dir], { detached: true, stdio: ['ignore', 'ignore', err], env: { ...process.env, ...env }, windowsHide: true });
     closeSync(err);
     watcher.unref();
     return this.view(id)!;
@@ -123,12 +124,11 @@ export class JobRunner {
     if (!proc || !isAlive(proc)) throw new Error('el trabajo todavía está arrancando; vuelve a intentar en un momento');
     writeFileSync(join(this.jobDir(id), 'cancelado'), new Date(this.now()).toISOString());
     const child = readJson<{ pid: number }>(join(this.jobDir(id), 'hijo.json'));
-    if (force && child) {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        // Already gone: the watcher records the result.
-      }
+    if (force && child) killTree(child.pid, 'SIGKILL');
+    else if (process.platform === 'win32') {
+      // No SIGINT on Windows: a run stops gracefully through its stop file; anything else is killed.
+      if (job.tipo.startsWith('run') && child) writeFileSync(join(this.jobDir(id), 'detener'), new Date(this.now()).toISOString());
+      else if (child) killTree(child.pid);
     } else process.kill(proc.pid, 'SIGINT');
     return this.view(id)!;
   }

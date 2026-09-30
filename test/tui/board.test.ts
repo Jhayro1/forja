@@ -39,6 +39,8 @@ function task(id: string, state: TaskView['state'], extra: Partial<TaskView['exe
       pinned_model: null,
       account: null,
       summary: null,
+      session_id: null,
+      context_tokens: null,
       ...extra,
     },
   };

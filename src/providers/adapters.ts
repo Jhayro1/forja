@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, delimiter, dirname, join } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LaunchOrder } from '../runtime/order.js';
 import { binaryBinds, type Mount } from '../runtime/sandbox.js';
 import { activeSandboxMode } from '../runtime/sandbox-mode.js';
 import { buildAgentEnv } from '../security/env.js';
+import { commandArgv, resolveCommand } from '../util/proc.js';
+import { CONFIG_ENV, defaultConfigDir } from './accounts.js';
 import type { Effort } from './catalog.js';
 import type { ProviderKind } from './stream.js';
 
@@ -64,9 +66,28 @@ function gatewayMounts(p: LaunchParams): Mount[] {
   return p.mcpSocket ? [mcpSocketMount(p.mcpSocket), { src: MCP_BIN_DIR, dest: MCP_BIN_IN_SANDBOX, rw: false }] : [];
 }
 
-/** stdio MCP server definition that reaches the gateway through the mounted socket. */
-export function gatewayServer(): { command: string; args: string[] } {
+/**
+ * stdio MCP server definition that reaches the gateway through the mounted socket.
+ * «directo» mode has no mounts: the bridge and the socket (a named pipe on Windows)
+ * are used at their real paths.
+ */
+export function gatewayServer(direct?: { socket: string }): { command: string; args: string[] } {
+  if (direct) return { command: process.execPath, args: [join(MCP_BIN_DIR, 'bridge-main.js'), direct.socket] };
   return { command: process.execPath, args: [join(MCP_BIN_IN_SANDBOX, 'bridge-main.js'), MCP_SOCKET_IN_SANDBOX] };
+}
+
+const isDirect = () => activeSandboxMode() === 'directo';
+
+/**
+ * Environment of an agent run «directo» (ligera edition): the user's real HOME and temp
+ * folder, the Windows system variables, and the account's folder only when it is not
+ * the CLI's default (setting CLAUDE_CONFIG_DIR to ~/.claude would move Claude's global
+ * config file).
+ */
+function directEnv(provider: 'claude' | 'codex', credentialFile: string | undefined, extra: Record<string, string>): Record<string, string> {
+  const dir = credentialFile ? dirname(credentialFile) : null;
+  const account = dir && resolve(dir) !== resolve(defaultConfigDir(provider)) ? { [CONFIG_ENV[provider]]: dir } : {};
+  return buildAgentEnv(process.env, { home: homedir(), tmpdir: tmpdir(), windows: process.platform === 'win32', extra: { ...extra, ...account } });
 }
 
 export interface ProviderAdapter {
@@ -82,12 +103,9 @@ const SANDBOX_HOME = homedir();
 const STATE_IN_SANDBOX = join(SANDBOX_HOME, '.forja-proveedor');
 const INPUTS_IN_SANDBOX = '/run/forja-entrada';
 
-export function resolveExecutable(name: string, pathEnv = process.env.PATH ?? ''): string | null {
-  for (const dir of pathEnv.split(delimiter)) {
-    const candidate = join(dir, name);
-    if (dir && existsSync(candidate)) return realpathSync(candidate);
-  }
-  return null;
+/** Absolute path of a CLI in PATH; on Windows, an npm `.cmd` shim becomes its `.js` script (util/proc.ts). */
+export function resolveExecutable(name: string, pathEnv = process.env.PATH ?? process.env.Path ?? ''): string | null {
+  return resolveCommand(name, pathEnv);
 }
 
 function baseEnv(extra: Record<string, string>): Record<string, string> {
@@ -137,10 +155,13 @@ export class ClaudeAdapter implements ProviderAdapter {
   buildOrder(p: LaunchParams): LaunchOrder {
     if (!this.executable) throw new AdapterError('Claude Code no está instalado (no se encontró «claude» en el PATH)');
     const cred = p.credentialFile ?? ClaudeAdapter.credentialFile();
-    if (!existsSync(cred)) throw new AdapterError(`no se encontró la sesión de Claude (${cred}); ejecuta «claude» e inicia sesión`);
+    const direct = isDirect();
+    // On macOS the session lives in the Keychain, not in a file: «directo» lets the CLI say so.
+    if (!direct && !existsSync(cred)) throw new AdapterError(`no se encontró la sesión de Claude (${cred}); ejecuta «claude» e inicia sesión`);
     const tools = p.tools === 'edicion' ? ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'] : ['Read', 'Glob', 'Grep'];
+    const gateway = p.mcpSocket ? gatewayServer(direct ? { socket: p.mcpSocket } : undefined) : null;
     const argv = [
-      this.executable,
+      ...commandArgv(this.executable),
       '-p',
       '--model',
       p.model,
@@ -156,7 +177,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       // M0 finding 1: never inherit the user's MCP servers; the only one allowed is Forja's gateway.
       '--strict-mcp-config',
       '--mcp-config',
-      JSON.stringify({ mcpServers: p.mcpSocket ? { forja: gatewayServer() } : {} }),
+      JSON.stringify({ mcpServers: gateway ? { forja: gateway } : {} }),
       // M0 finding 2: no user settings, plugins or global memory.
       '--setting-sources',
       'project,local',
@@ -165,6 +186,23 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (p.effort) argv.push('--effort', p.effort);
     if (p.outputSchema) argv.push('--json-schema', JSON.stringify(p.outputSchema));
     if (p.resumeSessionId) argv.push('--resume', p.resumeSessionId);
+    const claudeEnv = {
+      // M0 finding 3: background work produced a false success.
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      DISABLE_TELEMETRY: '1',
+      DISABLE_AUTOUPDATER: '1',
+    };
+    if (direct) {
+      return {
+        ...common(p),
+        provider: 'claude',
+        argv,
+        env: directEnv('claude', p.credentialFile, claudeEnv),
+        sandbox: { mode: 'directo' },
+        redact_files: existsSync(cred) ? [cred] : [],
+      };
+    }
     return {
       ...common(p),
       provider: 'claude',
@@ -206,25 +244,31 @@ export class CodexAdapter implements ProviderAdapter {
     if (!this.executable) throw new AdapterError('Codex no está instalado (no se encontró «codex» en el PATH)');
     const cred = p.credentialFile ?? CodexAdapter.credentialFile();
     if (!existsSync(cred)) throw new AdapterError(`no se encontró la sesión de Codex (${cred}); ejecuta «codex login»`);
+    const direct = isDirect();
+    const exe = commandArgv(this.executable);
     const sandbox = p.tools === 'edicion' ? 'workspace-write' : 'read-only';
     const flags = ['--json', '--ignore-user-config', '--skip-git-repo-check', '-m', p.model];
     if (p.effort) flags.push('-c', `model_reasoning_effort="${p.effort}"`);
     if (p.mcpSocket) {
-      const gw = gatewayServer();
+      const gw = gatewayServer(direct ? { socket: p.mcpSocket } : undefined);
       flags.push('-c', `mcp_servers.forja.command=${JSON.stringify(gw.command)}`, '-c', `mcp_servers.forja.args=${JSON.stringify(gw.args)}`);
     }
     let argv: string[];
     if (p.resumeSessionId) {
       // `exec resume` does not accept -s: the policy is set through config (verified in M0).
-      argv = [this.executable, 'exec', 'resume', ...flags, '-c', `sandbox_mode="${sandbox}"`, p.resumeSessionId, '-'];
+      argv = [...exe, 'exec', 'resume', ...flags, '-c', `sandbox_mode="${sandbox}"`, p.resumeSessionId, '-'];
     } else {
-      argv = [this.executable, 'exec', ...flags, '-s', sandbox, '-C', p.workspace];
+      argv = [...exe, 'exec', ...flags, '-s', sandbox, '-C', p.workspace];
       if (p.outputSchema) {
         mkdirSync(p.inputsDir, { recursive: true, mode: 0o700 });
         writeFileSync(join(p.inputsDir, 'esquema.json'), JSON.stringify(p.outputSchema), { mode: 0o600 });
-        argv.push('--output-schema', join(INPUTS_IN_SANDBOX, 'esquema.json'));
+        argv.push('--output-schema', join(direct ? p.inputsDir : INPUTS_IN_SANDBOX, 'esquema.json'));
       }
       argv.push('-');
+    }
+    if (direct) {
+      // Codex keeps its own sandbox (`-s workspace-write`): the only limit left in «directo».
+      return { ...common(p), provider: 'codex', argv, env: directEnv('codex', p.credentialFile, {}), sandbox: { mode: 'directo' }, redact_files: [cred] };
     }
     return {
       ...common(p),
@@ -258,10 +302,11 @@ export class SimulatedAdapter implements ProviderAdapter {
   buildOrder(p: LaunchParams): LaunchOrder {
     mkdirSync(p.inputsDir, { recursive: true, mode: 0o700 });
     writeFileSync(join(p.inputsDir, 'guion.json'), JSON.stringify(p.simulationScript ?? { pasos: [], resultado: 'OK' }), { mode: 0o600 });
-    const sandboxed = this.options.sandbox ?? true;
+    const direct = isDirect() && this.options.sandbox !== false;
+    const sandboxed = (this.options.sandbox ?? true) && !direct;
     const scriptInside = sandboxed ? join(INPUTS_IN_SANDBOX, 'guion.json') : join(p.inputsDir, 'guion.json');
     const helperDir = this.options.agentDir ?? fileURLToPath(new URL('.', import.meta.url));
-    const argv = [process.execPath, sandboxed ? join('/run/forja-sim', 'sim-agent.js') : join(helperDir, 'sim-agent.js'), scriptInside, p.model];
+    const argv = [process.execPath, sandboxed ? join('/run/forja-sim', 'sim-agent.js') : join(helperDir, 'sim-agent.js'), scriptInside, p.model, ...(p.resumeSessionId ? [p.resumeSessionId] : [])];
     return {
       ...common(p),
       provider: 'simulado',
@@ -281,7 +326,7 @@ export class SimulatedAdapter implements ProviderAdapter {
             network_hosts: [],
             workspace_read_only: p.workspaceReadOnly ?? false,
           }
-        : { mode: 'ninguno' },
+        : { mode: direct ? 'directo' : 'ninguno' },
       redact_files: [],
     };
   }

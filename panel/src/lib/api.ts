@@ -21,6 +21,8 @@ export class ApiClient {
   private csrf = '';
   /** Server mode (forja servidor): a lost session goes back to /login. */
   server = false;
+  /** «ligera»: one agent per block, the user's own CLIs, no sandbox of Forja's own. */
+  edition: 'completa' | 'ligera' = 'completa';
   private readonly cache = new Map<string, Cached>();
 
   setCsrf(token: string): void {
@@ -83,7 +85,9 @@ export function takeLinkCode(): string | null {
 
 /** Opens (with a link code) or resumes (with the cookie) the panel session. */
 export async function startSession(code: string | null): Promise<void> {
-  const r = code ? await api.post<{ csrf: string; servidor?: boolean }>('/v1/sesion', { codigo: code }) : await api.get<{ csrf: string; servidor?: boolean }>('/v1/sesion');
+  type Session = { csrf: string; servidor?: boolean; edicion?: 'completa' | 'ligera' };
+  const r = code ? await api.post<Session>('/v1/sesion', { codigo: code }) : await api.get<Session>('/v1/sesion');
   api.setCsrf(r.csrf);
   api.server = Boolean(r.servidor);
+  api.edition = r.edicion === 'ligera' ? 'ligera' : 'completa';
 }

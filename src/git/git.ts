@@ -25,6 +25,7 @@ export function git(cwd: string, args: string[], options: { allowFail?: boolean;
       {
         cwd,
         maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', ...options.env },
       },
       (error, stdout, stderr) => {

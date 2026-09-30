@@ -43,6 +43,8 @@ export type AppState = {
   openTask: (id: string | null) => void;
   /** Server mode (forja servidor): shows «cerrar sesión» and the account settings. */
   server: boolean;
+  /** Forja Ligera: one agent per block, the user's own CLIs, no sandbox (a permanent notice). */
+  ligera: boolean;
   modules: string[];
   project: { id: string; nombre: string } | null;
   textos: Textos;
@@ -84,7 +86,7 @@ async function firstView(modules: string[], hasProject: boolean): Promise<ViewId
 
 export function AppProvider({ children, fallback }: { children: ReactNode; fallback: ReactNode }) {
   const client = useQueryClient();
-  const [state, setState] = useState<Omit<AppState, 'go' | 'projectChanged' | 'has' | 'openTask' | 'server'> | null>(null);
+  const [state, setState] = useState<Omit<AppState, 'go' | 'projectChanged' | 'has' | 'openTask' | 'server' | 'ligera'> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,7 +129,7 @@ export function AppProvider({ children, fallback }: { children: ReactNode; fallb
   );
 
   const value = useMemo<AppState | null>(
-    () => (state ? { ...state, go, openTask, projectChanged, server: api.server, has: (m) => state.modules.includes(m) } : null),
+    () => (state ? { ...state, go, openTask, projectChanged, server: api.server, ligera: api.edition === 'ligera', has: (m) => state.modules.includes(m) } : null),
     [state, go, openTask, projectChanged],
   );
   if (error)

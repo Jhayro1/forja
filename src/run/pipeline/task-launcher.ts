@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { accountFor, accountParams, effortParam, type ProviderRef, parseRef, pickCandidate, pinnedAvailable } from '../../core/engine.js';
 import { newId } from '../../domain/ids.js';
-import { refSha, taskBranch, taskWorktree } from '../../git/workspace.js';
+import { refSha, removeWorktree, taskBranch, taskWorktree } from '../../git/workspace.js';
 import type { GatewayHost } from '../../mcp/gateway.js';
 import { hashFilesIn, LessonService } from '../../memory/lessons.js';
 import { startLaunch } from '../../runtime/launch-service.js';
@@ -22,6 +22,9 @@ const CONTEXT_NOTE =
 
 const TEAM_NOTE = '\n<equipo_en_vivo>\nEn tareas largas, consulta la herramienta MCP «forja» equipo para ver qué terminaron o empezaron otras tareas desde que arrancaste.\n</equipo_en_vivo>';
 
+const SAME_SESSION_NOTE =
+  '<misma_sesion>\nSigues en la misma sesión: ya hiciste las tareas anteriores de este bloque en esta carpeta y el resultado ya está integrado. Aprovecha lo que recuerdas, pero la tarea de ahora es SOLO la que sigue; no rehagas ni cambies lo anterior salvo que esta tarea lo pida.\n</misma_sesion>';
+
 const EXTERNAL_TOOLS_NOTE =
   '<herramientas_externas>\nSi la tarea necesita un efecto fuera del repositorio (un servicio, una API), usa la herramienta MCP «forja» proponer_accion: queda pendiente de aprobación humana y NO se ejecuta. No intentes llegar al servicio de otra forma.\n</herramientas_externas>';
 
@@ -40,6 +43,7 @@ export class TaskLauncher {
     private readonly ctx: RunContext,
     private readonly gateway?: GatewayHost,
     graph?: GraphContext,
+    private readonly block?: { tasks: string[]; model?: string },
   ) {
     this.graph = graph ?? new GraphContext(ctx);
     this.exportsOf = exportsReader(ctx.repoPath);
@@ -62,13 +66,50 @@ export class TaskLauncher {
     return { ref: pinned, ...parseRef(pinned) };
   }
 
+  /**
+   * Block mode runs every task in ONE folder: Claude Code keys its sessions by folder, so
+   * this is what lets the next task continue the same session. Only one task of a block
+   * runs at a time; the folder is taken over once its previous task left it (integrated,
+   * or cancelled), and a task finds it busy only if an earlier one is still unresolved.
+   */
+  private async worktreeFolder(taskId: string): Promise<string> {
+    const { ctx } = this;
+    if (!this.block) return ctx.dir(taskId);
+    const shared = ctx.dir('_agente');
+    if (!existsSync(shared)) return shared;
+    const owner = ctx.tasks().find((t) => t.task_id !== taskId && ctx.execOf(t.task_id).worktree === shared && !['integrada', 'cancelada', 'invalidada'].includes(t.state));
+    if (owner) return ctx.dir(taskId);
+    await removeWorktree(ctx.repoPath, shared);
+    return shared;
+  }
+
+  /**
+   * The session this attempt continues: the task's own previous attempt, or the last task
+   * of the block that ran in the same folder with the same model — while its context has
+   * room (ejecucion.sesion_max_tokens). Otherwise a new session, whose prompt already
+   * carries the team ledger with what each finished task did (the handover summary).
+   */
+  private sessionToContinue(taskId: string, folder: string, provider: string, model: string): string | null {
+    if (!this.block) return null;
+    const row = this.ctx.engine.store.db
+      .prepare('SELECT task_id, session_id, context_tokens, provider, model FROM task_exec WHERE run_id = ? AND worktree = ? AND session_id IS NOT NULL ORDER BY updated_seq DESC LIMIT 1')
+      .get(this.ctx.runId, folder) as { task_id: string; session_id: string; context_tokens: number | null; provider: string | null; model: string | null } | undefined;
+    if (!row || row.provider !== provider || row.model !== model) return null;
+    if (row.context_tokens !== null && row.context_tokens >= this.ctx.engine.config.ejecucion.sesion_max_tokens) {
+      this.ctx.log(`⋯ ${taskId}: la sesión anterior ya lleva ${Math.round(row.context_tokens / 1000)}k tokens; empieza una nueva con el resumen de lo hecho`);
+      return null;
+    }
+    return row.session_id;
+  }
+
   async launch(taskId: string): Promise<void> {
     const { ctx } = this;
     const { engine, plan, run } = ctx;
     const task = ctx.task(taskId);
     const exec = ctx.execOf(taskId);
     const role = levelFor(task, exec.quality_failures);
-    const candidate = this.candidateFor(taskId, role, exec.pinned_model);
+    // A reassignment by the user wins; otherwise the model chosen for the block.
+    const candidate = this.candidateFor(taskId, role, exec.pinned_model ?? this.block?.model ?? null);
     if (!candidate) {
       this.noProviderSince ??= Date.now();
       if (Date.now() - this.lastNoProviderLog > 30_000) {
@@ -85,8 +126,10 @@ export class TaskLauncher {
     const attempt = exec.quality_failures + 1;
     ctx.exec(taskId, { attempt, level: role, provider: candidate.provider, model: candidate.model, account: account?.alias ?? null });
     try {
-      const base = exec.worktree && existsSync(exec.worktree) ? exec.base_sha! : await refSha(ctx.repoPath, run.branch);
-      const { path } = await taskWorktree(ctx.repoPath, ctx.dir(taskId), taskBranch(engine.config.git.prefijo, run.run_id, taskId), base);
+      const reuse = Boolean(exec.worktree && existsSync(exec.worktree));
+      const base = reuse ? exec.base_sha! : await refSha(ctx.repoPath, run.branch);
+      const folder = reuse ? exec.worktree! : await this.worktreeFolder(taskId);
+      const { path } = await taskWorktree(ctx.repoPath, folder, taskBranch(engine.config.git.prefijo, run.run_id, taskId), base);
       ctx.exec(taskId, { worktree: path, base_sha: base });
       const c = plan.perfil.comandos;
       if (c.instalar && existsSync(join(path, 'package.json')) && !existsSync(join(path, 'node_modules'))) {
@@ -100,7 +143,9 @@ export class TaskLauncher {
       const lessons = new LessonService(engine.store).forTask(task, hashFilesIn(path)).map((l) => ({ id: l.lesson_id, text: l.text }));
       const team = await this.team(taskId);
       const built = await buildWorkerPrompt({ plan, spec: ctx.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer, related, lessons, team });
-      const prompt = this.gateway ? `${built.prompt}\n\n${EXTERNAL_TOOLS_NOTE}${TEAM_NOTE}${this.gateway.offersContext ? CONTEXT_NOTE : ''}` : built.prompt;
+      const session = this.sessionToContinue(taskId, path, candidate.provider, candidate.model);
+      const withTools = this.gateway ? `${built.prompt}\n\n${EXTERNAL_TOOLS_NOTE}${TEAM_NOTE}${this.gateway.offersContext ? CONTEXT_NOTE : ''}` : built.prompt;
+      const prompt = session ? `${SAME_SESSION_NOTE}\n\n${withTools}` : withTools;
       const launchId = newId('lan');
       const dir = launchDir(engine.dataDir, launchId);
       // Intent before effect: the launch id is durable before the runner exists.
@@ -127,9 +172,11 @@ export class TaskLauncher {
           ...(task.red ? { extraHosts: plan.perfil.red_instalar } : {}),
           ...(candidate.provider === 'simulado' && engine.simulation ? { simulationScript: engine.simulation({ role, prompt, attempt, taskId }) } : {}),
           ...(mcpSocket ? { mcpSocket } : {}),
+          ...(session ? { resumeSessionId: session } : {}),
         },
         engine.runnerScript,
       );
+      if (session) ctx.log(`↪ ${taskId} sigue la sesión ${session.slice(0, 8)} del agente (recuerda las tareas anteriores del bloque)`);
       ctx.move(taskId, 'ejecutando', 'lanzamiento_iniciado');
       ctx.log(`▶ ${taskId} ${task.titulo} · ${candidate.ref}${account && account.alias !== 'principal' ? ` @${account.alias}` : ''}${exec.pinned_model ? ' (reasignada)' : ''} (intento ${attempt})`);
     } catch (error) {

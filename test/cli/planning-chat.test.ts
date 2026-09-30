@@ -76,4 +76,36 @@ describe('chat del planeador desde el panel', () => {
     expect((b.overview() as Overview).chat.error).toBeTruthy();
     expect(busy.at(-1)).toBeNull();
   });
+
+  it('los documentos adjuntos llegan al planeador, quedan en la conversación y valen para los turnos siguientes; el modelo se elige en el chat', async () => {
+    const prompts: string[] = [];
+    const { b } = backend(({ prompt }) => {
+      prompts.push(prompt);
+      return turn('Leí tu plan.');
+    });
+    const plan = '# Plan\n\nRegistrar pagos parciales de facturas (CONTENIDO-DEL-PLAN).';
+    b.send('Implementa lo de @plan.md', { nuevo: false, cerrar: false, adjuntos: [{ name: 'plan.md', text: plan }], modelo: 'simulado:elegido', esfuerzo: 'high' });
+    expect((b.overview() as { chat: { pensando: { adjuntos: string[]; modelo: string } } }).chat.pensando).toMatchObject({ adjuntos: ['plan.md'], modelo: 'simulado:elegido' });
+    await until(() => (b.overview() as Overview).chat.pensando === null);
+    const o = b.overview() as Overview & { conversacion: { usuario: string; adjuntos: string[]; modelo: string }[] };
+    expect(o.chat.error).toBeNull();
+    // A short idea with documents is also the first message (not only the title).
+    expect(o.conversacion.at(-1)).toMatchObject({ usuario: 'Implementa lo de @plan.md', adjuntos: ['plan.md'], modelo: 'simulado:elegido' });
+    expect(prompts.at(-1)).toContain('CONTENIDO-DEL-PLAN');
+    expect(prompts.at(-1)).toContain('<documentos_adjuntos>');
+
+    b.send('¿Y el saldo?', { nuevo: false, cerrar: false });
+    await until(() => (b.overview() as Overview).chat.pensando === null);
+    expect(prompts.at(-1)).toContain('CONTENIDO-DEL-PLAN');
+    const last = (b.overview() as Overview & { conversacion: { adjuntos: string[]; modelo: string }[] }).conversacion.at(-1)!;
+    expect(last.adjuntos).toEqual([]);
+    expect(last.modelo).toBe('simulado:sim');
+  });
+
+  it('rechaza binarios y documentos demasiado grandes antes de crear nada', () => {
+    const { b } = backend(() => turn('x'));
+    expect(() => b.send('mira', { nuevo: false, cerrar: false, adjuntos: [{ name: 'foto.png', text: 'x' }] })).toThrow(/no es un documento de texto/);
+    expect(() => b.send('mira', { nuevo: false, cerrar: false, adjuntos: [{ name: 'grande.md', text: 'x'.repeat(600 * 1024) }] })).toThrow(/512 KB/);
+    expect((b.overview() as Overview).cambio).toBeNull();
+  });
 });

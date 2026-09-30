@@ -329,6 +329,51 @@ const MIGRATIONS: readonly string[] = [
   ALTER TABLE task_exec ADD COLUMN session_id TEXT;
   ALTER TABLE task_exec ADD COLUMN context_tokens INTEGER;
   `,
+  `
+  -- Documentos adjuntos al chat del planeador (nombre, tamaño y hash; el texto vive aparte).
+  ALTER TABLE planner_turns ADD COLUMN attachments TEXT;
+
+  -- Bases de datos del proyecto (docs/guias/BASES-DE-DATOS.md): qué conexiones usa y cómo,
+  -- las solicitudes de los agentes (consultas y cambios con su motivo) y las tablas que
+  -- Forja creó, las únicas que se pueden modificar o borrar.
+  CREATE TABLE db_links (
+    conn        TEXT PRIMARY KEY,
+    bases       TEXT NOT NULL,
+    lectura     TEXT NOT NULL,
+    pruebas     INTEGER NOT NULL,
+    active      INTEGER NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  CREATE TABLE db_requests (
+    req_id      TEXT PRIMARY KEY,
+    conn        TEXT NOT NULL,
+    base        TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    sql         TEXT NOT NULL,
+    motivo      TEXT,
+    para_que    TEXT,
+    origin      TEXT NOT NULL,
+    run_id      TEXT,
+    task_id     TEXT,
+    tables      TEXT,
+    state       TEXT NOT NULL,
+    detail      TEXT,
+    result      TEXT,
+    created_at  TEXT NOT NULL,
+    updated_seq INTEGER NOT NULL
+  );
+  CREATE INDEX db_requests_state ON db_requests(state);
+  CREATE TABLE db_objects (
+    conn        TEXT NOT NULL,
+    base        TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    created_by  TEXT NOT NULL,
+    req_id      TEXT,
+    created_at  TEXT NOT NULL,
+    dropped_at  TEXT,
+    PRIMARY KEY (conn, base, name)
+  );
+  `,
 ];
 
 export const CURRENT_SCHEMA = MIGRATIONS.length;

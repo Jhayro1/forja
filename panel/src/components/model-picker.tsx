@@ -33,6 +33,8 @@ export function ModelPicker({
   models,
   optional,
   label,
+  noneLabel = 'Ninguno',
+  className,
 }: {
   id: string;
   value: string;
@@ -40,6 +42,9 @@ export function ModelPicker({
   models: CatalogModel[];
   optional?: boolean;
   label: string;
+  /** What «no model» means here (e.g. «Predeterminado (claude:opus)»). */
+  noneLabel?: string;
+  className?: string;
 }) {
   const known = models.some((m) => m.ref === value);
   const [typing, setTyping] = useState(Boolean(value) && !known);
@@ -57,13 +62,13 @@ export function ModelPicker({
           onChange(v === NONE ? '' : v);
         }}
       >
-        <SelectTrigger id={id} aria-label={label} className="w-full">
+        <SelectTrigger id={id} aria-label={label} className={className ?? 'w-full'}>
           <SelectValue placeholder="Elige un modelo" />
         </SelectTrigger>
         <SelectContent className="max-h-96">
           {optional ? (
             <>
-              <SelectItem value={NONE}>Ninguno</SelectItem>
+              <SelectItem value={NONE}>{noneLabel}</SelectItem>
               <SelectSeparator />
             </>
           ) : null}
@@ -96,21 +101,27 @@ export function EffortPicker({
   onChange,
   efforts,
   model,
+  defaultLabel = 'Por defecto del CLI',
+  className,
+  label,
 }: {
   id: string;
   value: Effort | null;
   onChange: (e: Effort | null) => void;
   efforts: { id: Effort; nombre: string }[];
   model: CatalogModel | undefined;
+  defaultLabel?: string;
+  className?: string;
+  label?: string;
 }) {
   const accepted = model?.esfuerzos;
   return (
     <Select value={value ?? DEFAULT} onValueChange={(v) => onChange(v === DEFAULT ? null : (v as Effort))}>
-      <SelectTrigger id={id} className="w-full">
+      <SelectTrigger id={id} className={className ?? 'w-full'} {...(label ? { 'aria-label': label } : {})}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={DEFAULT}>Por defecto del CLI</SelectItem>
+        <SelectItem value={DEFAULT}>{defaultLabel}</SelectItem>
         <SelectSeparator />
         {efforts.map((e) => (
           <SelectItem key={e.id} value={e.id}>

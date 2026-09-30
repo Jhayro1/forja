@@ -3,7 +3,7 @@ import { ConnectionStore } from '../actions/connections.js';
 import type { ActionService } from '../actions/protocol.js';
 import type { ConnectionsBackend } from '../api/modules/connections.js';
 import type { MemoryBackend } from '../api/modules/memory.js';
-import type { PlanningBackend } from '../api/modules/planning.js';
+import type { PlanningBackend, SendOptions } from '../api/modules/planning.js';
 import type { RunsBackend } from '../api/modules/runs.js';
 import type { EventFeed } from '../api/server.js';
 import { resumeProvider } from '../core/engine.js';
@@ -15,6 +15,7 @@ import { currentApproval, gateProblems } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import { estimatePlan } from '../plan/estimate.js';
 import { waves } from '../plan/plan.js';
+import { saveAttachments, validate as validateAttachments } from '../planner/attachments.js';
 import { closureBlockers, openQuestions } from '../planner/discovery.js';
 import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, plannerScratch, runPlannerTurn, transcript } from '../planner/session.js';
 import { ObservationService } from '../quality/observations.js';
@@ -210,7 +211,7 @@ export type BusyFlag = { set(reason: string | null): void };
 
 /** Planning read model for the panel: the same data `forja planear`, `forja plan` and `forja preguntas` show. */
 export class EnginePlanningBackend implements PlanningBackend {
-  private thinking: { texto: string; desde: string } | null = null;
+  private thinking: { texto: string; desde: string; adjuntos?: string[]; modelo?: string | null } | null = null;
   private lastError: string | null = null;
 
   constructor(
@@ -229,36 +230,59 @@ export class EnginePlanningBackend implements PlanningBackend {
   }
 
   private chat(): object {
-    return { pensando: this.thinking, error: this.lastError, planeador: this.ctx.config.roles.planeador[0] };
+    return {
+      pensando: this.thinking,
+      error: this.lastError,
+      planeador: this.ctx.config.roles.planeador[0],
+      esfuerzo: this.ctx.config.esfuerzo.planeador ?? null,
+    };
   }
 
   /** Same as `forja planear`: creates the change if needed and runs one planner turn, here in the background. */
-  send(text: string, opts: { nuevo: boolean; cerrar: boolean }): string {
+  send(text: string, opts: SendOptions): string {
     if (this.thinking) throw new Error('el planeador todavía está respondiendo');
+    // Checked before anything starts: a bad document must not leave a half-created change.
+    const files = opts.adjuntos?.length ? validateAttachments(opts.adjuntos) : [];
     const engine = this.ctx.engine;
     let change = opts.nuevo ? undefined : activeChange(engine);
     if (change && change.phase !== 'descubrir') throw new Error(`el cambio «${change.title}» ya pasó la conversación (fase ${change.phase}); empieza uno nuevo cuando termine`);
     let userText: string | null = opts.cerrar ? 'Quiero cerrar el descubrimiento: revisa huecos y prepara el resumen para aprobar.' : text;
     let created = false;
     if (!change) {
-      if (!text) throw new Error('escribe qué quieres construir o mejorar');
+      if (!text && !files.length) throw new Error('escribe qué quieres construir o mejorar');
       created = true;
-      // The title keeps the first 120 characters (as the CLI); a longer idea also goes as the first message.
-      userText = text.length > 120 ? text : null;
-    }
-    this.thinking = { texto: opts.cerrar ? 'Cerrar el descubrimiento' : text, desde: new Date().toISOString() };
+      // The title keeps the first 120 characters (as the CLI); a longer idea, or one with documents,
+      // also goes as the first message.
+      userText = text.length > 120 || files.length ? text || '(ver documentos adjuntos)' : null;
+    } else if (!text && files.length) userText = '(ver documentos adjuntos)';
+    this.thinking = {
+      texto: opts.cerrar ? 'Cerrar el descubrimiento' : text,
+      desde: new Date().toISOString(),
+      adjuntos: files.map((f) => f.name),
+      modelo: opts.modelo ?? this.ctx.config.roles.planeador[0] ?? null,
+    };
     this.lastError = null;
     this.busy.set('el planeador está respondiendo');
     void (async () => {
       try {
         if (!change) {
           const mode = (await hasProductCode(this.ctx.checkout.path)) ? 'mejora' : 'idea';
-          const id = createChange(engine, `cambio:${Date.now()}`, text.slice(0, 120), mode);
+          const title = (text || files.map((f) => f.name).join(', ')).slice(0, 120);
+          const id = createChange(engine, `cambio:${Date.now()}`, title, mode);
           change = listChanges(engine).find((c) => c.change_id === id)!;
         }
         const inputs = change.mode === 'mejora' ? { workspace: this.ctx.checkout.path, evidence: await repoEvidence(this.ctx.checkout.path) } : { workspace: plannerScratch(engine) };
         const started = Date.now();
-        await runPlannerTurn(engine, { changeId: change.change_id, userText, ...inputs, closing: opts.cerrar });
+        const attachments = files.length ? saveAttachments(engine.dataDir, change.change_id, files) : [];
+        await runPlannerTurn(engine, {
+          changeId: change.change_id,
+          userText,
+          ...inputs,
+          closing: opts.cerrar,
+          ...(attachments.length ? { attachments } : {}),
+          ...(opts.modelo ? { model: opts.modelo } : {}),
+          ...(opts.esfuerzo ? { effort: opts.esfuerzo } : {}),
+        });
         // A long answer deserves an email (v3 §5.6): the user may have left the tab.
         if (Date.now() - started > 60_000) {
           const reply = transcript(engine, change.change_id).at(-1)?.planner_text ?? '';
@@ -294,7 +318,7 @@ export class EnginePlanningBackend implements PlanningBackend {
       cambio: { id, titulo: change.title, fase: change.phase, modo: change.mode },
       conversacion: transcript(this.ctx.engine, id)
         .slice(-30)
-        .map((t) => ({ n: t.n, usuario: t.user_text, planeador: t.planner_text, modelo: `${t.provider}:${t.model ?? '?'}` })),
+        .map((t) => ({ n: t.n, usuario: t.user_text, planeador: t.planner_text, modelo: `${t.provider}:${t.model ?? '?'}`, adjuntos: t.attachments.map((a) => a.name) })),
       descubrimiento: {
         revision,
         aprobado: approvedRevision !== null,

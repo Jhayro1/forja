@@ -1,9 +1,11 @@
 import { CheckIcon, CircleCheckBigIcon, LoaderCircleIcon, PlayIcon, SendIcon, SparklesIcon } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/app/context';
+import { type Attachment, AttachmentChip, AttachmentDropZone, TextWithDocs } from '@/components/chat-attachments';
 import { Mono, PageHeader, StatusBadge } from '@/components/common';
 import { DeliveryCard } from '@/components/delivery-card';
 import { JobCard } from '@/components/job-card';
+import { EffortPicker, ModelPicker } from '@/components/model-picker';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toaster';
 import { useAction, useApiQuery } from '@/hooks/use-api';
 import { estimateText } from '@/lib/format';
-import type { Estado, Planeacion, Pregunta, Trabajo, Trabajos } from '@/lib/types';
+import type { Configuracion, Effort, Estado, Planeacion, Pregunta, Trabajo, Trabajos } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 type StartJob = (tipo: string, pregunta?: string) => Promise<unknown>;
@@ -53,22 +55,56 @@ function Stepper({ fase }: { fase: string | null }) {
   );
 }
 
-function Bubble({ who, text, meta, thinking }: { who: 'yo' | 'ia'; text: string; meta?: string | null; thinking?: boolean }) {
+function Bubble({ who, text, meta, thinking, docs = [] }: { who: 'yo' | 'ia'; text: string; meta?: string | null; thinking?: boolean; docs?: string[] }) {
+  const mine = who === 'yo';
   return (
-    <div className={cn('flex', who === 'yo' ? 'justify-end' : 'justify-start')}>
-      <div className={cn('max-w-[85%] rounded-2xl px-4 py-2.5 text-sm', who === 'yo' ? 'rounded-br-sm bg-primary text-primary-foreground' : 'rounded-bl-sm bg-muted')}>
+    <div className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+      <div className={cn('max-w-[85%] rounded-2xl px-4 py-2.5 text-sm', mine ? 'rounded-br-sm bg-primary text-primary-foreground' : 'rounded-bl-sm bg-muted')}>
         <p className={cn('whitespace-pre-wrap', thinking && 'flex items-center gap-2 text-muted-foreground')}>
           {thinking ? <LoaderCircleIcon className="size-4 animate-spin" /> : null}
-          {text}
+          <TextWithDocs text={text} docs={docs} inverted={mine} />
         </p>
+        {docs.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {docs.map((d) => (
+              <AttachmentChip key={d} name={d} inverted={mine} />
+            ))}
+          </div>
+        ) : null}
         {meta ? <p className={cn('mt-1 text-[11px]', who === 'yo' ? 'text-primary-foreground/70' : 'text-muted-foreground')}>{meta}</p> : null}
       </div>
     </div>
   );
 }
 
+/** Model and effort picked in the chat, remembered in this browser (the planner role's when empty). */
+function useStoredChoice(key: string): [string, (v: string) => void] {
+  const [value, setValue] = useState(() => {
+    try {
+      return localStorage.getItem(key) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const set = (v: string) => {
+    setValue(v);
+    try {
+      if (v) localStorage.setItem(key, v);
+      else localStorage.removeItem(key);
+    } catch {
+      // Storage unavailable: the choice lasts until the page reloads.
+    }
+  };
+  return [value, set];
+}
+
 function ChatView({ pl, isNew, onSent }: { pl: Planeacion; isNew: boolean; onSent: () => void }) {
   const [draft, setDraft] = useState('');
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [model, setModel] = useStoredChoice('forja:chat:modelo');
+  const [effort, setEffort] = useStoredChoice('forja:chat:esfuerzo');
+  const cfg = useApiQuery<{ configuracion: Configuracion }>('/v1/configuracion');
+  const catalog = cfg.data?.configuracion.catalogo;
   const { run } = useAction();
   const end = useRef<HTMLDivElement>(null);
   const chat = pl.chat;
@@ -78,11 +114,27 @@ function ChatView({ pl, isNew, onSent }: { pl: Planeacion; isNew: boolean; onSen
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll to the end whenever a message arrives.
   useEffect(() => end.current?.scrollIntoView({ block: 'nearest' }), [turns.length, thinking]);
 
+  const addFiles = (added: Attachment[]) => {
+    setFiles((f) => [...f, ...added]);
+    // Each document is named in the text, where it shows in blue.
+    setDraft((d) => {
+      const missing = added.filter((a) => !d.includes(`@${a.nombre}`)).map((a) => `@${a.nombre}`);
+      return missing.length ? `${d}${d && !d.endsWith(' ') && !d.endsWith('\n') ? ' ' : ''}${missing.join(' ')} ` : d;
+    });
+  };
   const send = async () => {
     const texto = draft.trim();
-    if (!texto) return toast('Escribe un mensaje', 'error');
-    if (await run('/v1/planeacion/mensaje', { texto, nuevo: isNew }, { quiet: true })) {
+    if (!texto && !files.length) return toast('Escribe un mensaje', 'error');
+    const body = {
+      texto,
+      nuevo: isNew,
+      ...(files.length ? { adjuntos: files.map((f) => ({ nombre: f.nombre, contenido: f.contenido })) } : {}),
+      ...(model ? { modelo: model } : {}),
+      ...(effort ? { esfuerzo: effort } : {}),
+    };
+    if (await run('/v1/planeacion/mensaje', body, { quiet: true })) {
       setDraft('');
+      setFiles([]);
       onSent();
     }
   };
@@ -104,14 +156,14 @@ function ChatView({ pl, isNew, onSent }: { pl: Planeacion; isNew: boolean; onSen
           {turns.map((t, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: turns only grow at the end.
             <div key={i} className="contents">
-              {t.usuario ? <Bubble who="yo" text={t.usuario} /> : null}
+              {t.usuario ? <Bubble who="yo" text={t.usuario} docs={t.adjuntos ?? []} /> : null}
               <Bubble who="ia" text={t.planeador} meta={t.modelo} />
             </div>
           ))}
           {thinking ? (
             <>
-              <Bubble who="yo" text={thinking.texto} />
-              <Bubble who="ia" text="Pensando…" meta={`${chat?.planeador ?? ''} · puede tardar unos minutos`} thinking />
+              <Bubble who="yo" text={thinking.texto} docs={thinking.adjuntos ?? []} />
+              <Bubble who="ia" text="Pensando…" meta={`${thinking.modelo ?? chat?.planeador ?? ''} · puede tardar unos minutos`} thinking />
             </>
           ) : null}
           <div ref={end} />
@@ -122,23 +174,61 @@ function ChatView({ pl, isNew, onSent }: { pl: Planeacion; isNew: boolean; onSen
               <AlertDescription>✘ {chat.error}</AlertDescription>
             </Alert>
           ) : null}
-          <Textarea
-            rows={3}
-            aria-label="Mensaje para el planeador"
-            placeholder={turns.length ? 'Responde o agrega detalles…' : 'Ej.: Quiero que el ERP permita registrar pagos parciales de facturas y ver el saldo de cada cliente.'}
-            value={draft}
-            disabled={Boolean(thinking)}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send();
-            }}
-          />
-          <div className="flex items-center gap-3">
+          <AttachmentDropZone files={files} onAdd={addFiles} disabled={Boolean(thinking)}>
+            <Textarea
+              rows={3}
+              className="pr-11"
+              aria-label="Mensaje para el planeador"
+              placeholder={
+                turns.length ? 'Responde o agrega detalles… (arrastra aquí tus documentos .md)' : 'Ej.: Quiero que el ERP permita registrar pagos parciales. Puedes arrastrar aquí tu plan en .md'
+              }
+              value={draft}
+              disabled={Boolean(thinking)}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send();
+              }}
+            />
+          </AttachmentDropZone>
+          {files.length ? (
+            <ul className="flex flex-wrap gap-1.5" aria-label="Documentos adjuntos">
+              {files.map((f) => (
+                <li key={f.nombre}>
+                  <AttachmentChip name={f.nombre} bytes={f.bytes} onRemove={() => setFiles((all) => all.filter((x) => x.nombre !== f.nombre))} />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => void send()} disabled={Boolean(thinking)}>
               {thinking ? <LoaderCircleIcon className="animate-spin" /> : <SendIcon />}
               {thinking ? 'Esperando respuesta…' : 'Enviar'}
             </Button>
-            <span className="text-xs text-muted-foreground">Ctrl+Enter para enviar</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">Ctrl+Enter para enviar</span>
+            {catalog ? (
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <ModelPicker
+                  id="chat-modelo"
+                  label="Modelo para planear"
+                  value={model}
+                  onChange={setModel}
+                  models={catalog.modelos.filter((m) => m.estado !== 'retirandose')}
+                  optional
+                  noneLabel={`Predeterminado (${chat?.planeador ?? 'rol planeador'})`}
+                  className="h-8 w-56 text-xs"
+                />
+                <EffortPicker
+                  id="chat-esfuerzo"
+                  label="Esfuerzo de razonamiento"
+                  value={(effort || null) as Effort | null}
+                  onChange={(e) => setEffort(e ?? '')}
+                  efforts={catalog.esfuerzos}
+                  model={catalog.modelos.find((m) => m.ref === (model || chat?.planeador))}
+                  defaultLabel={`Esfuerzo predeterminado${chat?.esfuerzo ? ` (${chat.esfuerzo})` : ''}`}
+                  className="h-8 w-48 text-xs"
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       </Card>

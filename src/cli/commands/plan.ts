@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { Command } from 'commander';
 import { NoProviderError } from '../../core/engine.js';
@@ -5,8 +7,10 @@ import { approvePlan, currentApproval, gateProblems } from '../../plan/approve.j
 import { dividePlan, latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { waves } from '../../plan/plan.js';
+import { type AttachmentInput, saveAttachments, validate as validateAttachments } from '../../planner/attachments.js';
 import { closureBlockers, type DiscoveryState, openQuestions } from '../../planner/discovery.js';
 import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, PlannerError, plannerScratch, runPlannerTurn, type TurnResult, transcript } from '../../planner/session.js';
+import { EFFORTS, type Effort, isEffort } from '../../providers/catalog.js';
 import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { acquireOrchestratorLock } from '../../run/process.js';
 import { renderDocs, writeDocs } from '../../spec/docs.js';
@@ -67,10 +71,21 @@ async function planningInputs(ctx: EngineContext, mode: 'idea' | 'mejora') {
   return mode === 'mejora' ? { workspace: ctx.checkout.path, evidence: await repoEvidence(ctx.checkout.path) } : { workspace: plannerScratch(ctx.engine) };
 }
 
-async function turn(ctx: EngineContext, changeId: string, mode: 'idea' | 'mejora', userText: string | null, closing = false): Promise<TurnResult> {
-  const stop = spinner(`pensando con ${ctx.config.roles.planeador[0]}…`);
+type TurnExtras = { files?: AttachmentInput[]; model?: string; effort?: Effort };
+
+async function turn(ctx: EngineContext, changeId: string, mode: 'idea' | 'mejora', userText: string | null, closing = false, extras: TurnExtras = {}): Promise<TurnResult> {
+  const stop = spinner(`pensando con ${extras.model ?? ctx.config.roles.planeador[0]}…`);
   try {
-    return await runPlannerTurn(ctx.engine, { changeId, userText, ...(await planningInputs(ctx, mode)), closing });
+    const attachments = extras.files?.length ? saveAttachments(ctx.engine.dataDir, changeId, extras.files) : [];
+    return await runPlannerTurn(ctx.engine, {
+      changeId,
+      userText,
+      ...(await planningInputs(ctx, mode)),
+      closing,
+      ...(attachments.length ? { attachments } : {}),
+      ...(extras.model ? { model: extras.model } : {}),
+      ...(extras.effort ? { effort: extras.effort } : {}),
+    });
   } catch (error) {
     if (error instanceof NoProviderError || error instanceof PlannerError) throw new CliError(error.message, EXIT.environment);
     throw error;
@@ -87,8 +102,25 @@ export function registerPlanCommands(program: Command): void {
     .option('--mejora', 'es una mejora de este repositorio (por defecto se detecta)')
     .option('--idea', 'es una idea nueva')
     .option('-m, --mensaje <texto>', 'envía un mensaje y termina (sin conversación interactiva)')
-    .action(async (ideaWords: string[], opts: { nuevo?: boolean; mejora?: boolean; idea?: boolean; mensaje?: string }, cmd: Command) => {
+    .option('--adjuntar <archivos...>', 'documentos de texto para el planeador (p. ej. un plan en .md); se nombran con @archivo')
+    .option('--modelo <ref>', 'modelo con el que planear en este mensaje (p. ej. claude:opus, codex:gpt-6-astra)')
+    .option('--esfuerzo <nivel>', `esfuerzo de razonamiento (${EFFORTS.join(', ')})`)
+    .action(async (ideaWords: string[], opts: { nuevo?: boolean; mejora?: boolean; idea?: boolean; mensaje?: string; adjuntar?: string[]; modelo?: string; esfuerzo?: string }, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
+      if (opts.esfuerzo && !isEffort(opts.esfuerzo)) throw new CliError(`esfuerzo desconocido: usa ${EFFORTS.join(', ')}`);
+      if (opts.modelo && !/^(claude|codex|simulado):[A-Za-z0-9._[\]-]{1,60}$/.test(opts.modelo)) throw new CliError('--modelo va como proveedor:modelo (p. ej. claude:opus)');
+      let files: AttachmentInput[] = [];
+      try {
+        files = validateAttachments((opts.adjuntar ?? []).map((f) => ({ name: basename(f), text: readFileSync(f, 'utf8') })));
+      } catch (error) {
+        throw new CliError(`no se pudo adjuntar: ${(error as Error).message}`);
+      }
+      // The documents go with the first message sent; model and effort with every one.
+      const extras = (): TurnExtras => {
+        const e: TurnExtras = { ...(opts.modelo ? { model: opts.modelo } : {}), ...(opts.esfuerzo ? { effort: opts.esfuerzo as Effort } : {}), ...(files.length ? { files } : {}) };
+        files = [];
+        return e;
+      };
       const ctx = openEngine(g);
       const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: process.stdin.isTTY });
       try {
@@ -107,7 +139,8 @@ export function registerPlanCommands(program: Command): void {
           const changeId = createChange(ctx.engine, `cambio:${Date.now()}`, idea.slice(0, 120), mode);
           change = listChanges(ctx.engine).find((c) => c.change_id === changeId)!;
           print(`Nuevo cambio (${mode === 'mejora' ? 'mejora de este repositorio' : 'idea nueva'}): ${change.title}`);
-          showTurn(await turn(ctx, change.change_id, change.mode, null));
+          const first = extras();
+          showTurn(await turn(ctx, change.change_id, change.mode, first.files?.length && !opts.mensaje ? idea : null, false, first));
         } else if (!opts.mensaje) {
           const history = transcript(ctx.engine, change.change_id);
           print(`Retomando «${change.title}» (${history.length} turnos).`);
@@ -122,12 +155,12 @@ export function registerPlanCommands(program: Command): void {
               for (const q of qs) print(`  ${q.id}${q.bloquea ? ' (bloquea)' : ''}: ${q.texto}`);
             }
           } else {
-            showTurn(await turn(ctx, change.change_id, change.mode, null));
+            showTurn(await turn(ctx, change.change_id, change.mode, null, false, extras()));
           }
         }
 
         if (opts.mensaje) {
-          const r = await turn(ctx, change.change_id, change.mode, opts.mensaje);
+          const r = await turn(ctx, change.change_id, change.mode, opts.mensaje, false, extras());
           if (g.json) printJson({ turno: r });
           else showTurn(r);
           return;
@@ -145,7 +178,7 @@ export function registerPlanCommands(program: Command): void {
             continue;
           }
           if (text === '/cerrar') {
-            showTurn(await turn(ctx, change.change_id, change.mode, 'Quiero cerrar el descubrimiento: revisa huecos y prepara el resumen para aprobar.', true));
+            showTurn(await turn(ctx, change.change_id, change.mode, 'Quiero cerrar el descubrimiento: revisa huecos y prepara el resumen para aprobar.', true, extras()));
             continue;
           }
           if (text === '/aprobar') {
@@ -158,7 +191,7 @@ export function registerPlanCommands(program: Command): void {
             }
             continue;
           }
-          showTurn(await turn(ctx, change.change_id, change.mode, text));
+          showTurn(await turn(ctx, change.change_id, change.mode, text, false, extras()));
         }
       } finally {
         rl.close();

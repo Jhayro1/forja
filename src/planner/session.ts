@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { callRole, type Engine } from '../core/engine.js';
 import { newId } from '../domain/ids.js';
+import type { Effort } from '../providers/catalog.js';
 import { type ChangePhase, EV } from '../store/planning-projections.js';
+import { type AttachmentMeta, attachmentsForPrompt } from './attachments.js';
 import { closureBlockers, type DiscoveryState, emptyState, mergeTurn, openQuestions, PlannerTurnOutput, type Question, stateForPrompt } from './discovery.js';
 import { compose, loadPrompt } from './prompts.js';
 
@@ -58,14 +60,14 @@ export function getDiscovery(engine: Engine, changeId: string): { revision: numb
   return { revision: row.revision, state: JSON.parse(row.state) as DiscoveryState, approvedRevision: row.approved_revision };
 }
 
-export function transcript(engine: Engine, changeId: string): { n: number; user_text: string | null; planner_text: string; provider: string; model: string | null }[] {
-  return engine.store.db.prepare('SELECT n, user_text, planner_text, provider, model FROM planner_turns WHERE change_id = ? ORDER BY n').all(changeId) as {
-    n: number;
-    user_text: string | null;
-    planner_text: string;
-    provider: string;
-    model: string | null;
-  }[];
+export type TranscriptTurn = { n: number; user_text: string | null; planner_text: string; provider: string; model: string | null; attachments: AttachmentMeta[] };
+
+export function transcript(engine: Engine, changeId: string): TranscriptTurn[] {
+  const rows = engine.store.db.prepare('SELECT n, user_text, planner_text, provider, model, attachments FROM planner_turns WHERE change_id = ? ORDER BY n').all(changeId) as (Omit<
+    TranscriptTurn,
+    'attachments'
+  > & { attachments: string | null })[];
+  return rows.map((r) => ({ ...r, attachments: r.attachments ? (JSON.parse(r.attachments) as AttachmentMeta[]) : [] }));
 }
 
 const CONTRACT = `Contrato de salida:
@@ -92,7 +94,21 @@ export type TurnResult = {
  * + user message), call the planner role with structured output, validate, apply
  * authority rules and persist the new revision in a single event.
  */
-export async function runPlannerTurn(engine: Engine, input: { changeId: string; userText: string | null; workspace: string; evidence?: object; closing?: boolean }): Promise<TurnResult> {
+export async function runPlannerTurn(
+  engine: Engine,
+  input: {
+    changeId: string;
+    userText: string | null;
+    workspace: string;
+    evidence?: object;
+    closing?: boolean;
+    /** Documents attached to THIS message (already saved with saveAttachments). */
+    attachments?: AttachmentMeta[];
+    /** The model picked in the chat (`proveedor:modelo`), instead of the planner role's order. */
+    model?: string;
+    effort?: Effort;
+  },
+): Promise<TurnResult> {
   const change = getChange(engine, input.changeId);
   if (change.phase !== 'descubrir') throw new PlannerError(`el cambio está en la fase «${change.phase}»; el descubrimiento ya se aprobó`);
   const { revision, state } = getDiscovery(engine, input.changeId);
@@ -103,6 +119,7 @@ export async function runPlannerTurn(engine: Engine, input: { changeId: string; 
     contrato: CONTRACT,
     estado: stateForPrompt(state),
     evidencia_del_repositorio: input.evidence,
+    documentos_adjuntos: attachmentsForPrompt(engine.dataDir, input.changeId),
     mensaje_usuario: input.userText ?? (state.turnos === 0 ? `(inicio) La idea del usuario es: ${state.idea}` : '(el usuario no escribió nada nuevo)'),
   });
   const schema = llmSchema(PlannerTurnOutput);
@@ -122,6 +139,8 @@ export async function runPlannerTurn(engine: Engine, input: { changeId: string; 
       outputSchema: schema,
       scope: { change_id: input.changeId },
       attempt,
+      ...(input.model ? { candidates: [input.model] } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
     });
     used = { provider: call.provider, model: call.outcome.summary.model ?? call.model };
     const parsed = PlannerTurnOutput.safeParse(call.outcome.summary.structured);
@@ -158,6 +177,7 @@ export async function runPlannerTurn(engine: Engine, input: { changeId: string; 
           model: used.model,
           prompt_manifest: manifest,
           state: next as unknown as Record<string, unknown>,
+          ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         },
       },
     ],

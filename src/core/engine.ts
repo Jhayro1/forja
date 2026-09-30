@@ -3,7 +3,7 @@ import { newId } from '../domain/ids.js';
 import type { Prices } from '../plan/estimate.js';
 import { type AccountChoice, type AccountProvider, type AccountStore, accountPauseKey, chooseAccount, PRINCIPAL } from '../providers/accounts.js';
 import { AdapterError, ClaudeAdapter, CodexAdapter, type LaunchParams, type ProviderAdapter, SimulatedAdapter, type ToolProfile } from '../providers/adapters.js';
-import { effortFor } from '../providers/catalog.js';
+import { type Effort, effortFor } from '../providers/catalog.js';
 import type { ForjaConfig } from '../registry/config.js';
 import { type LaunchOutcome, runToCompletion } from '../runtime/launch-service.js';
 import type { EventStore } from '../store/event-store.js';
@@ -67,8 +67,10 @@ export type CallOptions = {
   attempt?: number;
   extraHosts?: string[];
   resumeSessionId?: string;
-  /** Restrict to these candidates (e.g. a retry pinned to another provider). */
+  /** Restrict to these candidates (e.g. a retry pinned to another provider, or the model picked in the chat). */
   candidates?: string[];
+  /** Reasoning effort for this call instead of the role's (the planner chat's selector); clamped per model. */
+  effort?: Effort;
   extraMounts?: LaunchParams['extraMounts'];
 };
 
@@ -230,7 +232,7 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
       taskId: opts.scope.task_id ?? opts.role,
       attempt: opts.attempt ?? 1,
       model,
-      ...effortParam(engine.config, opts.role, ref),
+      ...(opts.effort ? (effortFor(ref, opts.effort) ? { effort: effortFor(ref, opts.effort)! } : {}) : effortParam(engine.config, opts.role, ref)),
       prompt: opts.prompt,
       workspace: opts.workspace,
       ...accountParams(engine, provider, account),

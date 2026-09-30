@@ -1,6 +1,6 @@
 # Forja Ligera · plan de desarrollo
 
-**Estado:** propuesta · 2026-09-30 · rama `ligera/plan`
+**Estado:** implementado en v0.3.0 · 2026-09-30 · ver §8 · decisión en [ADR-016](../docs/decisiones/ADR-016-edicion-ligera.md)
 
 ## 1. Objetivo
 
@@ -126,7 +126,7 @@ CLI: `forja run --bloque H-003 --modelo claude-sonnet-5-5`.
 **Windows** (PowerShell, sin permisos de administrador):
 
 ```powershell
-irm https://github.com/Jhayro1/forja/releases/latest/download/ligera.ps1 | iex
+irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/ligera.ps1 | iex
 ```
 
 1. Comprueba Node ≥ 22.13 y Git. Si falta Node, descarga **Node portable** (~30 MB) en
@@ -200,3 +200,19 @@ esperar a Windows nativo). Segundo hito: **F1 + F3 + F5**, la instalación rápi
 - Usar sesiones del navegador (claude.ai / chatgpt.com) sin pasar por el CLI.
 - Modo servidor/VPS en la edición ligera (para eso está la completa).
 - Tocar el despliegue actual de forja.winkstec.com.
+
+## 8. Estado de la implementación (v0.3.0)
+
+| Fase | Estado | Dónde |
+|---|---|---|
+| F1 Núcleo portable | ✅ | `util/proc.ts` (`.cmd` de npm, `taskkill`, tuberías con nombre), `registry/lock.ts` sin `/proc`, parada por archivo (`run/process.ts`, `runtime/launcher.ts`, `cli/jobs.ts`), `security/env.ts` con variables de Windows |
+| F2 Modo directo | ✅ | `runtime/sandbox-mode.ts`, `runtime/order.ts` (`directo`), `runtime/runner.ts`, `providers/adapters.ts`, `verify/commands.ts` |
+| F3 CLIs de tu PC | ✅ | cuenta principal = `~/.claude`/`~/.codex` reales; sesión de Claude en el Llavero de macOS; `forja doctor` de la edición ligera |
+| F4 Un agente por bloque | ✅ | `run/block.ts`, `forja run --tareas/--bloque/--modelo`, sesión continua en `worktrees/<run>/_agente`, relevo por `ejecucion.sesion_max_tokens`, se detiene en la primera tarea que necesita al usuario |
+| F5 Instalador | ✅ | `scripts/ligera.ps1`, `scripts/ligera.sh`, `scripts/empaquetar-ligera.mjs` → `forja-ligera.tgz` en el release |
+| F6 Panel | ✅ | «Ejecutar con un agente» en el tablero (`components/block-run.tsx`), etiqueta «Ligera · modo directo» |
+| F7 Pruebas | ✅ en CI · ◐ en tu PC | `test/run/block.test.ts`, `test/ligera/directo.test.ts`, trabajo `windows-ligera` en CI (pruebas + instalador en PowerShell 5.1). Falta la prueba en un Windows real con Claude/Codex reales |
+| F8 Docs y release | ✅ | `docs/guias/LIGERA.md`, MANUAL, README, ADR-016, release v0.3.0 |
+
+Pendiente conocido: el sandbox de Codex en Windows nativo (`workspace-write`) depende de la
+versión de Codex; se valida en la primera prueba real.

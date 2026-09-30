@@ -23,7 +23,18 @@ Funciona de punta a punta: planear → especificar → dividir → aprobar → e
 verificar → integrar → entregar en una rama `forja/entrega/<cambio>` (main nunca se toca).
 Falta la prueba de ejecución con Claude y Codex reales (hasta ahora con agentes simulados).
 
-Windows: instala la **app de escritorio** desde el [último release](https://github.com/Jhayro1/forja/releases/latest)
+**Forja Ligera** (v0.3): un comando, sin WSL, con el Claude Code y el Codex que ya tienes; un
+solo agente hace el bloque de tareas que elijas, en la misma sesión. Guía: [LIGERA.md](docs/guias/LIGERA.md).
+
+```powershell
+irm https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/ligera.ps1 | iex    # Windows
+```
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Jhayro1/forja/main/scripts/ligera.sh | sh   # macOS / Linux
+```
+
+**Forja Completa** — Windows: instala la **app de escritorio** desde el [último release](https://github.com/Jhayro1/forja/releases/latest)
 (`Forja_x.y.z_x64-setup.exe`). Ella misma prepara WSL e instala todo, sin contraseñas, y abre el
 panel en su ventana ([guía](docs/guias/ESCRITORIO.md)). También sigue valiendo el comando de
 PowerShell, que instala todo en tu Ubuntu y abre el panel en tu navegador. Todo corre en tu PC

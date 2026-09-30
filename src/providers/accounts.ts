@@ -139,7 +139,16 @@ export class AccountStore {
   }
 
   signedIn(provider: AccountProvider, alias: string): boolean {
-    return existsSync(this.credentialFile(provider, alias));
+    if (existsSync(this.credentialFile(provider, alias))) return true;
+    // Claude Code on macOS keeps the session in the Keychain; its config file says who is signed in.
+    if (provider === 'claude' && alias === PRINCIPAL && process.platform === 'darwin' && !this.env.CLAUDE_CONFIG_DIR) {
+      try {
+        return Boolean((JSON.parse(readFileSync(join(homedir(), '.claude.json'), 'utf8')) as { oauthAccount?: unknown }).oauthAccount);
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 }
 

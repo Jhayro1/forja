@@ -2,6 +2,8 @@ name: escritorio
 # App de escritorio para Windows (Tauri) y la distro de WSL «Forja» que instala.
 # En una etiqueta vX.Y.Z publica en el release: el instalador (.exe y .msi), la distro
 # (forja-wsl-x64.tar.gz + .sha256) y forja.tgz (para actualizar sin reinstalar).
+# También Forja Ligera (docs/guias/LIGERA.md): forja-ligera.tgz y sus instaladores de un
+# comando, ligera.ps1 (Windows) y ligera.sh (macOS/Linux).
 on:
   push:
     tags: ['v*.*.*']
@@ -33,6 +35,32 @@ jobs:
         with:
           name: distro
           path: salida/*
+          retention-days: 7
+
+  ligera:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: paquete de Forja Ligera (ya compilado, con el panel)
+        run: |
+          node scripts/empaquetar-ligera.mjs
+          cp scripts/ligera.ps1 scripts/ligera.sh build/ligera/
+      - name: el instalador de macOS/Linux instala ese paquete
+        run: |
+          FORJA_PAQUETE="$PWD/build/ligera/forja-ligera.tgz" HOME="$RUNNER_TEMP/casa" sh scripts/ligera.sh
+          HOME="$RUNNER_TEMP/casa" "$RUNNER_TEMP/casa/.local/bin/forja" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ligera
+          path: |
+            build/ligera/forja-ligera.tgz
+            build/ligera/ligera.ps1
+            build/ligera/ligera.sh
           retention-days: 7
 
   app:
@@ -67,7 +95,7 @@ jobs:
 
   publicar:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [distro, app]
+    needs: [distro, app, ligera]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -84,4 +112,7 @@ jobs:
             artefactos/**/forja-wsl-x64.tar.gz
             artefactos/**/forja-wsl-x64.tar.gz.sha256
             artefactos/**/forja.tgz
+            artefactos/**/forja-ligera.tgz
+            artefactos/**/ligera.ps1
+            artefactos/**/ligera.sh
           fail_on_unmatched_files: true

@@ -59,7 +59,7 @@ async function notify(code: number | null, signal: string | null): Promise<void>
     const ok = code === 0;
     const state = ok ? 'terminó bien' : signal ? 'se detuvo' : 'terminó con error';
     const lines = tailLines(join(dir!, 'salida.log'), 16 * 1024).slice(-15);
-    await new MailService(forjaHome()).notice(meta.tipo === 'run' ? 'runs' : 'trabajos', {
+    await new MailService(forjaHome()).notice(meta.tipo.startsWith('run') ? 'runs' : 'trabajos', {
       asunto: `Forja · ${meta.titulo}: ${state}`,
       texto: `Proyecto: ${basename(order.cwd)}\nTrabajo: ${meta.titulo}\nResultado: ${state}${code !== null ? ` (código ${code})` : ''}\n\nÚltimas líneas:\n${lines.join('\n')}${panelLink()}`,
     });

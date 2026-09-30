@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { AccountProviderName, AccountsBackend } from '../api/modules/accounts.js';
 import type { Provider, SystemBackend } from '../api/modules/system.js';
 import { detectPlatform, type Exec, overall, realExec, runChecks } from '../doctor/checks.js';
 import { AccountStore, PRINCIPAL } from '../providers/accounts.js';
+import { commandArgv, resolveCommand } from '../util/proc.js';
 import { JobRunner } from './jobs.js';
 import { ProviderLogins } from './provider-login.js';
 
@@ -13,7 +14,12 @@ export const PROVIDER_PACKAGES: Record<Provider, string> = {
 };
 
 /** The npm that belongs to the Node running Forja (so a global install lands where Forja looks). */
-export function npmBin(nodePath = process.execPath): string {
+export function npmBin(nodePath = process.execPath, platform: NodeJS.Platform = process.platform): string {
+  // Windows: the extension-less «npm» next to node.exe is a sh script; npm's own JS entry runs anywhere.
+  if (platform === 'win32') {
+    const cli = join(dirname(nodePath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    return existsSync(cli) ? cli : 'npm';
+  }
   const sibling = join(dirname(nodePath), 'npm');
   return existsSync(sibling) ? sibling : 'npm';
 }
@@ -51,10 +57,11 @@ export class MachineSystemBackend implements SystemBackend, AccountsBackend {
 
   install(provider: Provider): object {
     this.cache = null;
+    const [file, ...pre] = commandArgv(isAbsolute(this.npm) ? this.npm : (resolveCommand(this.npm) ?? this.npm));
     return this.jobs.start(`instalar-${provider}`, {
       title: `Instalar ${provider === 'claude' ? 'Claude Code' : 'Codex'}`,
-      file: this.npm,
-      args: ['install', '-g', '--no-audit', '--no-fund', PROVIDER_PACKAGES[provider]],
+      file: file!,
+      args: [...pre, 'install', '-g', '--no-audit', '--no-fund', PROVIDER_PACKAGES[provider]],
       cwd: dirname(this.npm) === '.' ? process.cwd() : dirname(this.npm),
     });
   }

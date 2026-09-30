@@ -51,7 +51,7 @@ export function checkDestination(dest: string): void {
 export function cloneRepo(ref: RepoRef, dest: string, env: Record<string, string>, onLine: (line: string) => void = () => {}): Promise<void> {
   checkDestination(dest);
   return new Promise((resolve, reject) => {
-    const child = spawn('git', ['clone', '--progress', ref.url, dest], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('git', ['clone', '--progress', ref.url, dest], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     const out = (chunk: Buffer) => {
       for (const line of chunk.toString('utf8').split(/[\r\n]+/)) if (line.trim()) onLine(line.trim());
     };

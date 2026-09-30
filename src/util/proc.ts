@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 
@@ -123,4 +123,14 @@ function hashShort(text: string): string {
   let h = 2166136261;
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
   return (h >>> 0).toString(16);
+}
+
+/**
+ * `spawn` for a CLI found in PATH, the same on every OS: on Windows a `.cmd` shim runs
+ * through node (or cmd.exe as a last resort) and no console window opens.
+ */
+export function spawnCommand(name: string, args: string[], options: SpawnOptions = {}): ChildProcess {
+  const resolved = process.platform === 'win32' ? resolveCommand(name) : null;
+  const [file, ...pre] = resolved ? commandArgv(resolved) : [name];
+  return spawn(file!, [...pre, ...args], { windowsHide: true, ...options });
 }

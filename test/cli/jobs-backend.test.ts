@@ -51,4 +51,19 @@ describe('trabajos del proyecto', () => {
     expect(r.trabajo).toMatchObject({ estado: 'error', titulo: 'Dividir en tareas' });
     expect(r.salida.join('\n')).toMatch(/no hay un cambio en curso/);
   });
+
+  it('un bloque para un agente corre forja run --tareas con el modelo elegido', async () => {
+    const backend = new ProjectJobsBackend(ctx, new JobRunner(join(ctx.dataDir, 'trabajos'), join(ROOT, 'dist/cli/job-main.js')), join(ROOT, 'dist/cli/bin.js'));
+    const job = backend.startBlock(['T-001', 'T-003'], 'claude:sonnet') as { id: string; tipo: string; titulo: string };
+    expect(job.tipo).toBe('run-bloque');
+    expect(job.titulo).toContain('claude:sonnet');
+    const end = Date.now() + 20_000;
+    let r = backend.get(job.id)!;
+    while ((r.trabajo as { estado: string }).estado === 'corriendo' && Date.now() < end) {
+      await new Promise((res) => setTimeout(res, 100));
+      r = backend.get(job.id)!;
+    }
+    // Without a plan it cannot run, but it reached «forja run» with the block's options.
+    expect(r.salida.join('\n')).toMatch(/no hay un cambio en curso/);
+  });
 });

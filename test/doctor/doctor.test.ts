@@ -92,4 +92,15 @@ describe('doctor', () => {
     expect(detectPlatform(() => 'Linux version 5.15.167.4-microsoft-standard-WSL2').wsl).toBe(true);
     expect(detectPlatform(() => 'Linux version 6.8.0-136-generic').wsl).toBe(false);
   });
+
+  it('Forja Ligera: sin sandbox que revisar, basta un agente con sesión, y siempre avisa que no hay aislamiento', async () => {
+    const win = { os: 'win32' as const, wsl: false };
+    const checks = await runChecks(fakeExec({ ...ALL_OK, 'codex --version': { code: 127 } }), win, '24.18.0', true);
+    expect(checks.find((c) => c.id === 'plataforma')?.detail).toContain('Windows · Forja Ligera');
+    expect(checks.some((c) => c.id.startsWith('sandbox'))).toBe(false);
+    expect(checks.find((c) => c.id === 'aislamiento')?.level).toBe('aviso');
+    expect(overall(checks)).not.toBe('error');
+    const sinAgentes = await runChecks(fakeExec({ 'git --version': ALL_OK['git --version'] }), win, '24.18.0', true);
+    expect(sinAgentes.find((c) => c.id === 'agentes')?.level).toBe('error');
+  });
 });

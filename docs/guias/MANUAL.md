@@ -222,6 +222,13 @@ contra tu rama principal. **Nunca lo une**: eso lo decides tú en GitHub.
 Sin token, la entrega queda en la rama `forja/entrega/<sprint>` de tu repo y tú la subes cuando
 quieras.
 
+### 4.4b Bases de datos (opcional)
+
+En **Conexiones → Bases de datos** registras tu base de pruebas (MySQL o PostgreSQL) pegando
+la URL `jdbc:…` o el bloque de variables que ya usas. Los agentes ven el esquema; consultar,
+crear o cambiar sigue tus reglas, y las tablas que ya existían nunca se modifican. Guía:
+[BASES-DE-DATOS.md](BASES-DE-DATOS.md).
+
 ### 4.5 Proyectos
 
 **Proyectos** (barra lateral, abajo) tiene tres maneras de agregar uno:

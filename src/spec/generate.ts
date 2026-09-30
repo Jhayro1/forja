@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { callRole, type Engine } from '../core/engine.js';
 import { hashJson } from '../domain/hash.js';
+import { attachmentsForPrompt } from '../planner/attachments.js';
 import { compose, loadPrompt } from '../planner/prompts.js';
 import { getChange, getDiscovery, llmSchema, PlannerError } from '../planner/session.js';
 import { EV } from '../store/planning-projections.js';
@@ -60,7 +61,10 @@ export function changeDir(repoPath: string, changeId: string): string {
  * Approved discovery → structured spec (P-ESPECIFICAR). Up to two format repairs
  * and three completeness repairs, each sending only the issues (v2/04).
  */
-export async function generateSpec(engine: Engine, input: { changeId: string; workspace: string; repoPath: string; evidence?: object; projectId: string }): Promise<SpecResult> {
+export async function generateSpec(
+  engine: Engine,
+  input: { changeId: string; workspace: string; repoPath: string; evidence?: object; projectId: string; databases?: object | null },
+): Promise<SpecResult> {
   const change = getChange(engine, input.changeId);
   if (!['especificar', 'dividir', 'aprobar', 'ejecutar'].includes(change.phase)) throw new PlannerError(`el cambio está en la fase «${change.phase}»: primero aprueba el descubrimiento`);
   const { state, approvedRevision } = getDiscovery(engine, input.changeId);
@@ -86,6 +90,8 @@ export async function generateSpec(engine: Engine, input: { changeId: string; wo
   };
   const { prompt, manifest } = compose([loadPrompt('planeador/base'), loadPrompt('planeador/especificar')], {
     descubrimiento_aprobado: agreed,
+    documentos_adjuntos: attachmentsForPrompt(engine.dataDir, input.changeId),
+    bases_de_datos: input.databases ?? null,
     spec_base: base?.spec ?? null,
     cambios_pedidos_por_el_usuario: (() => {
       const changes = specAnswers(engine, input.changeId).filter((a) => a.question_id.startsWith(CHANGE_REQUEST));

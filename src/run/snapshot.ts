@@ -27,7 +27,7 @@ export type TaskView = {
   activity: AgentActivity | null;
 };
 
-export type PendingKind = 'pregunta_tarea' | 'tarea_bloqueada' | 'tarea_pausada' | 'pregunta_spec' | 'aprobacion';
+export type PendingKind = 'pregunta_tarea' | 'tarea_bloqueada' | 'tarea_pausada' | 'pregunta_spec' | 'aprobacion' | 'solicitud_bd';
 
 export type PendingItem = { kind: PendingKind; id: string; text: string; action: string };
 
@@ -110,6 +110,18 @@ export function pendingItems(engine: Engine, change: ChangeRow, tasks: TaskView[
     for (const q of latestSpec(engine, change.change_id)?.spec.preguntas ?? []) {
       if (!answered.has(q.id)) out.push({ kind: 'pregunta_spec', id: q.id, text: q.texto, action: `forja responder ${q.id} "<respuesta>"` });
     }
+  }
+  // Database requests waiting for the user (docs/guias/BASES-DE-DATOS.md).
+  const dbRows = engine.store.db.prepare("SELECT req_id, kind, sql, motivo, origin FROM db_requests WHERE state = 'pendiente' ORDER BY created_at").all() as {
+    req_id: string;
+    kind: string;
+    sql: string;
+    motivo: string | null;
+    origin: string;
+  }[];
+  for (const r of dbRows) {
+    const what = r.kind === 'lectura' ? 'quiere consultar' : r.kind === 'crear' ? 'quiere crear una tabla' : 'quiere cambiar una tabla';
+    out.push({ kind: 'solicitud_bd', id: r.req_id, text: `${r.origin} ${what}: ${r.sql.slice(0, 160)}${r.motivo ? ` — ${r.motivo.slice(0, 160)}` : ''}`, action: `forja bd aprobar ${r.req_id}` });
   }
   if (change.phase === 'aprobar' && !currentApproval(engine, change.change_id)) {
     out.push({ kind: 'aprobacion', id: 'plan', text: 'el plan espera tu aprobación', action: 'forja plan · forja aprobar plan' });

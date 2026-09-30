@@ -25,6 +25,9 @@ const TEAM_NOTE = '\n<equipo_en_vivo>\nEn tareas largas, consulta la herramienta
 const SAME_SESSION_NOTE =
   '<misma_sesion>\nSigues en la misma sesión: ya hiciste las tareas anteriores de este bloque en esta carpeta y el resultado ya está integrado. Aprovecha lo que recuerdas, pero la tarea de ahora es SOLO la que sigue; no rehagas ni cambies lo anterior salvo que esta tarea lo pida.\n</misma_sesion>';
 
+const DB_NOTE =
+  '\n<bases_de_datos>\nEste proyecto tiene bases de datos vinculadas (herramientas MCP «forja» bd_*). Mira el esquema con bd_esquema cuando lo necesites. Las lecturas van por bd_consultar. Para crear una tabla o cambiar datos usa bd_solicitar_cambio explicando por qué y para qué: el usuario lo aprueba. Nunca intentes modificar ni borrar tablas que ya existían (Forja lo bloquea) ni conectarte a la base por otro camino.\n</bases_de_datos>';
+
 const EXTERNAL_TOOLS_NOTE =
   '<herramientas_externas>\nSi la tarea necesita un efecto fuera del repositorio (un servicio, una API), usa la herramienta MCP «forja» proponer_accion: queda pendiente de aprobación humana y NO se ejecuta. No intentes llegar al servicio de otra forma.\n</herramientas_externas>';
 
@@ -144,7 +147,7 @@ export class TaskLauncher {
       const team = await this.team(taskId);
       const built = await buildWorkerPrompt({ plan, spec: ctx.spec, task, worktree: path, attempt, feedback: fresh.feedback, question: fresh.question, answer: fresh.answer, related, lessons, team });
       const session = this.sessionToContinue(taskId, path, candidate.provider, candidate.model);
-      const withTools = this.gateway ? `${built.prompt}\n\n${EXTERNAL_TOOLS_NOTE}${TEAM_NOTE}${this.gateway.offersContext ? CONTEXT_NOTE : ''}` : built.prompt;
+      const withTools = this.gateway ? `${built.prompt}\n\n${EXTERNAL_TOOLS_NOTE}${TEAM_NOTE}${this.gateway.offersContext ? CONTEXT_NOTE : ''}${this.gateway.offersDb ? DB_NOTE : ''}` : built.prompt;
       const prompt = session ? `${SAME_SESSION_NOTE}\n\n${withTools}` : withTools;
       const launchId = newId('lan');
       const dir = launchDir(engine.dataDir, launchId);

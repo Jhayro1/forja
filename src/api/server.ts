@@ -32,6 +32,8 @@ export type Route = {
   path: RegExp;
   /** Handler returns the JSON body (status 200) or writes the response itself. */
   handler: (ctx: RouteContext) => unknown | Promise<unknown>;
+  /** Largest JSON body this route accepts (default 64 KB); e.g. documents attached to the planner chat. */
+  maxBody?: number;
 };
 
 export type ApiModule = { name: string; routes: Route[] };
@@ -336,7 +338,7 @@ export class ApiServer {
       let bodyCache: Promise<Record<string, unknown>> | null = null;
       let requestHash = '';
       if (cacheKey) {
-        bodyCache = readJson(req);
+        bodyCache = readJson(req, route.maxBody);
         requestHash = createHash('sha256')
           .update(JSON.stringify(await bodyCache))
           .digest('hex');
@@ -346,7 +348,7 @@ export class ApiServer {
           return send(res, prev.status, prev.body as object, { 'Idempotent-Replayed': 'true' });
         }
       }
-      const ctx: RouteContext = { req, res, params: m.slice(1).map(decodeURIComponent), query: url.searchParams, session, body: () => (bodyCache ??= readJson(req)) };
+      const ctx: RouteContext = { req, res, params: m.slice(1).map(decodeURIComponent), query: url.searchParams, session, body: () => (bodyCache ??= readJson(req, route.maxBody)) };
       let result: unknown;
       try {
         result = await route.handler(ctx);

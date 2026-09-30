@@ -58,6 +58,12 @@ export const LaunchOrder = z
     kill_grace_ms: z.number().int().positive().default(5000),
     redact_files: z.array(z.string()).default([]),
     stdin_text: z.string().optional(),
+    /**
+     * Variables that are secrets (a test database's password): they are not in this order
+     * but in this file, which the runner reads, deletes and redacts from every line.
+     * Only for profile commands (tests), never for an agent.
+     */
+    secret_env_file: z.string().optional(),
   })
   .strict();
 export type LaunchOrder = z.infer<typeof LaunchOrder>;

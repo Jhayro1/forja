@@ -84,6 +84,8 @@ export const PlannerTurn = z
     model: z.string().nullable(),
     prompt_manifest: z.record(z.string(), z.string()),
     state: z.record(z.string(), z.unknown()),
+    /** Documents the user attached to this message (their text is stored apart, planner/attachments.ts). */
+    attachments: z.array(z.object({ name: z.string(), size: z.number().int().nonnegative(), sha256: z.string() }).strict()).optional(),
   })
   .strict();
 export const DiscoveryApproved = z.object({ revision: z.number().int().positive() }).strict();
@@ -141,7 +143,7 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
       if (row.discovery_revision !== p.base_revision) {
         throw new PlanningProjectionError(`turno sobre la revisión ${p.base_revision}, pero la vigente es ${row.discovery_revision}`);
       }
-      db.prepare('INSERT INTO planner_turns (turn_id, change_id, n, user_text, planner_text, provider, model, created_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      db.prepare('INSERT INTO planner_turns (turn_id, change_id, n, user_text, planner_text, provider, model, created_seq, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
         p.turn_id,
         id,
         p.n,
@@ -150,6 +152,7 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
         p.provider,
         p.model,
         e.seq,
+        p.attachments?.length ? JSON.stringify(p.attachments) : null,
       );
       db.prepare('INSERT INTO discovery (change_id, revision, state) VALUES (?, ?, ?) ON CONFLICT(change_id) DO UPDATE SET revision = excluded.revision, state = excluded.state').run(
         id,

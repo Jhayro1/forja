@@ -1,3 +1,4 @@
+import { applyDbEvent, DB_TABLES } from '../db/service.js';
 import type { StoredEvent } from '../domain/events.js';
 import { TASK_CREATED, TASK_STATE_CHANGED, TaskCreatedPayload, TaskStateChangedPayload } from '../domain/events.js';
 import { checkTransition, type TaskState, type TransitionReason } from '../domain/task-state.js';
@@ -75,8 +76,9 @@ export function applyEvent(db: Db, event: StoredEvent): void {
       applyProfileEvent(db, event);
       applyQualityEvent(db, event);
       applyWorkEvent(db, event);
+      applyDbEvent(db, event);
       return;
   }
 }
 
-export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES, ...ACTION_TABLES, ...MEMORY_TABLES, ...PROFILE_TABLES, ...QUALITY_TABLES, ...WORK_TABLES] as const;
+export const PROJECTION_TABLES = ['tasks', ...PLANNING_TABLES, ...ACTION_TABLES, ...MEMORY_TABLES, ...PROFILE_TABLES, ...QUALITY_TABLES, ...WORK_TABLES, ...DB_TABLES] as const;

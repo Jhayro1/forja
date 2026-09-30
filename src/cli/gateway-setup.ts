@@ -1,3 +1,4 @@
+import { dbServiceFor } from '../db/project.js';
 import { ExternalMcp } from '../mcp/external.js';
 import { GatewayHost } from '../mcp/gateway.js';
 import { McpRegistry } from '../mcp/registry.js';
@@ -19,7 +20,9 @@ export async function gatewayForProject(ctx: EngineContext, warn: (line: string)
   const actions = actionService(ctx);
   const links = actions.links().filter((l) => l.active);
   const onRequest = ctx.config.contexto.bajo_pedido;
-  if (!links.length && !onRequest) return null;
+  const db = dbServiceFor(ctx.engine, ctx.home);
+  const withDb = db.activeLinks().length > 0;
+  if (!links.length && !onRequest && !withDb) return null;
   const change = currentChange(ctx.engine);
   const context = onRequest && change ? new EngineContextProvider(ctx.engine, change.change_id) : undefined;
   const registry = McpRegistry.in(ctx.home);
@@ -44,5 +47,5 @@ export async function gatewayForProject(ctx: EngineContext, warn: (line: string)
     }
   }
   vault?.close();
-  return new GatewayHost(actions, externals, GatewayHost.baseFor(ctx.dataDir), context);
+  return new GatewayHost(actions, externals, GatewayHost.baseFor(ctx.dataDir), context, withDb ? db : undefined);
 }

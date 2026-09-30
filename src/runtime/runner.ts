@@ -106,6 +106,16 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
 
   const redactor = new Redactor();
   for (const file of order.redact_files) for (const value of secretsFromFile(file)) redactor.add({ name: 'credencial_proveedor', value });
+  // Secret variables for a test command: read once, deleted at once, redacted everywhere.
+  let secretEnv: Record<string, string> = {};
+  if (order.secret_env_file && existsSync(order.secret_env_file)) {
+    try {
+      secretEnv = JSON.parse(readFileSync(order.secret_env_file, 'utf8')) as Record<string, string>;
+    } finally {
+      rmSync(order.secret_env_file, { force: true });
+    }
+    for (const [name, value] of Object.entries(secretEnv)) if (value.length >= 4) redactor.add({ name: `variable_${name}`, value });
+  }
   const spool = new Spool(dir);
   const startedAt = new Date().toISOString();
   const heartbeatPath = join(dir, FILES.heartbeat);
@@ -143,6 +153,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
       const env = proxySocket
         ? {
             ...order.env,
+            ...secretEnv,
             HTTPS_PROXY: `http://127.0.0.1:${BRIDGE_PORT}`,
             HTTP_PROXY: `http://127.0.0.1:${BRIDGE_PORT}`,
             https_proxy: `http://127.0.0.1:${BRIDGE_PORT}`,
@@ -150,7 +161,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
             NO_PROXY: '',
             no_proxy: '',
           }
-        : order.env;
+        : { ...order.env, ...secretEnv };
       const spec = {
         workspace: order.cwd,
         workspaceReadOnly: order.sandbox.workspace_read_only,
@@ -176,7 +187,7 @@ export async function runLaunch(dir: string): Promise<LaunchResult> {
     const direct = order.sandbox.mode === 'ninguno' || order.sandbox.mode === 'directo';
     child = spawn(file, args, {
       cwd: order.cwd,
-      env: direct ? order.env : { PATH: process.env.PATH ?? '/usr/bin:/bin', ...(order.sandbox.mode === 'docker' ? { HOME: process.env.HOME ?? '/root' } : {}) },
+      env: direct ? { ...order.env, ...secretEnv } : { PATH: process.env.PATH ?? '/usr/bin:/bin', ...(order.sandbox.mode === 'docker' ? { HOME: process.env.HOME ?? '/root' } : {}) },
       stdio: [order.stdin_text !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       // «directo»: the agent leads its own process group so the whole tree can be killed
       // (there is no pid namespace to do it for us). Never a console window on Windows.

@@ -182,6 +182,12 @@ export function PendingCard({ p }: { p: Pendiente }) {
         Reanudar
       </Button>
     );
+  else if (p.kind === 'solicitud_bd')
+    action = (
+      <Button size="sm" variant="outline" onClick={() => go('conexiones')}>
+        Revisar en Conexiones
+      </Button>
+    );
   else if (p.kind === 'aprobacion' || p.kind === 'pregunta_spec')
     action = (
       <Button size="sm" variant="outline" onClick={() => go('sprint')}>

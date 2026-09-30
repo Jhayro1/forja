@@ -49,6 +49,10 @@ abren tu navegador. Si ya estás dentro de claude.ai o chatgpt.com, basta con un
 1. `forja ui` (o menú Inicio → Forja) abre el panel. Agrega tu proyecto (una carpeta con Git).
 2. **Sprint actual**: cuéntale a Forja qué quieres. Responde sus preguntas, divide en tareas y
    aprueba el plan.
+   - Si ya tienes el plan en un documento, **arrástralo al chat**, o usa el clip. Se ve como
+     chip y su nombre aparece en azul en tu mensaje. El planeador lo lee completo, y también
+     los turnos siguientes y la especificación.
+   - Debajo del cuadro eliges **el modelo y el esfuerzo** con los que planear.
 3. **Tablero → Ejecutar con un agente**:
    - Elige las tareas, o todas las pendientes, y **quién lo hace**: Sonnet, Opus, un modelo de
      Codex…
@@ -59,6 +63,9 @@ abren tu navegador. Si ya estás dentro de claude.ai o chatgpt.com, basta con un
    Si una falla, **se detiene y te pregunta**: no sigue a ciegas.
 5. Al terminar el sprint: **Calidad** (QA y auditoría) y **Entrega** (rama y PR en GitHub, si
    configuraste el token).
+
+Si el proyecto usa una base de datos de pruebas, regístrala en **Conexiones → Bases de datos**
+pegando tu URL o tus variables: ver [BASES-DE-DATOS.md](BASES-DE-DATOS.md).
 
 Desde la terminal hace lo mismo:
 

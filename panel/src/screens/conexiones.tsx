@@ -1,10 +1,13 @@
+import { useApp } from '@/app/context';
 import { EmptyState, Mono, PageHeader, Section } from '@/components/common';
+import { DatabasesSection } from '@/components/databases';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useApiQuery } from '@/hooks/use-api';
 import type { Conexiones as Data } from '@/lib/types';
 
 export default function Conexiones() {
+  const { has } = useApp();
   const q = useApiQuery<{ conexiones: Data }>('/v1/conexiones');
   const d = q.data?.conexiones;
   if (!d) return <PageHeader title="Conexiones" description="Cargando…" />;
@@ -15,8 +18,9 @@ export default function Conexiones() {
   };
   return (
     <div className="space-y-10">
-      <PageHeader title="Conexiones" description="Los secretos viven en la bóveda de esta máquina; aquí sólo aparecen sus nombres. Crear y vincular se hace en la terminal." />
-      <Section title="Servicios">
+      <PageHeader title="Conexiones" description="Bases de datos, servicios web y servidores MCP del proyecto. Las claves se guardan cifradas en esta máquina y nunca llegan a los agentes." />
+      {has('bases') ? <DatabasesSection /> : null}
+      <Section title="Servicios web">
         {d.conexiones.length ? (
           <Card className="py-0">
             <Table>

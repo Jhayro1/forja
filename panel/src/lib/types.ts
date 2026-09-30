@@ -78,7 +78,7 @@ export type Configuracion = {
 // ---------- planeación ----------
 
 export type Pregunta = { id: string; texto: string; respuesta?: string | null; recomendacion?: string | null; bloquea?: string[] };
-export type Turno = { usuario: string | null; planeador: string; modelo: string };
+export type Turno = { usuario: string | null; planeador: string; modelo: string; adjuntos?: string[] };
 export type Descubrimiento = {
   revision: number;
   aprobado: boolean;
@@ -115,7 +115,7 @@ export type Planeacion = {
   conversacion: Turno[];
   especificacion: Especificacion | null;
   plan: Plan | null;
-  chat?: { pensando: { texto: string } | null; error: string | null; planeador: string };
+  chat?: { pensando: { texto: string; adjuntos?: string[]; modelo?: string | null } | null; error: string | null; planeador: string; esfuerzo?: Effort | null };
 };
 
 // ---------- ejecución ----------

@@ -33,7 +33,7 @@ export function compose(parts: PromptPart[], data: Record<string, unknown>): { p
   const sections = parts.map((p) => p.text);
   for (const [tag, value] of Object.entries(data)) {
     if (value === undefined || value === null) continue;
-    const body = typeof value === 'string' ? value : JSON.stringify(value, null, 1);
+    const body = typeof value === 'string' ? value : JSON.stringify(value); // compact: indentation only costs tokens
     // Data is delimited so text coming from the repo or the user is not read as Forja's instructions.
     sections.push(`<${tag}>\n${body.replaceAll(`</${tag}>`, `<\\/${tag}>`)}\n</${tag}>`);
   }

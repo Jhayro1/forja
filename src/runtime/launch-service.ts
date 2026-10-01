@@ -40,7 +40,7 @@ export async function readOutcome(dir: string, parser: ProviderKind, expectStruc
   // Codex returns structured output as the final message text.
   if (expectStructured && summary.structured === undefined && summary.text) {
     try {
-      summary.structured = JSON.parse(summary.text) as unknown;
+      summary.structured = JSON.parse(jsonBody(summary.text)) as unknown;
     } catch {
       summary.warnings.push('se pidió salida estructurada y la respuesta no es JSON');
       if (summary.status === 'completed') summary.status = 'failed';
@@ -63,6 +63,15 @@ export async function readOutcome(dir: string, parser: ProviderKind, expectStruc
     summary.warnings.push('el supervisor terminó sin cerrar el lanzamiento');
   }
   return { status, summary, events, deniedHosts };
+}
+
+/** The JSON object inside a reply that wrapped it in ``` fences or a sentence (it happens without a schema-enforced output). */
+export function jsonBody(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) return trimmed;
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  return start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;
 }
 
 export async function runToCompletion(

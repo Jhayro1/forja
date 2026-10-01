@@ -58,8 +58,8 @@ export function changeDir(repoPath: string, changeId: string): string {
 }
 
 /**
- * Approved discovery → structured spec (P-ESPECIFICAR). Up to two format repairs
- * and three completeness repairs, each sending only the issues (v2/04).
+ * Approved discovery → structured spec (P-ESPECIFICAR). At most three calls: each
+ * repair sends only the issues (v2/04), and every call costs a whole spec in tokens.
  */
 export async function generateSpec(
   engine: Engine,
@@ -121,7 +121,8 @@ export async function generateSpec(
   let issues: SpecIssue[] = [];
   let feedback = '';
   let attempts = 0;
-  for (let i = 0; i < 5; i++) {
+  let lastProblem = '';
+  for (let i = 0; i < 3; i++) {
     attempts++;
     const call = await callRole(engine, {
       role: 'planeador',
@@ -141,7 +142,11 @@ export async function generateSpec(
           .slice(0, 8)
           .map((x) => `${x.path.join('.')}: ${x.message}`)
           .join('; ');
-      feedback = `\n\n<correccion>La respuesta anterior no cumplía el esquema: ${why}. Devuelve la especificación completa y válida.</correccion>`;
+      lastProblem = why || 'respuesta vacía';
+      // A provider failure (timeout, cut-off reply) is not fixed by asking again.
+      const err = call.outcome.summary.error;
+      if (err && err.category !== 'schema' && !err.retryable) break;
+      feedback = `\n\n<correccion>La respuesta anterior no cumplía el esquema: ${why}. Devuelve sólo el objeto JSON completo y válido.</correccion>`;
       continue;
     }
     body = parsed.data;
@@ -153,7 +158,8 @@ export async function generateSpec(
       .map((x) => `- ${x.path}: ${x.message}`)
       .join('\n')}\n</correccion>\n<borrador_anterior>\n${JSON.stringify(body)}\n</borrador_anterior>`;
   }
-  if (!body) throw new PlannerError('el planeador no devolvió una especificación con el formato correcto');
+  if (!body)
+    throw new PlannerError(`el planeador no devolvió una especificación con el formato correcto (${attempts} intento${attempts > 1 ? 's' : ''}; último problema: ${lastProblem.slice(0, 300)})`);
 
   const revision = (base?.revision ?? 0) + 1;
   const spec: Spec = { schema_version: 2, project_id: input.projectId, change_id: input.changeId, revision, ...body };

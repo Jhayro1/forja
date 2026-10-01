@@ -3,7 +3,7 @@
  * Single source of truth for the panel's selectors, `forja modelos` and the adapters
  * (which clamp a role's effort to what the chosen model accepts).
  *
- * Sources (checked 2026-09):
+ * Sources (checked 2026-10-01):
  * - Claude Code: https://code.claude.com/docs/en/model-config (`--model`, `--effort`).
  * - Codex CLI: https://learn.chatgpt.com/docs/models (`-m`, `model_reasoning_effort`).
  *
@@ -61,7 +61,9 @@ export const MODEL_CATALOG: readonly CatalogModel[] = [
   claude('default', 'Recomendado de tu plan', 'Lo que Claude Code usa si no eliges nada (hoy Opus 5.5 en la mayoría de planes).', CLAUDE_FULL, 'alto', { alias: true }),
   claude('best', 'El más capaz disponible', 'Fable si tu plan lo incluye; si no, Opus.', CLAUDE_FULL, 'tope', { alias: true }),
   claude('opusplan', 'Opus para planear, Sonnet para ejecutar', 'Alias de Claude Code: piensa con Opus y escribe con Sonnet.', CLAUDE_FULL, 'alto', { alias: true }),
+  claude('opusplan[1m]', 'Opus para planear, Sonnet para ejecutar · 1M', 'opusplan con la ventana de contexto de 1M.', CLAUDE_FULL, 'alto', { alias: true, context: '1M' }),
   claude('fable', 'Fable (último)', 'La familia más capaz de Claude.', CLAUDE_FULL, 'tope', { alias: true, context: '1M' }),
+  claude('fable[1m]', 'Fable (último) · 1M de contexto', 'Fable con la ventana de contexto de 1M activada.', CLAUDE_FULL, 'tope', { alias: true, context: '1M' }),
   claude('opus', 'Opus (último)', 'Muy capaz y más barato que Fable. Buen planeador.', CLAUDE_FULL, 'alto', { alias: true, context: '1M' }),
   claude('opus[1m]', 'Opus (último) · 1M de contexto', 'Opus con la ventana de contexto de 1M activada.', CLAUDE_FULL, 'alto', { alias: true, context: '1M' }),
   claude('sonnet', 'Sonnet (último)', 'Equilibrio entre calidad y costo. Bueno para tareas complejas.', CLAUDE_FULL, 'medio', { alias: true, context: '1M' }),
@@ -79,9 +81,11 @@ export const MODEL_CATALOG: readonly CatalogModel[] = [
   claude('claude-sonnet-5', 'Sonnet 5', 'Versión fija de Sonnet 5.', CLAUDE_FULL, 'medio', { context: '1M', status: 'anterior' }),
   claude('claude-sonnet-4-6', 'Sonnet 4.6', 'Versión fija de Sonnet 4.6.', CLAUDE_46, 'medio', { context: '200K', status: 'anterior' }),
   claude('claude-sonnet-4-6[1m]', 'Sonnet 4.6 · 1M de contexto', 'Sonnet 4.6 con la ventana de 1M activada.', CLAUDE_46, 'medio', { context: '1M', status: 'anterior' }),
+  claude('claude-sonnet-4-5', 'Sonnet 4.5', 'Versión fija de Sonnet 4.5.', [], 'medio', { context: '200K', status: 'anterior' }),
   claude('claude-haiku-4-5', 'Haiku 4.5', 'Versión fija de Haiku 4.5.', [], 'economico', { context: '200K' }),
   // Codex CLI.
-  codex('gpt-6-sol', 'GPT-6 Sol', 'El recomendado de Codex: buen equilibrio para programar y revisar.', CODEX_FULL, 'alto'),
+  codex('gpt-6.1-sol', 'GPT-6.1 Sol', 'Nuevo (29/09): casi Astra, al precio de Sol. Pide Codex CLI 0.159.1 o más nuevo.', CODEX_FULL, 'alto'),
+  codex('gpt-6-sol', 'GPT-6 Sol', 'Buen equilibrio para programar y revisar (lo reemplaza GPT-6.1 Sol).', CODEX_FULL, 'alto'),
   codex('gpt-6-astra', 'GPT-6 Astra', 'El más capaz de Codex. Buen planeador.', CODEX_FULL, 'tope'),
   codex('gpt-6-luna', 'GPT-6 Luna', 'Rápido y barato. Llega hasta esfuerzo «Máximo» (sin «Ultra»).', ['low', 'medium', 'high', 'xhigh', 'max'], 'economico'),
   codex('gpt-5.6-sol', 'GPT-5.6 Sol', 'Generación anterior: modelo de código para trabajo complejo.', CODEX_FULL, 'alto', { status: 'anterior' }),

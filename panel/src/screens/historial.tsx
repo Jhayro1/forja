@@ -15,6 +15,7 @@ import {
 import { type ReactNode, useMemo, useState } from 'react';
 import { useApp } from '@/app/context';
 import { EmptyState, Field, Mono, PageHeader } from '@/components/common';
+import { ExcelExportButton } from '@/components/excel-export';
 import { RoleBadge } from '@/components/role-badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
@@ -433,9 +434,12 @@ export default function Historial() {
         title="Historial"
         description={totals ? `Épica → sprint → historia → tarea. ${totals.hechas} de ${totals.total} tareas unidas en todo el proyecto.` : 'Cargando…'}
         actions={
-          <Button variant="outline" onClick={() => void download()}>
-            <DownloadIcon /> Exportar
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <ExcelExportButton />
+            <Button variant="outline" onClick={() => void download()}>
+              <DownloadIcon /> Exportar Markdown
+            </Button>
+          </div>
         }
       />
       {h ? (

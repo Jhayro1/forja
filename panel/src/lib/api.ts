@@ -54,6 +54,16 @@ export class ApiClient {
     return (await this.parse(res)) as T;
   }
 
+  /** A file the API sends as an attachment (e.g. the requirements workbook): its name and bytes. */
+  async download(path: string): Promise<{ name: string; blob: Blob }> {
+    const res = await fetch(path, { credentials: 'same-origin' });
+    if (!res.ok) await this.parse(res);
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+    const plain = /filename="([^"]+)"/i.exec(disposition)?.[1];
+    return { name: star ? decodeURIComponent(star) : (plain ?? 'descarga'), blob: await res.blob() };
+  }
+
   /** Signs out (server mode) and returns to the login page. */
   async logout(): Promise<void> {
     await fetch('/v1/auth/salir', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Forja-CSRF': this.csrf }, body: '{}' }).catch(() => {});

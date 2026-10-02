@@ -6,6 +6,7 @@ import { MemoryIdempotencyStore, SqliteIdempotencyStore } from '../../src/api/id
 import { memoryModule } from '../../src/api/modules/memory.js';
 import { planningModule } from '../../src/api/modules/planning.js';
 import { type RunsBackend, runsModule } from '../../src/api/modules/runs.js';
+import { type WorkBackend, workModule } from '../../src/api/modules/work.js';
 import { type ApiModule, ApiServer, type EventFeed, type ProjectHost, type ProjectScope } from '../../src/api/server.js';
 import { SessionManager } from '../../src/api/session.js';
 import { ROOT } from '../helpers/engine.js';
@@ -575,6 +576,51 @@ describe('API local · panel multi-proyecto', () => {
     expect(ended).toBe(true);
     expect(await get('/v1/modulos', cookie)).toMatchObject({ body: { modulos: ['sistema'], proyecto: 'chk_b' } });
     expect((await get('/v1/estado', cookie)).status).toBe(404);
+    await srv.close();
+  });
+});
+
+describe('descarga del Excel de requerimientos', () => {
+  it('envía el .xlsx como adjunto con su nombre y valida la iniciativa y la contingencia', async () => {
+    const asked: object[] = [];
+    const stub = new Proxy({} as WorkBackend, {
+      get: (_t, prop) =>
+        prop === 'requirementsWorkbook'
+          ? (opts: object) => {
+              asked.push(opts);
+              return { file: 'INI007_Mi Proyecto_Reqs_2026-10-02.xlsx', data: Buffer.from('PK\u0003\u0004fake') };
+            }
+          : () => ({}),
+    });
+    const srv = new ApiServer({ modules: [workModule(stub)], feed: new FakeFeed() });
+    const { port: p } = await srv.listen();
+    const get = (path: string, headers: Record<string, string>) =>
+      new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: Buffer }>((resolve) => {
+        request({ host: '127.0.0.1', port: p, method: 'GET', path, headers: { Host: `127.0.0.1:${p}`, ...headers } }, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+        }).end();
+      });
+    const login = await new Promise<{ cookie: string }>((resolve) => {
+      const r = request(
+        { host: '127.0.0.1', port: p, method: 'POST', path: '/v1/sesion', headers: { Host: `127.0.0.1:${p}`, Origin: `http://127.0.0.1:${p}`, 'Content-Type': 'application/json' } },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve({ cookie: String(res.headers['set-cookie']).split(';')[0]! }));
+        },
+      );
+      r.end(JSON.stringify({ codigo: srv.sessions.issueCode() }));
+    });
+    const ok = await get('/v1/historial/excel?iniciativa=INI007&contingencia=20', { Cookie: login.cookie });
+    expect(ok.status).toBe(200);
+    expect(ok.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    expect(ok.headers['content-disposition']).toBe(`attachment; filename="INI007_Mi_Proyecto_Reqs_2026-10-02.xlsx"; filename*=UTF-8''INI007_Mi%20Proyecto_Reqs_2026-10-02.xlsx`);
+    expect(ok.body.subarray(0, 2).toString()).toBe('PK');
+    expect(asked).toEqual([{ iniciativa: 'INI007', contingencia: 0.2 }]);
+    expect((await get('/v1/historial/excel?iniciativa=../x', { Cookie: login.cookie })).status).toBe(422);
+    expect((await get('/v1/historial/excel?contingencia=150', { Cookie: login.cookie })).status).toBe(422);
+    expect((await get('/v1/historial/excel', {})).status).toBe(401);
     await srv.close();
   });
 });

@@ -1,5 +1,6 @@
 import type { WorkBackend } from '../api/modules/work.js';
 import { activePauses } from '../core/engine.js';
+import { buildRequirementsWorkbook } from '../export/requirements.js';
 import { deliveryState, publishDelivery } from '../git/publish-delivery.js';
 import { createChange, getChange } from '../planner/session.js';
 import { AccountStore, accountPauseKey } from '../providers/accounts.js';
@@ -118,6 +119,10 @@ export class EngineWorkBackend implements WorkBackend {
 
   historyMarkdown(): string {
     return historyMarkdown(buildHistory(this.engine));
+  }
+
+  requirementsWorkbook(opts: { iniciativa?: string; contingencia?: number }) {
+    return buildRequirementsWorkbook(this.engine, opts);
   }
 
   epics(): object {

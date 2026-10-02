@@ -72,6 +72,8 @@ function classifyClaudeError(line: Obj): NormalizedError {
   if (status === 429 || code === 'credits_required' || /usage (credits|limit)/i.test(message)) {
     return { category: 'quota', message, retryable: true, ...base };
   }
+  // Another Claude process (e.g. the user's own) was refreshing the shared session: it clears up in a minute.
+  if (/refresh(ing)? (the )?oauth token|another claude code process/i.test(message)) return { category: 'network', message, retryable: true, retryAfterMs: 60_000, ...base };
   if (status === 401 || status === 403 || /log ?in|authenticat/i.test(message)) return { category: 'auth', message, retryable: false, ...base };
   if (status !== null && status >= 500) return { category: 'network', message, retryable: true, ...base };
   return { category: 'unknown', message, retryable: false, ...base };

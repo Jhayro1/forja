@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { callRole, type Engine } from '../core/engine.js';
+import { callRole, type Engine, waitIfTransient } from '../core/engine.js';
 import { hashJson } from '../domain/hash.js';
 import { attachmentsForPrompt } from '../planner/attachments.js';
 import { compose, loadPrompt } from '../planner/prompts.js';
@@ -338,7 +338,8 @@ async function askPart<T>(
               .slice(0, 8)
               .map((x) => `${x.path.join('.')}: ${x.message}`)
               .join('; '));
-      if (summary.error && summary.error.category !== 'schema' && !summary.error.retryable) break;
+      if (await waitIfTransient(call.outcome)) continue;
+      if (summary.error && summary.error.category !== 'schema') break;
       feedback = `\n\n<correccion>La respuesta anterior no sirvió: ${problem}. Devuelve sólo el objeto JSON completo y válido.</correccion>`;
       continue;
     }

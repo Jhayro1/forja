@@ -203,6 +203,21 @@ export function parseRef(ref: string): { provider: 'claude' | 'codex' | 'simulad
   return { provider: ref.slice(0, i) as 'claude' | 'codex' | 'simulado', model: ref.slice(i + 1) };
 }
 
+/** Tests shorten the wait before retrying a transient provider failure. */
+const RETRY_WAIT_SCALE = Number(process.env.FORJA_ESPERA_REINTENTO ?? 1);
+
+/**
+ * A provider failure that asking again fixes (the session being refreshed by another
+ * Claude process, a network blip): waits a moment and says to retry the same call.
+ * `false` = not transient: a format repair or giving up is up to the caller.
+ */
+export async function waitIfTransient(outcome: LaunchOutcome): Promise<boolean> {
+  const err = outcome.summary.error;
+  if (!err || err.category === 'schema' || !err.retryable) return false;
+  await new Promise((resolve) => setTimeout(resolve, Math.min(err.retryAfterMs ?? 30_000, 120_000) * RETRY_WAIT_SCALE));
+  return true;
+}
+
 /**
  * Runs one call for a role. Candidates are tried in configured order; quota and
  * auth problems move to the next candidate of the SAME role — they never escalate

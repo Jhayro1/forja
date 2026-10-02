@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parseClaudeLine } from '../../src/providers/claude-parser.js';
 import { type ProviderEvent, summarize } from '../../src/providers/normalized.js';
 import { type SimulationFaults, simulateProviderOutput } from '../../src/providers/simulated.js';
 import { type ProviderKind, parseProviderStream } from '../../src/providers/stream.js';
@@ -109,5 +110,17 @@ describe('Codex (salidas reales de M0)', () => {
     expect(summary.unknownEvents).toBe(1);
     expect(summary.usage[0]?.inputTokens).toBeNull();
     expect(summary.status).toBe('completed');
+  });
+});
+
+describe('errores pasajeros de Claude', () => {
+  it('la sesión renovándose en otro proceso se reintenta en un minuto, no es un fallo definitivo', () => {
+    const events = parseClaudeLine({
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      result: 'Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh. This is usually transient; retry in a minute',
+    });
+    expect(events.find((e) => e.t === 'error')).toMatchObject({ error: { category: 'network', retryable: true, retryAfterMs: 60_000 } });
   });
 });

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { callRole, type Engine } from '../core/engine.js';
+import { callRole, type Engine, waitIfTransient } from '../core/engine.js';
 import { hashJson } from '../domain/hash.js';
 import { newId } from '../domain/ids.js';
 import { gitOut } from '../git/git.js';
@@ -94,6 +94,7 @@ export async function dividePlan(engine: Engine, input: { changeId: string; repo
       attempt: attempts,
     });
     const parsed = PlanOutput.safeParse(call.outcome.summary.structured);
+    if (!parsed.success && (await waitIfTransient(call.outcome))) continue;
     if (!parsed.success) {
       feedback = `\n\n<correccion>La respuesta no cumplía el esquema: ${
         call.outcome.summary.error?.message ??

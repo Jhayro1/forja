@@ -1,6 +1,6 @@
 {
   "name": "@jhayro1/forja",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Orquestador open source de agentes de código: planea con modelos caros y programa en paralelo con modelos baratos (Claude + Codex).",
   "license": "Apache-2.0",
   "repository": {

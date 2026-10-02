@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Simulation } from '../../src/core/engine.js';
 import { hashJson } from '../../src/domain/hash.js';
-import { approvePlan } from '../../src/plan/approve.js';
+import { approvePlan, currentApproval } from '../../src/plan/approve.js';
 import { dividePlan } from '../../src/plan/divide.js';
+import { moveChange } from '../../src/planner/phases.js';
 import { getChange } from '../../src/planner/session.js';
 import { changedSpecIds, inheritance } from '../../src/run/invalidation.js';
 import { getExec, getRun, Orchestrator, startOrResumeRun } from '../../src/run/orchestrator.js';
@@ -154,4 +155,26 @@ describe('cambio de especificación a mitad de run (MEJORAS 2.4)', () => {
     expect(done.state, `${JSON.stringify(done.counts)}\n${log.join('\n')}`).toBe('completado');
     for (const id of ['T-002', 'T-003', 'T-005']) expect(getExec(t.engine, next.runId, id).attempt).toBe(1);
   }, 300_000);
+});
+
+describe('volver atrás a mitad de run (flujo/PLAN.md §3)', () => {
+  it('registra lo avanzado, deja el run en pausa y el plan sin aprobar; nada se borra', async () => {
+    const simulation: Simulation = ({ role, taskId }) => {
+      if (role === 'revisor') return APPROVE_REVIEW;
+      return { pasos: Object.entries(FILES[taskId] ?? {}).map(([ruta, contenido]) => ({ escribir: { ruta, contenido } })), resultado: 'Listo.' };
+    };
+    const t = testEngine(simulation);
+    cleanup = t.cleanup;
+    const { repo, changeId } = await seedApprovedPlan(t.engine, t.dir);
+    const { runId } = await startOrResumeRun(t.engine, { changeId, repoPath: repo });
+    expect(getChange(t.engine, changeId).phase).toBe('ejecutar');
+
+    const moved = moveChange(t.engine, changeId, 'especificar', 'cambiar un caso de uso');
+    expect(moved.registro).toMatchObject({ plan_aprobado: true, run: { run_id: runId } });
+    expect(getChange(t.engine, changeId).phase).toBe('especificar');
+    expect(currentApproval(t.engine, changeId)).toBeNull();
+    expect(getRun(t.engine, runId)?.state).toBe('pausado');
+    // The plan and the run are still there: the next run inherits what was integrated.
+    expect(listTasks(t.engine.store.db, runId).length).toBe(TASKS.length);
+  });
 });

@@ -47,6 +47,8 @@ export const TEXTOS = {
     ['ejecutar', 'Ejecutar'],
     ['entregado', 'Entregado'],
   ],
+  /** Phases outside the stepper (flujo/PLAN.md §3). */
+  fases_extra: [['cancelado', 'Cancelado']],
   pendiente: {
     pregunta_tarea: 'pregunta de un agente',
     solicitud_bd: 'solicitud a la base de datos',

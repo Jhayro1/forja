@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { createEngine, type Engine } from '../core/engine.js';
 import { git } from '../git/git.js';
 import { loadPrices } from '../plan/estimate.js';
+import { findChange } from '../planner/selection.js';
 import { AccountStore } from '../providers/accounts.js';
 import { loadSimulationFile } from '../providers/simulation-file.js';
 import { inspectRepo } from '../registry/inspect.js';
@@ -12,6 +13,7 @@ export type EngineContext = ProjectContext & { engine: Engine };
 
 export function openEngine(options: GlobalOptions, env: NodeJS.ProcessEnv = process.env): EngineContext {
   const ctx = openProject(options);
+  // One command on another sprint (--sprint): planner/selection.ts reads it before the saved choice.
   try {
     // Demo/test mode: scripted agents for `simulado:*` models only (never real providers).
     const simulation = env.FORJA_SIMULACION ? loadSimulationFile(env.FORJA_SIMULACION) : undefined;
@@ -23,6 +25,8 @@ export function openEngine(options: GlobalOptions, env: NodeJS.ProcessEnv = proc
       accounts: new AccountStore(ctx.home, env),
       ...(simulation ? { simulation } : {}),
     });
+    // A sprint that does not exist fails here, with the list to choose from, not deep inside a command.
+    if (options.sprint) env.FORJA_CAMBIO = findChange(engine, options.sprint).change_id;
     return { ...ctx, engine };
   } catch (error) {
     ctx.close();

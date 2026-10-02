@@ -8,6 +8,8 @@ export type ChangePhase = (typeof CHANGE_PHASES)[number];
 export const EV = {
   changeCreated: 'cambio.creado',
   changePhase: 'cambio.fase_cambiada',
+  /** The user moved a sprint back, cancelled or reactivated it (flujo/PLAN.md §3): nothing is deleted. */
+  changeMoved: 'cambio.movido',
   plannerTurn: 'planeador.turno_confirmado',
   discoveryApproved: 'descubrimiento.aprobado',
   specRevised: 'spec.revisada',
@@ -72,6 +74,15 @@ export const TaskExecPatch = z.object(Object.fromEntries(TASK_EXEC_FIELDS.map((f
 
 export const ChangeCreated = z.object({ title: z.string().min(1), mode: z.enum(['idea', 'mejora']) }).strict();
 export const ChangePhaseChanged = z.object({ from: z.enum(CHANGE_PHASES), to: z.enum(CHANGE_PHASES) }).strict();
+export const ChangeMoved = z
+  .object({
+    from: z.enum(CHANGE_PHASES),
+    to: z.enum(CHANGE_PHASES),
+    motivo: z.string(),
+    /** What the sprint had reached when it moved: revisions, approval and run progress, for the record. */
+    registro: z.record(z.string(), z.unknown()),
+  })
+  .strict();
 export const PlannerTurn = z
   .object({
     turn_id: z.string(),
@@ -133,6 +144,16 @@ export function applyPlanningEvent(db: Db, e: StoredEvent): void {
       if (!row) throw new PlanningProjectionError(`el cambio ${id} no existe`);
       if (row.phase !== p.from) throw new PlanningProjectionError(`el cambio está en ${row.phase}, no en ${p.from}`);
       db.prepare('UPDATE changes SET phase = ?, updated_seq = ? WHERE change_id = ?').run(p.to, e.seq, id);
+      return;
+    }
+    case EV.changeMoved: {
+      const p = ChangeMoved.parse(e.payload);
+      const row = changeRow(db, id);
+      if (!row) throw new PlanningProjectionError(`el cambio ${id} no existe`);
+      if (row.phase !== p.from) throw new PlanningProjectionError(`el cambio está en ${row.phase}, no en ${p.from}`);
+      db.prepare('UPDATE changes SET phase = ?, updated_seq = ? WHERE change_id = ?').run(p.to, e.seq, id);
+      // Back to the conversation: it must be approved again (what was agreed is kept).
+      if (p.to === 'descubrir') db.prepare('UPDATE discovery SET approved_revision = NULL WHERE change_id = ?').run(id);
       return;
     }
     case EV.plannerTurn: {

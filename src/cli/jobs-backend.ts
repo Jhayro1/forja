@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { JobsBackend } from '../api/modules/jobs.js';
+import { selectedChange } from '../planner/selection.js';
 import type { EngineContext } from './engine-context.js';
 import { FORJA_BIN, type JobCommand, JobRunner } from './jobs.js';
 
@@ -50,18 +51,30 @@ export class ProjectJobsBackend implements JobsBackend {
     return { title: job.titulo, file: process.execPath, args: [this.bin, '--proyecto', this.ctx.checkout.checkout_id, ...job.args], cwd: this.ctx.checkout.path };
   }
 
+  /**
+   * Jobs run on the sprint selected when they start, even if the user switches sprints
+   * meanwhile; the title says which one.
+   */
+  private pin(cmd: JobCommand): { cmd: JobCommand; env: Record<string, string> } {
+    const change = selectedChange(this.ctx.engine);
+    if (!change) return { cmd, env: {} };
+    return { cmd: { ...cmd, title: `${cmd.title} · ${change.title.slice(0, 60)}` }, env: { FORJA_CAMBIO: change.change_id } };
+  }
+
   start(kind: string): object {
-    return this.runner.start(kind, this.command(kind));
+    const { cmd, env } = this.pin(this.command(kind));
+    return this.runner.start(kind, cmd, env);
   }
 
   startBlock(tasks: string[], model: string | null): object {
     const who = model ? ` · ${model}` : '';
-    return this.runner.start('run-bloque', {
+    const { cmd, env } = this.pin({
       title: `Un agente: ${tasks.length === 1 ? tasks[0] : `${tasks[0]} … ${tasks.at(-1)} (${tasks.length} tareas)`}${who}`,
       file: process.execPath,
       args: [this.bin, '--proyecto', this.ctx.checkout.checkout_id, 'run', '--tareas', tasks.join(','), ...(model ? ['--modelo', model] : [])],
       cwd: this.ctx.checkout.path,
     });
+    return this.runner.start('run-bloque', cmd, env);
   }
 
   cancel(id: string, force: boolean): object {

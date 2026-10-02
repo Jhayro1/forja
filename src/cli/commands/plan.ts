@@ -10,13 +10,16 @@ import { estimatePlan, loadPrices } from '../../plan/estimate.js';
 import { waves } from '../../plan/plan.js';
 import { type AttachmentInput, saveAttachments, validate as validateAttachments } from '../../planner/attachments.js';
 import { closureBlockers, type DiscoveryState, openQuestions } from '../../planner/discovery.js';
-import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, PlannerError, plannerScratch, runPlannerTurn, type TurnResult, transcript } from '../../planner/session.js';
+import { moveChange } from '../../planner/phases.js';
+import { findChange, isClosed, selectChange, selectedChange } from '../../planner/selection.js';
+import { approveDiscovery, createChange, getDiscovery, listChanges, PlannerError, plannerScratch, runPlannerTurn, type TurnResult, transcript } from '../../planner/session.js';
 import { EFFORTS, type Effort, isEffort } from '../../providers/catalog.js';
 import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { acquireOrchestratorLock } from '../../run/process.js';
 import { renderDocs, writeDocs } from '../../spec/docs.js';
 import { answerSpecQuestion, changeDir, generateSpec, latestSpec, requestSpecChange } from '../../spec/generate.js';
 import { blockingQuestions } from '../../spec/spec.js';
+import type { ChangePhase } from '../../store/planning-projections.js';
 import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { type EngineContext, hasProductCode, openEngine, repoEvidence } from '../engine-context.js';
 import { showPlan } from '../plan-view.js';
@@ -127,9 +130,11 @@ export function registerPlanCommands(program: Command): void {
       const ctx = openEngine(g);
       const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: process.stdin.isTTY });
       try {
-        let change = opts.nuevo ? undefined : activeChange(ctx.engine);
+        let change = opts.nuevo ? undefined : selectedChange(ctx.engine);
+        // A finished sprint is only read: writing again starts a new one.
+        if (change && isClosed(change)) change = undefined;
         if (change && change.phase !== 'descubrir') {
-          throw new CliError(`el cambio «${change.title}» ya pasó el descubrimiento (fase ${change.phase}); usa --nuevo para empezar otro`, EXIT.precondition);
+          throw new CliError(`el sprint «${change.title}» está en la fase ${change.phase}: vuelve a la conversación con forja volver descubrir, o empieza otro con --nuevo`, EXIT.precondition);
         }
         if (!change) {
           let idea = ideaWords.join(' ').trim();
@@ -210,13 +215,67 @@ export function registerPlanCommands(program: Command): void {
       const ctx = openEngine(g);
       try {
         const rows = listChanges(ctx.engine);
-        if (g.json) return printJson({ cambios: rows });
+        const chosen = selectedChange(ctx.engine)?.change_id ?? null;
+        if (g.json) return printJson({ cambios: rows, seleccionado: chosen });
         if (rows.length === 0) return print('Todavía no hay cambios. Empieza con: forja planear');
-        for (const r of rows) print(`${r.change_id}  ${r.phase.padEnd(11)} ${r.title}`);
+        rows.forEach((r, i) => print(`${r.change_id === chosen ? '▶' : ' '} ${String(i + 1).padStart(2)}  ${r.change_id}  ${r.phase.padEnd(11)} ${r.title}`));
+        print();
+        print('▶ = el sprint seleccionado. Cambia con: forja sprint <número o id>');
       } finally {
         ctx.close();
       }
     });
+
+  program
+    .command('sprint <sprint>')
+    .description('elige el sprint con el que trabajan los demás comandos y el panel (número o id de forja cambios)')
+    .action(async (ref: string, _o: unknown, cmd: Command) => {
+      const ctx = openEngine(cmd.optsWithGlobals<GlobalOptions>());
+      try {
+        const change = selectChange(ctx.engine, findChange(ctx.engine, ref).change_id);
+        print(`▶ Sprint seleccionado: ${change.title} (fase ${change.phase})`);
+      } catch (error) {
+        if (error instanceof PlannerError) throw new CliError(error.message, EXIT.input);
+        throw error;
+      } finally {
+        ctx.close();
+      }
+    });
+
+  const move = (to: ChangePhase, motivo: string[], cmd: Command) => {
+    const g = cmd.optsWithGlobals<GlobalOptions>();
+    const ctx = openEngine(g);
+    try {
+      const change = selectedChange(ctx.engine);
+      if (!change) throw new CliError('no hay sprints todavía: empieza con forja planear', EXIT.precondition);
+      const r = moveChange(ctx.engine, change.change_id, to, motivo.join(' '));
+      if (g.json) return printJson({ cambio: change.change_id, de: r.from, a: r.to, registro: r.registro });
+      print(`✔ «${change.title}»: de ${r.from} a ${r.to}. No se borró nada: lo avanzado queda registrado y sirve de base.`);
+      if (to === 'descubrir') print('  Sigue la conversación con forja planear y apruébala otra vez; al especificar sólo se rehace lo que cambie.');
+      if (to === 'especificar') print('  Pide el cambio con forja especificar --cambio "…" (o vuelve a ejecutar forja especificar).');
+      if (to === 'dividir') print('  Vuelve a dividir con forja dividir.');
+    } catch (error) {
+      if (error instanceof PlannerError) throw new CliError(error.message, EXIT.precondition);
+      throw error;
+    } finally {
+      ctx.close();
+    }
+  };
+  program
+    .command('volver <fase> [motivo...]')
+    .description('lleva el sprint seleccionado a una fase anterior (descubrir, especificar o dividir) sin borrar nada')
+    .action(async (fase: string, motivo: string[], _o: unknown, cmd: Command) => {
+      if (!['descubrir', 'especificar', 'dividir'].includes(fase)) throw new CliError('la fase es descubrir, especificar o dividir', EXIT.input);
+      move(fase as ChangePhase, motivo, cmd);
+    });
+  program
+    .command('cancelar [motivo...]')
+    .description('cancela el sprint seleccionado (queda todo registrado; se puede reactivar)')
+    .action(async (motivo: string[], _o: unknown, cmd: Command) => move('cancelado', motivo, cmd));
+  program
+    .command('reactivar [motivo...]')
+    .description('reabre un sprint cancelado: vuelve a la conversación con todo lo que tenía')
+    .action(async (motivo: string[], _o: unknown, cmd: Command) => move('descubrir', motivo, cmd));
 
   const aprobar = program.command('aprobar').description('aprobaciones explícitas (nunca se infieren del silencio)');
   aprobar
@@ -226,7 +285,7 @@ export function registerPlanCommands(program: Command): void {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
       try {
-        const change = activeChange(ctx.engine);
+        const change = selectedChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
         const { revision } = getDiscovery(ctx.engine, change.change_id);
         try {
@@ -249,7 +308,7 @@ export function registerPlanCommands(program: Command): void {
       const ctx = openEngine(g);
       let lock: LockFile | null = null;
       try {
-        const change = activeChange(ctx.engine);
+        const change = selectedChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso; empieza con: forja planear', EXIT.precondition);
         if (change.phase === 'ejecutar') {
           // Changing the spec mid-run: no orchestrator may keep executing the old plan meanwhile.
@@ -315,7 +374,7 @@ export function registerPlanCommands(program: Command): void {
       const ctx = openEngine(g);
       try {
         if (/^T-\d+$/i.test(questionId)) return answerTaskFromCli(ctx, questionId, words.join(' '));
-        const change = activeChange(ctx.engine);
+        const change = selectedChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
         try {
           answerSpecQuestion(ctx.engine, change.change_id, questionId.toUpperCase(), words.join(' '));
@@ -340,7 +399,7 @@ export function registerPlanCommands(program: Command): void {
       const ctx = openEngine(g);
       let lock: LockFile | null = null;
       try {
-        const change = activeChange(ctx.engine);
+        const change = selectedChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
         const replan = change.phase === 'ejecutar';
         if (replan) {
@@ -389,7 +448,7 @@ export function registerPlanCommands(program: Command): void {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
       try {
-        const change = activeChange(ctx.engine);
+        const change = selectedChange(ctx.engine);
         const current = change ? latestPlan(ctx.engine, change.change_id) : null;
         if (!change || !current) throw new CliError('todavía no hay plan; ejecuta forja dividir', EXIT.precondition);
         const estimate = estimatePlan(current.plan, ctx.config, loadPrices(ctx.home));
@@ -410,7 +469,7 @@ export function registerPlanCommands(program: Command): void {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = openEngine(g);
       try {
-        const change = activeChange(ctx.engine);
+        const change = selectedChange(ctx.engine);
         if (!change) throw new CliError('no hay un cambio en curso', EXIT.precondition);
         let approval: ReturnType<typeof approvePlan>;
         try {

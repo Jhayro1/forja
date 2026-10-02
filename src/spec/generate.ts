@@ -24,16 +24,30 @@ export function specAnswers(engine: Engine, changeId: string): SpecAnswerRow[] {
   return engine.store.db.prepare('SELECT question_id, question, answer FROM spec_answers WHERE change_id = ? ORDER BY answered_seq').all(changeId) as SpecAnswerRow[];
 }
 
-/** Records the user's answer to an open question of the latest spec. */
+/**
+ * Answers and change requests given after the latest spec: the ones the next spec must
+ * apply. Older ones are already in `spec_base`; sending them again costs tokens and
+ * could apply a change twice.
+ */
+export function pendingSpecInputs(engine: Engine, changeId: string): SpecAnswerRow[] {
+  const last = engine.store.db.prepare("SELECT COALESCE(MAX(seq), 0) AS s FROM events WHERE type = 'spec.revisada' AND aggregate_id = ?").get(changeId) as { s: number };
+  return engine.store.db.prepare('SELECT question_id, question, answer FROM spec_answers WHERE change_id = ? AND answered_seq > ? ORDER BY answered_seq').all(changeId, last.s) as SpecAnswerRow[];
+}
+
+/**
+ * Records the user's answer to a question of the latest spec, or changes one already
+ * given (the question may no longer be in the spec: it became a decision).
+ */
 export function answerSpecQuestion(engine: Engine, changeId: string, questionId: string, answer: string): SpecAnswerRow {
   const latest = latestSpec(engine, changeId);
-  const q = latest?.spec.preguntas.find((x) => x.id === questionId);
-  if (!q) throw new PlannerError(`la especificación vigente no tiene la pregunta ${questionId}`);
+  const text =
+    latest?.spec.preguntas.find((x) => x.id === questionId)?.texto ?? specAnswers(engine, changeId).find((a) => a.question_id === questionId && !a.question_id.startsWith(CHANGE_REQUEST))?.question;
+  if (!text) throw new PlannerError(`la especificación vigente no tiene la pregunta ${questionId}`);
   engine.store.execute({ request_id: `respuesta:${changeId}:${questionId}:${answer}`, type: 'responder_pregunta_spec', input: { changeId, questionId, answer } }, () => ({
     result: null,
-    events: [{ type: EV.specAnswer, aggregate_type: 'cambio', aggregate_id: changeId, payload: { question_id: questionId, question: q.texto, answer } }],
+    events: [{ type: EV.specAnswer, aggregate_type: 'cambio', aggregate_id: changeId, payload: { question_id: questionId, question: text, answer } }],
   }));
-  return { question_id: questionId, question: q.texto, answer };
+  return { question_id: questionId, question: text, answer };
 }
 
 /** Prefix of user change requests stored with the spec answers (they survive replay the same way). */
@@ -74,6 +88,8 @@ export async function generateSpec(
   const { state, approvedRevision } = getDiscovery(engine, input.changeId);
   if (approvedRevision === null) throw new PlannerError('el descubrimiento no está aprobado');
   const base = latestSpec(engine, input.changeId);
+  // Without a previous spec everything is new: all answers apply.
+  const pending = base ? pendingSpecInputs(engine, input.changeId) : specAnswers(engine, input.changeId);
 
   const agreed = {
     idea: state.idea,
@@ -98,7 +114,7 @@ export async function generateSpec(
     bases_de_datos: input.databases ?? null,
     spec_base: base?.spec ?? null,
     cambios_pedidos_por_el_usuario: (() => {
-      const changes = specAnswers(engine, input.changeId).filter((a) => a.question_id.startsWith(CHANGE_REQUEST));
+      const changes = pending.filter((a) => a.question_id.startsWith(CHANGE_REQUEST));
       return changes.length
         ? {
             instruccion:
@@ -108,7 +124,7 @@ export async function generateSpec(
         : null;
     })(),
     respuestas_del_usuario: (() => {
-      const answers = specAnswers(engine, input.changeId).filter((a) => !a.question_id.startsWith(CHANGE_REQUEST));
+      const answers = pending.filter((a) => !a.question_id.startsWith(CHANGE_REQUEST));
       return answers.length
         ? {
             instruccion:
@@ -144,10 +160,25 @@ export async function generateSpec(
   }
   const frame = progress.base;
 
-  // 2. The use cases, a few per call: a failure repeats only its part and a new run resumes here.
+  // 2. Cases the index marks as unchanged are copied from the previous spec, without the model,
+  //    as long as they still fit the new frame (otherwise they are rewritten).
   const index = frame.indice_casos;
-  for (let from = 0; from < index.length; from += CASES_PER_CALL) {
-    const part = index.slice(from, from + CASES_PER_CALL);
+  const written = (id: string) => Object.values(progress.cases).some((x) => x.casos_uso.some((u) => u.id === id));
+  if (base) {
+    for (const c of index) {
+      if (c.estado !== 'igual' || written(c.id)) continue;
+      const old = base.spec.casos_uso.find((u) => u.id === c.id);
+      if (!old) continue;
+      const copy: SpecCases = { casos_uso: [old], criterios: base.spec.criterios.filter((k) => k.caso_uso_id === c.id) };
+      if (partErrors(frame, progress.cases, copy, [c.id]).length === 0) progress.cases[`=${c.id}`] = copy;
+    }
+    saveProgress(engine.dataDir, input.changeId, progress);
+  }
+
+  // 3. The other cases, a few per call: a failure repeats only its part and a new run resumes here.
+  const toWrite = index.filter((c) => !written(c.id));
+  for (let from = 0; from < toWrite.length; from += CASES_PER_CALL) {
+    const part = toWrite.slice(from, from + CASES_PER_CALL);
     const key = part.map((c) => c.id).join(',');
     if (progress.cases[key]) continue;
     const previous = base?.spec;
@@ -182,39 +213,61 @@ export async function generateSpec(
     saveProgress(engine.dataDir, input.changeId, progress);
   }
 
+  // In the index's order, whatever part each case came from.
+  const parts = Object.values(progress.cases);
   const body: SpecBody = {
     ...withoutIndex(frame),
-    casos_uso: Object.values(progress.cases).flatMap((x) => x.casos_uso),
-    criterios: Object.values(progress.cases).flatMap((x) => x.criterios),
+    casos_uso: index.flatMap((c) => parts.flatMap((x) => x.casos_uso).filter((u) => u.id === c.id)),
+    criterios: index.flatMap((c) => parts.flatMap((x) => x.criterios).filter((k) => k.caso_uso_id === c.id)),
   };
-  const issues = validateSpec(body);
   clearProgress(engine.dataDir, input.changeId);
 
+  const saved = saveSpec(engine, { changeId: input.changeId, repoPath: input.repoPath, projectId: input.projectId, body, manifest });
+  return { ...saved, attempts };
+}
+
+/**
+ * Records a new spec revision (from the planner or edited by hand) and writes it to the
+ * repo, which is the source of truth for decisions (ADR-008). A valid spec leaves the
+ * current plan stale: the sprint goes to «dividir» (also mid-run).
+ */
+export function saveSpec(engine: Engine, input: { changeId: string; repoPath: string; projectId: string; body: SpecBody; manifest?: Record<string, string> }): Omit<SpecResult, 'attempts'> {
+  const change = getChange(engine, input.changeId);
+  const base = latestSpec(engine, input.changeId);
+  const issues = validateSpec(input.body);
   const revision = (base?.revision ?? 0) + 1;
-  const spec: Spec = { schema_version: 2, project_id: input.projectId, change_id: input.changeId, revision, ...body };
+  const spec: Spec = { schema_version: 2, project_id: input.projectId, change_id: input.changeId, revision, ...input.body };
   const hash = hashJson(spec);
   const valid = !issues.some((x) => x.severity === 'error');
   engine.store.execute({ request_id: `spec:${input.changeId}:${revision}:${hash}`, type: 'revisar_spec', input: { changeId: input.changeId, revision, hash } }, () => ({
     result: null,
     events: [
       { type: EV.specRevised, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { revision, hash, spec: spec as unknown as Record<string, unknown> } },
-      // A valid new spec leaves the current plan stale: back to «dividir» (also mid-run).
       ...(valid && change.phase !== 'dividir' ? [{ type: EV.changePhase, aggregate_type: 'cambio', aggregate_id: input.changeId, payload: { from: change.phase, to: 'dividir' } }] : []),
     ],
   }));
-  // The repo is the source of truth for decisions (ADR-008).
   const dir = changeDir(input.repoPath, input.changeId);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'spec.json'), `${JSON.stringify(spec, null, 2)}\n`);
-  writeFileSync(join(dir, 'prompts.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-  return { spec, issues, revision, hash, attempts };
+  if (input.manifest) writeFileSync(join(dir, 'prompts.json'), `${JSON.stringify(input.manifest, null, 2)}\n`);
+  return { spec, issues, revision, hash };
 }
 
 /** Use cases per call: small replies are fast, cheap to repair and never get cut off. */
 const CASES_PER_CALL = 3;
 const ATTEMPTS_PER_PART = 3;
 
-const CaseIndex = z.object({ id: z.string().regex(/^UC-\d{3}$/, 'formato UC-001'), nombre: z.string(), actor_id: z.string(), objetivo: z.string(), requisitos: z.array(z.string()) }).strict();
+const CaseIndex = z
+  .object({
+    id: z.string().regex(/^UC-\d{3}$/, 'formato UC-001'),
+    nombre: z.string(),
+    actor_id: z.string(),
+    objetivo: z.string(),
+    requisitos: z.array(z.string()),
+    /** Against `spec_base`: «igual» is copied as it was, without spending tokens. */
+    estado: z.enum(['igual', 'cambia', 'nuevo']),
+  })
+  .strict();
 /** First part: the spec without its use cases, plus the list of cases to write next. */
 const SpecFrame = SpecBody.omit({ casos_uso: true, criterios: true })
   .extend({ indice_casos: z.array(CaseIndex).min(1) })

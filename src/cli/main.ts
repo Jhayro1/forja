@@ -38,6 +38,7 @@ const program = new Command()
   .helpCommand('ayuda [comando]', 'muestra la ayuda de un comando')
   .option('-p, --proyecto <nombre|id>', 'proyecto sobre el que actuar')
   .option('--json', 'salida para scripts')
+  .option('-s, --sprint <sprint>', 'sprint sobre el que actuar, por número o id (por omisión, el elegido con forja sprint)')
   .showSuggestionAfterError(true)
   .exitOverride();
 

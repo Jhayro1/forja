@@ -265,6 +265,45 @@ Forja crea un `forja.yaml` en él: es su configuración (roles, paralelismo y pe
 7. **Historial:** lista de control por épica, sprint, historia y tarea, y calendario de lo que
    pasó.
 
+### 5.1 Varios sprints, volver atrás y cambiar la especificación
+
+**Varios sprints a la vez.**
+- Con **Nuevo sprint** empiezas otro sin terminar el actual.
+- El selector de arriba cambia de sprint; todo el panel trabaja sobre el elegido.
+- Puedes planear varios a la vez, pero se ejecuta uno por proyecto.
+
+**Volver atrás.**
+- El menú **Volver o cancelar** te lleva a una fase anterior: la conversación, la
+  especificación o la división en tareas.
+- No se borra nada: lo avanzado queda registrado y sirve de base.
+- El plan deja de estar aprobado hasta que lo apruebes de nuevo.
+- Desde la ejecución, primero detén el run. Las tareas ya integradas se heredan si no cambian.
+
+**Cancelar y reactivar.** Un sprint cancelado guarda todo y se reactiva cuando quieras.
+
+**Cambiar la especificación.** En cada caso de uso tienes:
+- **Cambiar:** lo pides con tus palabras. Al volver a escribirla, sólo se rehacen los casos
+  afectados; los demás se copian tal cual, sin gastar tokens.
+- **Editar a mano** (lápiz): nombre, objetivo, actor, pasos y criterios, sin modelo. Forja lo
+  valida antes de guardar.
+- **Quitar.**
+
+Además:
+- **Agregar un caso** suma un caso de uso nuevo.
+- En **Respuestas y cambios ya dados** puedes cambiar una respuesta anterior.
+
+**En la terminal:**
+
+| Comando | Qué hace |
+|---|---|
+| `forja cambios` | Lista los sprints y marca el seleccionado (▶) |
+| `forja sprint <número o id>` | Elige el sprint con el que trabajas |
+| `forja volver descubrir\|especificar\|dividir [motivo]` | Vuelve a esa fase |
+| `forja cancelar [motivo]` | Cancela el sprint |
+| `forja reactivar` | Reactiva un sprint cancelado |
+| `forja especificar --cambio "UC-002: …"` | Pide un cambio y reescribe la especificación |
+| `--sprint <número o id>` | Opción de cualquier comando: actúa sobre otro sprint sin cambiar el elegido |
+
 **Atajos:**
 - **Ctrl+K** busca pantallas, tareas y acciones.
 - La **campana** muestra lo que espera tu respuesta.

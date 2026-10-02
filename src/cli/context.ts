@@ -17,7 +17,8 @@ export class CliError extends Error {
   }
 }
 
-export type GlobalOptions = { proyecto?: string; json?: boolean };
+/** `sprint`: the sprint to act on instead of the selected one (planner/selection.ts). */
+export type GlobalOptions = { proyecto?: string; json?: boolean; sprint?: string };
 
 export type ProjectContext = {
   home: string;

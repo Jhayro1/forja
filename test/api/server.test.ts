@@ -453,6 +453,12 @@ describe('módulo de planeación (MEJORAS 3.4)', () => {
             return `respuesta a ${id}`;
           },
           approveDiscovery: () => 'aprobado',
+          selectSprint: (id) => `sprint ${id}`,
+          move: (to) => `a ${to}`,
+          requestSpecChange: (text) => `cambio ${text}`,
+          useCase: () => null,
+          editUseCase: (e) => `editado ${e.caso.id}`,
+          removeUseCase: (id) => `quitado ${id}`,
         }),
       ],
       feed: feed2,
@@ -475,6 +481,14 @@ describe('módulo de planeación (MEJORAS 3.4)', () => {
     expect(answered).toEqual([['Q-001', 'sí']]);
     expect((await req('POST', '/v1/planeacion/preguntas/T-001/respuesta', h, { respuesta: 'x' })).status).toBe(404);
     expect((await req('POST', '/v1/planeacion/descubrimiento/aprobar', { ...h, 'X-Forja-CSRF': 'otro' }, {})).status).toBe(403);
+    // Sprints: choose one, move it (only known phases), ask a change, edit or remove a use case.
+    expect((await req('POST', '/v1/planeacion/sprint', h, { cambio: 'cam_1' })).body.mensaje).toBe('sprint cam_1');
+    expect((await req('POST', '/v1/planeacion/mover', h, { a: 'descubrir' })).body.mensaje).toBe('a descubrir');
+    expect((await req('POST', '/v1/planeacion/mover', h, { a: 'borrar' })).status).toBe(422);
+    expect((await req('POST', '/v1/planeacion/especificacion/cambios', h, { texto: 'UC-002: en dólares' })).body.mensaje).toBe('cambio UC-002: en dólares');
+    expect((await req('GET', '/v1/planeacion/especificacion/casos/UC-001', { Cookie: cookie })).status).toBe(404);
+    expect((await req('POST', '/v1/planeacion/especificacion/casos/UC-001', h, { caso: { id: 'UC-001' } })).status).toBe(422);
+    expect((await req('DELETE', '/v1/planeacion/especificacion/casos/UC-001', h)).body.mensaje).toBe('quitado UC-001');
     await srv.close();
   });
 });

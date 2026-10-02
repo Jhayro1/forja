@@ -64,6 +64,6 @@ describe('trabajos del proyecto', () => {
       r = backend.get(job.id)!;
     }
     // Without a plan it cannot run, but it reached «forja run» with the block's options.
-    expect(r.salida.join('\n')).toMatch(/no hay un cambio en curso/);
+    expect(r.salida.join('\n')).toMatch(/el sprint seleccionado no está en curso/);
   });
 });

@@ -1,4 +1,6 @@
 import { type Effort, isEffort } from '../../providers/catalog.js';
+import { UseCaseEdit } from '../../spec/edit.js';
+import { CHANGE_PHASES, type ChangePhase } from '../../store/planning-projections.js';
 import { ApiError, stringField } from '../http.js';
 import type { ApiModule } from '../server.js';
 
@@ -18,6 +20,17 @@ export interface PlanningBackend {
    * `cerrar` asks it to close discovery and prepare the summary to approve.
    */
   send(text: string, opts: SendOptions): string;
+  /** Several sprints live at once (flujo/PLAN.md §4): every view works on the selected one. */
+  selectSprint(id: string): string;
+  /** Back to an earlier phase, cancel or reactivate the selected sprint; nothing is deleted. */
+  move(to: ChangePhase, motivo: string): string;
+  /** A change to the spec in the user's words; the next «especificar» redoes only what it touches. */
+  requestSpecChange(text: string): string;
+  /** One use case with what its edit form needs (actors, requirements, rules, entities). */
+  useCase(id: string): object | null;
+  /** Hand edits, without the model: validated, each one a new spec revision. */
+  editUseCase(edit: UseCaseEdit): string;
+  removeUseCase(id: string): string;
 }
 
 export type SendOptions = {
@@ -43,6 +56,51 @@ export function planningModule(backend: PlanningBackend): ApiModule {
         handler: async ({ params, body }) => ({ ok: true, mensaje: backend.answerSpecQuestion(params[0]!.toUpperCase(), stringField(await body(), 'respuesta')!.trim()) }),
       },
       { method: 'POST', path: /^\/v1\/planeacion\/descubrimiento\/aprobar$/, handler: () => ({ ok: true, mensaje: backend.approveDiscovery() }) },
+      {
+        method: 'POST',
+        path: /^\/v1\/planeacion\/sprint$/,
+        handler: async ({ body }) => ({ ok: true, mensaje: backend.selectSprint(stringField(await body(), 'cambio', { max: 80 })!.trim()) }),
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/planeacion\/mover$/,
+        handler: async ({ body }) => {
+          const b = await body();
+          const to = stringField(b, 'a', { max: 20 })!;
+          if (!(CHANGE_PHASES as readonly string[]).includes(to)) throw new ApiError(422, 'campo_invalido', 'fase desconocida');
+          return { ok: true, mensaje: backend.move(to as ChangePhase, stringField(b, 'motivo', { optional: true, max: 500 })?.trim() ?? '') };
+        },
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/planeacion\/especificacion\/cambios$/,
+        handler: async ({ body }) => ({ ok: true, mensaje: backend.requestSpecChange(stringField(await body(), 'texto', { max: 10_000 })!.trim()) }),
+      },
+      {
+        method: 'GET',
+        path: /^\/v1\/planeacion\/especificacion\/casos\/(UC-\d{3})$/,
+        handler: ({ params }) => {
+          const r = backend.useCase(params[0]!);
+          if (!r) throw new ApiError(404, 'no_encontrado', `no existe el caso ${params[0]}`);
+          return r;
+        },
+      },
+      {
+        method: 'POST',
+        path: /^\/v1\/planeacion\/especificacion\/casos\/(UC-\d{3})$/,
+        maxBody: 512 * 1024,
+        handler: async ({ params, body }) => {
+          const parsed = UseCaseEdit.safeParse(await body());
+          if (!parsed.success) throw new ApiError(422, 'campo_invalido', parsed.error.issues.map((x) => `${x.path.join('.')}: ${x.message}`).join('; '));
+          if (parsed.data.caso.id !== params[0]) throw new ApiError(422, 'campo_invalido', 'el id del caso no coincide con la ruta');
+          return { ok: true, mensaje: backend.editUseCase(parsed.data) };
+        },
+      },
+      {
+        method: 'DELETE',
+        path: /^\/v1\/planeacion\/especificacion\/casos\/(UC-\d{3})$/,
+        handler: ({ params }) => ({ ok: true, mensaje: backend.removeUseCase(params[0]!) }),
+      },
       {
         method: 'POST',
         path: /^\/v1\/planeacion\/mensaje$/,

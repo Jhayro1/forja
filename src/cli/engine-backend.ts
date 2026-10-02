@@ -18,14 +18,18 @@ import { estimatePlan } from '../plan/estimate.js';
 import { waves } from '../plan/plan.js';
 import { saveAttachments, validate as validateAttachments } from '../planner/attachments.js';
 import { closureBlockers, openQuestions } from '../planner/discovery.js';
-import { activeChange, approveDiscovery, createChange, getDiscovery, listChanges, plannerScratch, runPlannerTurn, transcript } from '../planner/session.js';
+import { MOVES, moveChange } from '../planner/phases.js';
+import { findChange, isClosed, selectChange, selectedChange } from '../planner/selection.js';
+import { approveDiscovery, createChange, getDiscovery, listChanges, plannerScratch, runPlannerTurn, transcript } from '../planner/session.js';
 import { ObservationService } from '../quality/observations.js';
 import { runningOrchestrator } from '../run/process.js';
 import type { TaskView } from '../run/snapshot.js';
 import { currentChange } from '../run/snapshot.js';
 import { snapshotJson } from '../run/snapshot-json.js';
-import { answerSpecQuestion, latestSpec, specAnswers } from '../spec/generate.js';
+import { editUseCase, openSpecForChanges, removeUseCase, type UseCaseEdit } from '../spec/edit.js';
+import { answerSpecQuestion, CHANGE_REQUEST, latestSpec, requestSpecChange, specAnswers } from '../spec/generate.js';
 import { validateSpec } from '../spec/spec.js';
+import type { ChangePhase } from '../store/planning-projections.js';
 import type { Vault } from '../vault/vault.js';
 import { EngineBoardSource } from './board-source.js';
 import { actionService } from './commands/actions.js';
@@ -245,8 +249,11 @@ export class EnginePlanningBackend implements PlanningBackend {
     // Checked before anything starts: a bad document must not leave a half-created change.
     const files = opts.adjuntos?.length ? validateAttachments(opts.adjuntos) : [];
     const engine = this.ctx.engine;
-    let change = opts.nuevo ? undefined : activeChange(engine);
-    if (change && change.phase !== 'descubrir') throw new Error(`el cambio «${change.title}» ya pasó la conversación (fase ${change.phase}); empieza uno nuevo cuando termine`);
+    let change = opts.nuevo ? undefined : selectedChange(engine);
+    // A finished sprint is only read: writing again starts a new one.
+    if (change && isClosed(change)) change = undefined;
+    if (change && change.phase !== 'descubrir')
+      throw new Error(`el sprint «${change.title}» está en la fase ${change.phase}: vuelve a la conversación (en la barra de fases) o empieza un sprint nuevo`);
     let userText: string | null = opts.cerrar ? 'Quiero cerrar el descubrimiento: revisa huecos y prepara el resumen para aprobar.' : text;
     let created = false;
     if (!change) {
@@ -308,17 +315,44 @@ export class EnginePlanningBackend implements PlanningBackend {
     return created ? 'cambio creado: el planeador está pensando…' : 'el planeador está pensando…';
   }
 
+  private sprints(selected: string | null): object[] {
+    return listChanges(this.ctx.engine).map((c) => ({ id: c.change_id, titulo: c.title, fase: c.phase, creado: c.created_at, seleccionado: c.change_id === selected }));
+  }
+
+  private selected() {
+    const change = selectedChange(this.ctx.engine);
+    if (!change) throw new Error('no hay sprints todavía');
+    return change;
+  }
+
+  private target() {
+    return { changeId: this.selected().change_id, repoPath: this.ctx.checkout.path, projectId: this.ctx.config.project_id };
+  }
+
   overview(): object {
     const change = currentChange(this.ctx.engine);
-    if (!change) return { cambio: null, chat: this.chat() };
+    if (!change) return { cambio: null, chat: this.chat(), sprints: [] };
     const id = change.change_id;
+    const lastSpecSeq = (this.ctx.engine.store.db.prepare("SELECT COALESCE(MAX(seq), 0) AS s FROM events WHERE type = 'spec.revisada' AND aggregate_id = ?").get(id) as { s: number }).s;
+    const given = this.ctx.engine.store.db.prepare('SELECT question_id, question, answer, answered_seq FROM spec_answers WHERE change_id = ? ORDER BY answered_seq').all(id) as {
+      question_id: string;
+      question: string;
+      answer: string;
+      answered_seq: number;
+    }[];
     const { state, approvedRevision, revision } = getDiscovery(this.ctx.engine, id);
     const spec = latestSpec(this.ctx.engine, id);
     const answers = new Map(specAnswers(this.ctx.engine, id).map((a) => [a.question_id, a.answer]));
     const plan = latestPlan(this.ctx.engine, id);
     return {
       chat: this.chat(),
-      cambio: { id, titulo: change.title, fase: change.phase, modo: change.mode },
+      sprints: this.sprints(id),
+      cambio: { id, titulo: change.title, fase: change.phase, modo: change.mode, movimientos: MOVES[change.phase] },
+      // Answers and change requests: «pendiente» = not yet in a spec (the next «especificar» applies it).
+      respuestas: given
+        .filter((a) => !a.question_id.startsWith(CHANGE_REQUEST))
+        .map((a) => ({ id: a.question_id, pregunta: a.question, respuesta: a.answer, pendiente: a.answered_seq > lastSpecSeq })),
+      cambios_pedidos: given.filter((a) => a.question_id.startsWith(CHANGE_REQUEST)).map((a) => ({ id: a.question_id, texto: a.answer, pendiente: a.answered_seq > lastSpecSeq })),
       conversacion: transcript(this.ctx.engine, id)
         .slice(-30)
         .map((t) => ({ n: t.n, usuario: t.user_text, planeador: t.planner_text, modelo: `${t.provider}:${t.model ?? '?'}`, adjuntos: t.attachments.map((a) => a.name) })),
@@ -337,7 +371,9 @@ export class EnginePlanningBackend implements PlanningBackend {
         ? {
             revision: spec.revision,
             sistema: spec.spec.sistema,
-            casos_uso: spec.spec.casos_uso.map((u) => ({ id: u.id, nombre: u.nombre, objetivo: u.objetivo })),
+            casos_uso: spec.spec.casos_uso.map((u) => ({ id: u.id, nombre: u.nombre, objetivo: u.objetivo, actor_id: u.actor_id })),
+            // Written before the conversation was reopened or a change was asked: the next pass redoes what changed.
+            desactualizada: change.phase === 'especificar',
             criterios: spec.spec.criterios.length,
             decisiones: spec.spec.decisiones,
             preguntas: spec.spec.preguntas.map((q) => ({ ...q, respuesta: answers.get(q.id) ?? null })),
@@ -360,14 +396,58 @@ export class EnginePlanningBackend implements PlanningBackend {
   }
 
   answerSpecQuestion(questionId: string, text: string): string {
-    const change = activeChange(this.ctx.engine);
-    if (!change) throw new Error('no hay un cambio en curso');
+    const change = this.selected();
+    const before = specAnswers(this.ctx.engine, change.change_id).some((a) => a.question_id === questionId);
     answerSpecQuestion(this.ctx.engine, change.change_id, questionId, text);
-    return `respuesta a ${questionId} registrada; incorpórala con forja especificar`;
+    // Changing an answer already applied reopens the spec (the plan stops being approved).
+    if (before) openSpecForChanges(this.ctx.engine, change.change_id, `cambió la respuesta a ${questionId}`);
+    return `respuesta a ${questionId} registrada; vuelve a escribir la especificación para incorporarla`;
+  }
+
+  selectSprint(id: string): string {
+    const change = selectChange(this.ctx.engine, findChange(this.ctx.engine, id).change_id);
+    return `sprint «${change.title}» seleccionado`;
+  }
+
+  move(to: ChangePhase, motivo: string): string {
+    const change = this.selected();
+    const r = moveChange(this.ctx.engine, change.change_id, to, motivo);
+    return `«${change.title}» pasó de ${r.from} a ${r.to}; lo avanzado queda registrado`;
+  }
+
+  requestSpecChange(text: string): string {
+    const change = this.selected();
+    openSpecForChanges(this.ctx.engine, change.change_id, 'cambio pedido en la especificación');
+    const id = requestSpecChange(this.ctx.engine, change.change_id, text);
+    return `cambio ${id} registrado: vuelve a escribir la especificación (sólo se rehace lo que toca)`;
+  }
+
+  useCase(id: string): object | null {
+    const spec = latestSpec(this.ctx.engine, this.selected().change_id);
+    const caso = spec?.spec.casos_uso.find((u) => u.id === id);
+    if (!spec || !caso) return null;
+    return {
+      caso,
+      criterios: spec.spec.criterios.filter((c) => c.caso_uso_id === id),
+      actores: spec.spec.actores,
+      requisitos: spec.spec.requisitos,
+      reglas: spec.spec.reglas,
+      entidades: spec.spec.entidades,
+    };
+  }
+
+  editUseCase(edit: UseCaseEdit): string {
+    const r = editUseCase(this.ctx.engine, this.target(), edit);
+    return `${edit.caso.id} guardado (especificación revisión ${r.revision})`;
+  }
+
+  removeUseCase(id: string): string {
+    const r = removeUseCase(this.ctx.engine, this.target(), id);
+    return `${id} quitado (especificación revisión ${r.revision})`;
   }
 
   approveDiscovery(): string {
-    const change = activeChange(this.ctx.engine);
+    const change = selectedChange(this.ctx.engine);
     if (!change) throw new Error('no hay un cambio en curso');
     const { revision } = getDiscovery(this.ctx.engine, change.change_id);
     approveDiscovery(this.ctx.engine, change.change_id, `aprobar:${change.change_id}:${revision}`);

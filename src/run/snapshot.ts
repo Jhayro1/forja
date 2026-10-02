@@ -4,7 +4,8 @@ import { deliveryBranch as deliveryBranchName } from '../git/workspace.js';
 import { currentApproval } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import type { Plan, PlanTask } from '../plan/plan.js';
-import { activeChange, type ChangeRow, listChanges } from '../planner/session.js';
+import { selectedChange } from '../planner/selection.js';
+import type { ChangeRow } from '../planner/session.js';
 import { latestSpec, specAnswers } from '../spec/generate.js';
 import { listTasks } from '../store/projections.js';
 import { type AgentActivity, agentActivity } from './activity.js';
@@ -60,9 +61,9 @@ export type RunSnapshot = {
   nextStep: string;
 };
 
-/** The change the user is working on: the active one, or the last delivered. */
+/** The sprint the user is working on: the selected one (planner/selection.ts). */
 export function currentChange(engine: Engine): ChangeRow | undefined {
-  return activeChange(engine) ?? listChanges(engine)[0];
+  return selectedChange(engine);
 }
 
 export function latestRun(engine: Engine, changeId: string): RunRow | null {

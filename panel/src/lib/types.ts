@@ -5,6 +5,7 @@ export type Mutation = { ok?: boolean; mensaje?: string };
 export type Textos = {
   estadoTarea: Record<string, string>;
   fases: [string, string][];
+  fases_extra?: [string, string][];
   pendiente: Record<string, string>;
   estadoAccion: Record<string, string>;
   origenDato: Record<string, string>;
@@ -104,13 +105,21 @@ export type Plan = {
 export type Especificacion = {
   revision: number;
   sistema: { objetivo: string };
-  casos_uso: { id: string; nombre: string; objetivo: string }[];
+  casos_uso: { id: string; nombre: string; objetivo: string; actor_id?: string }[];
+  /** The sprint went back to «especificar»: this spec is from before the changes. */
+  desactualizada?: boolean;
   criterios: number;
   problemas: { message: string }[];
   preguntas: Pregunta[];
 };
+export type SprintResumen = { id: string; titulo: string; fase: string; creado: string; seleccionado: boolean };
+export type RespuestaDada = { id: string; pregunta: string; respuesta: string; pendiente: boolean };
+export type CambioPedido = { id: string; texto: string; pendiente: boolean };
 export type Planeacion = {
-  cambio: { titulo: string; fase: string } | null;
+  cambio: { id?: string; titulo: string; fase: string; movimientos?: string[] } | null;
+  sprints?: SprintResumen[];
+  respuestas?: RespuestaDada[];
+  cambios_pedidos?: CambioPedido[];
   descubrimiento: Descubrimiento;
   conversacion: Turno[];
   especificacion: Especificacion | null;
@@ -300,4 +309,30 @@ export type Entrega = {
   lista: boolean;
   github: { configurado: boolean; usuario: string | null; publicar_al_entregar: boolean } | null;
   publicada: { rama: string; commit: string; repositorio: string; pr: { url: string; numero: number; nuevo: boolean } | null; fecha: string } | null;
+};
+
+// ---------- edición manual de un caso de uso ----------
+
+export type PasoCaso = { id: string; texto: string };
+export type CasoUso = {
+  id: string;
+  nombre: string;
+  actor_id: string;
+  objetivo: string;
+  precondiciones: string[];
+  postcondiciones: string[];
+  pasos: PasoCaso[];
+  alternos: { id: string; desde_paso: string; condicion: string; pasos: string[]; retorno: string | null }[];
+  excepciones: { id: string; desde_paso: string; condicion: string; resultado: string }[];
+  excepciones_no_aplican: string | null;
+  reglas: string[];
+  entidades: string[];
+  requisitos: string[];
+};
+export type CriterioCaso = { id: string; caso_uso_id: string; requisitos: string[]; dado: string; cuando: string; entonces: string; tipo_evidencia: 'automatica' | 'manual' };
+export type CasoDetalle = {
+  caso: CasoUso;
+  criterios: CriterioCaso[];
+  actores: { id: string; nombre: string }[];
+  requisitos: { id: string; texto: string }[];
 };

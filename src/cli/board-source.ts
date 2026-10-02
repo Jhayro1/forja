@@ -2,7 +2,7 @@ import { approvePlan } from '../plan/approve.js';
 import { latestPlan } from '../plan/divide.js';
 import { estimatePlan } from '../plan/estimate.js';
 import { waves } from '../plan/plan.js';
-import { activeChange } from '../planner/session.js';
+import { selectedChange } from '../planner/selection.js';
 import { launchPrompt, readableLog, readSpoolTail } from '../run/activity.js';
 import { taskDetailLines } from '../run/describe.js';
 import { requestStop, runningOrchestrator } from '../run/process.js';
@@ -100,7 +100,7 @@ export class EngineBoardSource implements BoardSource {
   }
 
   planSummary(): string[] {
-    const change = activeChange(this.ctx.engine);
+    const change = selectedChange(this.ctx.engine);
     const plan = change ? latestPlan(this.ctx.engine, change.change_id) : null;
     if (!change || !plan) return ['No hay un plan para aprobar.'];
     const est = estimatePlan(plan.plan, this.ctx.config, this.ctx.engine.prices ?? null);
@@ -116,7 +116,7 @@ export class EngineBoardSource implements BoardSource {
   }
 
   approvePlan(actor = 'tablero'): string {
-    const change = activeChange(this.ctx.engine);
+    const change = selectedChange(this.ctx.engine);
     if (!change) throw new Error('no hay un cambio en curso');
     const approval = approvePlan(this.ctx.engine, change.change_id, actor);
     return `✔ plan aprobado (${approval.approval_id}): ${approval.allowed_task_ids.length} tareas; ejecútalo con forja run`;

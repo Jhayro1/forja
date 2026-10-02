@@ -6,6 +6,8 @@ import { Mono, PageHeader, StatusBadge } from '@/components/common';
 import { DeliveryCard } from '@/components/delivery-card';
 import { JobCard } from '@/components/job-card';
 import { EffortPicker, ModelPicker } from '@/components/model-picker';
+import { GivenAnswers, SpecChangeBox, UseCaseActions } from '@/components/spec-editor';
+import { PhaseActions, SprintSwitcher } from '@/components/sprint-controls';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -332,6 +334,7 @@ function QuestionBox({ q }: { q: Pregunta }) {
 
 function SpecView({ pl, startJob }: { pl: Planeacion; startJob: StartJob }) {
   const e = pl.especificacion;
+  const [changeText, setChangeText] = useState('');
   const planner = pl.chat?.planeador ?? 'el planeador';
   if (!e)
     return (
@@ -348,6 +351,8 @@ function SpecView({ pl, startJob }: { pl: Planeacion; startJob: StartJob }) {
       </Card>
     );
   const pending = e.preguntas.filter((q) => !q.respuesta);
+  // Back in «especificar» with a spec already written: it is from before the changes.
+  const stale = Boolean(e.desactualizada);
   return (
     <Card>
       <CardHeader>
@@ -357,10 +362,19 @@ function SpecView({ pl, startJob }: { pl: Planeacion; startJob: StartJob }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <ul className="grid gap-1 text-sm sm:grid-cols-2">
-          {e.casos_uso.slice(0, 16).map((u) => (
-            <li key={u.id} className="truncate">
-              <Mono className="text-muted-foreground">{u.id}</Mono> {u.nombre}
+        {stale ? (
+          <Alert>
+            <AlertTitle>Hay cambios por aplicar</AlertTitle>
+            <AlertDescription>Esta especificación es de antes de tus cambios. Vuelve a escribirla: sólo se rehacen los casos de uso que cambian; los demás se copian tal cual.</AlertDescription>
+          </Alert>
+        ) : null}
+        <ul className="divide-y text-sm">
+          {e.casos_uso.map((u) => (
+            <li key={u.id} className="flex items-center gap-2 py-1">
+              <span className="min-w-0 flex-1 truncate">
+                <Mono className="text-muted-foreground">{u.id}</Mono> {u.nombre}
+              </span>
+              <UseCaseActions id={u.id} name={u.nombre} onAsk={(t) => setChangeText((prev) => (prev ? `${prev}\n${t}` : t))} />
             </li>
           ))}
         </ul>
@@ -373,15 +387,20 @@ function SpecView({ pl, startJob }: { pl: Planeacion; startJob: StartJob }) {
           <QuestionBox key={q.id} q={q} />
         ))}
         {pending.length ? <p className="text-xs text-muted-foreground">Responde las preguntas y vuelve a escribir la especificación para incorporarlas.</p> : null}
+        <SpecChangeBox text={changeText} setText={setChangeText} startJob={startJob} />
+        <GivenAnswers pl={pl} />
       </CardContent>
       <CardFooter className="flex-wrap gap-2">
         <Button
-          disabled={pending.some((q) => q.bloquea?.length) || e.problemas.length > 0}
+          disabled={stale || pending.some((q) => q.bloquea?.length) || e.problemas.length > 0}
           onClick={() => void startJob('dividir', `Esto usa ${planner} para dividir el trabajo en tareas con su estimación. ¿Seguir?`)}
         >
           Dividir en tareas →
         </Button>
-        <Button variant="outline" onClick={() => void startJob('especificar', 'Se rehace la especificación con tus respuestas. ¿Seguir?')}>
+        <Button
+          variant={stale ? 'default' : 'outline'}
+          onClick={() => void startJob('especificar', 'Se reescribe la especificación con tus respuestas y cambios; sólo se rehace lo que cambió. ¿Seguir?')}
+        >
           Volver a escribir la especificación
         </Button>
       </CardFooter>
@@ -535,6 +554,23 @@ function DeliveredView({ est, startJob, onNew }: { est: Estado; startJob: StartJ
   );
 }
 
+function CancelledView({ pl, onNew }: { pl: Planeacion; onNew: () => void }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sprint cancelado</CardTitle>
+        <CardDescription>«{pl.cambio?.titulo}» quedó registrado con todo lo que tenía. Reactívalo para seguir donde estaba, o empieza otro.</CardDescription>
+      </CardHeader>
+      <CardFooter className="flex-wrap gap-2">
+        <PhaseActions pl={pl} />
+        <Button variant="outline" onClick={onNew}>
+          Empezar un sprint nuevo
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
 export default function Sprint() {
   const [isNew, setNew] = useState(false);
   const jobs = useApiQuery<Trabajos>('/v1/trabajos', { fastPoll: (d) => d?.trabajos[0]?.estado === 'corriendo' });
@@ -551,7 +587,8 @@ export default function Sprint() {
   const title = planeacion.cambio && !isNew ? planeacion.cambio.titulo : 'Nuevo cambio';
 
   let body: ReactNode;
-  if (!fase || fase === 'cancelado' || fase === 'descubrir') body = <ChatView pl={planeacion} isNew={!fase || fase === 'cancelado'} onSent={() => setNew(false)} />;
+  if (fase === 'cancelado') body = <CancelledView pl={planeacion} onNew={() => setNew(true)} />;
+  else if (!fase || fase === 'descubrir') body = <ChatView pl={planeacion} isNew={!fase} onSent={() => setNew(false)} />;
   else if (fase === 'especificar' || fase === 'dividir') body = <SpecView pl={planeacion} startJob={startJob} />;
   else if (fase === 'aprobar') body = <PlanView pl={planeacion} startJob={startJob} />;
   else if (fase === 'ejecutar') body = <RunView est={est.data.estado} job={job} startJob={startJob} />;
@@ -559,7 +596,16 @@ export default function Sprint() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={title} actions={est.data.estado.modo_demo ? <StatusBadge tone="warn">Modo demo</StatusBadge> : null} />
+      <PageHeader
+        title={title}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {est.data.estado.modo_demo ? <StatusBadge tone="warn">Modo demo</StatusBadge> : null}
+            <SprintSwitcher pl={planeacion} onNew={() => setNew(true)} onSelect={() => setNew(false)} />
+            {!isNew && fase !== 'cancelado' ? <PhaseActions pl={planeacion} /> : null}
+          </div>
+        }
+      />
       <Stepper fase={fase} />
       {body}
       <JobCard job={job} base="/v1/trabajos" />

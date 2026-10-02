@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { callRole, type Engine } from '../core/engine.js';
@@ -29,12 +29,17 @@ export function llmSchema(schema: z.ZodType): object {
   return json;
 }
 
+/** File in the project's data folder with the sprint the user is working on (planner/selection.ts). */
+export const SELECTION_FILE = 'sprint-actual';
+
+/** Creates a sprint and selects it: a new sprint is what the user works on next. */
 export function createChange(engine: Engine, requestId: string, title: string, mode: 'idea' | 'mejora'): string {
   const changeId = newId('cam');
   const res = engine.store.execute({ request_id: requestId, type: 'crear_cambio', input: { title, mode } }, () => ({
     result: changeId,
     events: [{ type: EV.changeCreated, aggregate_type: 'cambio', aggregate_id: changeId, payload: { title, mode } }],
   }));
+  writeFileSync(join(engine.dataDir, SELECTION_FILE), res.result);
   return res.result;
 }
 
@@ -123,6 +128,7 @@ export async function runPlannerTurn(
     evidencia_del_repositorio: input.evidence,
     documentos_adjuntos: attachmentsForPrompt(engine.dataDir, input.changeId),
     bases_de_datos: input.databases ?? null,
+    reapertura: reopenNote(engine, input.changeId),
     mensaje_usuario: input.userText ?? (state.turnos === 0 ? `(inicio) La idea del usuario es: ${state.idea}` : '(el usuario no escribió nada nuevo)'),
   });
   const schema = llmSchema(PlannerTurnOutput);
@@ -198,6 +204,13 @@ export async function runPlannerTurn(
 }
 
 /** Explicit user approval of the discovery; never inferred from silence. */
+/** The conversation was reopened after a spec existed (planner/phases.ts): say so, so the planner works on the change. */
+function reopenNote(engine: Engine, changeId: string): string | null {
+  const row = engine.store.db.prepare('SELECT MAX(revision) AS r FROM specs WHERE change_id = ?').get(changeId) as { r: number | null };
+  if (!row.r) return null;
+  return `El usuario reabrió esta conversación después de tener una especificación (revisión ${row.r}). Ayúdale con lo que quiere cambiar o agregar; lo ya acordado se conserva salvo que él lo cambie. Al aprobar de nuevo, sólo se rehace lo que cambió.`;
+}
+
 export function approveDiscovery(engine: Engine, changeId: string, requestId: string): { revision: number } {
   const { revision, state } = getDiscovery(engine, changeId);
   const blockers = closureBlockers(state);

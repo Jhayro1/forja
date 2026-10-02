@@ -6,7 +6,8 @@ import { publishDelivery } from '../../git/publish-delivery.js';
 import { label, TEXTOS } from '../../i18n/textos.js';
 import { latestPlan } from '../../plan/divide.js';
 import { estimatePlan, loadPrices } from '../../plan/estimate.js';
-import { activeChange, getChange } from '../../planner/session.js';
+import { isClosed, selectedChange } from '../../planner/selection.js';
+import { getChange } from '../../planner/session.js';
 import { ConformanceStore, conformanceProblems, mcpGaps, uncertifiedModels } from '../../providers/conformance.js';
 import { type LockFile, LockHeldError } from '../../registry/lock.js';
 import { readableLog } from '../../run/activity.js';
@@ -163,8 +164,8 @@ export function registerRunCommands(program: Command): void {
         const ctx = openEngine(g);
         let lock: LockFile | null = null;
         try {
-          const change = activeChange(ctx.engine);
-          if (!change) throw new CliError('no hay un cambio en curso: empieza con forja planear', EXIT.precondition);
+          const change = selectedChange(ctx.engine);
+          if (!change || isClosed(change)) throw new CliError('el sprint seleccionado no está en curso: elige otro con forja sprint <número> o empieza uno con forja planear', EXIT.precondition);
           if (opts.estimar) {
             const current = latestPlan(ctx.engine, change.change_id);
             if (!current) throw new CliError('todavía no hay plan; ejecuta forja dividir', EXIT.precondition);

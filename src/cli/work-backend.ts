@@ -1,7 +1,7 @@
 import type { WorkBackend } from '../api/modules/work.js';
 import { activePauses } from '../core/engine.js';
 import { deliveryState, publishDelivery } from '../git/publish-delivery.js';
-import { activeChange, createChange, getChange } from '../planner/session.js';
+import { createChange, getChange } from '../planner/session.js';
 import { AccountStore, accountPauseKey } from '../providers/accounts.js';
 import { actionPlanText, OBS_STATES, ObservationService, type ObsState } from '../quality/observations.js';
 import { latestValidation } from '../quality/validate.js';
@@ -193,8 +193,6 @@ export class EngineWorkBackend implements WorkBackend {
     if (chosen.some((o) => !o)) throw new Error('alguna observación ya no existe; recarga la lista');
     const bad = chosen.filter((o) => !['abierta', 'pospuesta'].includes(o!.state));
     if (bad.length) throw new Error(`${bad.map((o) => o!.obs_id).join(', ')} ya no está abierta`);
-    const active = activeChange(this.engine);
-    if (active) throw new Error(`termina o cancela primero el sprint «${active.title}» (fase ${active.phase}); las observaciones quedan en la lista`);
     const obs = chosen.map((o) => o!);
     const title = `Correcciones: ${obs.length} observación${obs.length === 1 ? '' : 'es'}`;
     const changeId = createChange(this.engine, `plan-accion:${ids.slice().sort().join(',')}:${Date.now()}`, title, 'mejora');

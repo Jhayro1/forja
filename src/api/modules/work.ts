@@ -1,4 +1,4 @@
-import { ApiError, stringField } from '../http.js';
+import { ApiError, SECURITY_HEADERS, stringField } from '../http.js';
 import type { ApiModule } from '../server.js';
 
 /**
@@ -11,6 +11,8 @@ export interface WorkBackend {
   publish(): Promise<object>;
   history(): object;
   historyMarkdown(): string;
+  /** The requirements workbook (export/requirements.ts): file name and .xlsx bytes. */
+  requirementsWorkbook(opts: { iniciativa?: string; contingencia?: number }): { file: string; data: Buffer };
   epics(): object;
   createEpic(input: Record<string, unknown>): object;
   editEpic(id: string, input: Record<string, unknown>): object;
@@ -50,6 +52,26 @@ export function workModule(backend: WorkBackend): ApiModule {
       },
       { method: 'GET', path: /^\/v1\/historial$/, handler: () => ({ historial: backend.history() }) },
       { method: 'GET', path: /^\/v1\/historial\/markdown$/, handler: () => ({ markdown: backend.historyMarkdown() }) },
+      {
+        method: 'GET',
+        path: /^\/v1\/historial\/excel$/,
+        handler: ({ query, res }) => {
+          const ini = query.get('iniciativa')?.trim() || undefined;
+          if (ini && !/^[A-Za-z0-9_-]{1,20}$/.test(ini)) throw new ApiError(422, 'campo_invalido', 'la iniciativa es un código corto, p. ej. INI001');
+          const pct = query.get('contingencia');
+          const contingencia = pct === null ? undefined : Number(pct) / 100;
+          if (contingencia !== undefined && !(contingencia >= 0 && contingencia <= 1)) throw new ApiError(422, 'campo_invalido', 'la contingencia va de 0 a 100');
+          const book = guard(() => backend.requirementsWorkbook({ ...(ini ? { iniciativa: ini } : {}), ...(contingencia !== undefined ? { contingencia } : {}) }));
+          res.writeHead(200, {
+            ...SECURITY_HEADERS,
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="${book.file.replace(/[^\w.-]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(book.file)}`,
+            'Content-Length': String(book.data.length),
+          });
+          res.end(book.data);
+          return undefined;
+        },
+      },
       { method: 'GET', path: /^\/v1\/epicas$/, handler: () => backend.epics() },
       {
         method: 'POST',

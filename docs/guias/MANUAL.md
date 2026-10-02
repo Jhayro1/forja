@@ -304,6 +304,37 @@ Además:
 | `forja especificar --cambio "UC-002: …"` | Pide un cambio y reescribe la especificación |
 | `--sprint <número o id>` | Opción de cualquier comando: actúa sobre otro sprint sin cambiar el elegido |
 
+### 5.2 Excel de requerimientos (para organizar sprints)
+
+En **Historial** o en **Requisitos y plan**, pulsa **Excel de requerimientos**. Elige el código de
+iniciativa (por ejemplo `INI001`) y la contingencia. Se descarga
+`INI001_<proyecto>_Reqs_<fecha>.xlsx`, con el formato del libro de requerimientos funcionales.
+
+| Hoja | Qué tiene |
+|---|---|
+| `0. Instrucciones` | Cómo leer el libro. La sección 10 son los términos del dominio de tus especificaciones |
+| `Definiciones` | Cómo se redacta cada nivel (macroproceso, épica, HU…) |
+| `1. Mapa_Procesos` | Un subproceso (`Pnn`) por sprint, con objetivo, descripción, TO BE y alcance |
+| `2. DER` | Épicas e HU de cada sprint, con su detalle y su estado |
+| `Lista` | Los estados posibles de una HU |
+| `Consulta_Subproceso` | Eliges un subproceso en la celda amarilla y ves su fila completa |
+| `3. Épicas y HU finales` | HU vigentes, con horas para completar (celdas amarillas) y la contingencia. Además: sprint, fase, avance, minutos de agentes, prioridad y fecha objetivo |
+| `4. Tareas` | Las tareas que Forja planificó para cada HU y su estado |
+| `Entidades` | Conceptos de negocio y sus campos |
+
+**Cómo se ordena la información:**
+- Macroproceso = el proyecto; Proceso = la épica de Forja; Subproceso = el sprint.
+- Cada épica del libro agrupa las HU que trabajan sobre la misma entidad. Cada HU es un caso de
+  uso (su id `UC-…` va entre paréntesis).
+- El estado de una HU sale de las revisiones de la especificación:
+  - **Aprobado:** no cambió.
+  - **Cambiado:** se reformuló.
+  - **Descartado:** se quitó.
+  - Fusionado, Dividido y Postergado los marcas tú.
+- Alcance 1 = sprint con especificación; Alcance 2 = sólo conversación; Alcance 3 = cancelado.
+
+En la terminal: `forja exportar excel [--salida carpeta] [--iniciativa INI001] [--contingencia 15]`.
+
 **Atajos:**
 - **Ctrl+K** busca pantallas, tareas y acciones.
 - La **campana** muestra lo que espera tu respuesta.

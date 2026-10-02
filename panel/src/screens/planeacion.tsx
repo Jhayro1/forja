@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { EmptyState, Mono, PageHeader, Section, StatusBadge } from '@/components/common';
+import { ExcelExportButton } from '@/components/excel-export';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,7 +63,7 @@ export default function Planeacion() {
   const plan = d.plan;
   return (
     <div className="space-y-10">
-      <PageHeader title={`Planeación · ${d.cambio.titulo}`} description={`Fase: ${d.cambio.fase}`} />
+      <PageHeader title={`Planeación · ${d.cambio.titulo}`} description={`Fase: ${d.cambio.fase}`} actions={<ExcelExportButton />} />
 
       <Section title={`Descubrimiento (revisión ${disc.revision})`} actions={disc.aprobado ? <StatusBadge tone="ok">aprobado</StatusBadge> : null}>
         <Card>

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AccountStore, accountPauseKey, chooseAccount, PRINCIPAL } from '../../src/providers/accounts.js';
+import { AccountStore, accountPauseKey, chooseAccount, explainNoAccount, PRINCIPAL } from '../../src/providers/accounts.js';
 
 function setup() {
   const root = mkdtempSync(join(tmpdir(), 'forja-cuentas-'));
@@ -64,5 +64,24 @@ describe('cuentas por proveedor', () => {
     expect(accountPauseKey('claude', PRINCIPAL)).toBe('claude');
     expect(accountPauseKey('claude', null)).toBe('claude');
     expect(accountPauseKey('claude', 'dos')).toBe('claude@dos');
+  });
+});
+
+describe('por qué no hay cuenta disponible', () => {
+  it('dice si falta la sesión (y dónde se buscó), si está en pausa o si está desactivada', () => {
+    const home = mkdtempSync(join(tmpdir(), 'forja-cuentas-'));
+    const claudeDir = join(home, 'claude-principal');
+    const store = new AccountStore(home, { CLAUDE_CONFIG_DIR: claudeDir });
+    expect(explainNoAccount(store, 'claude', [])).toContain(`sin sesión, no existe ${join(claudeDir, '.credentials.json')}`);
+
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, '.credentials.json'), '{}');
+    const paused = explainNoAccount(store, 'claude', [{ key: 'claude', until: Date.now() + 60_000, reason: 'Failed to refresh OAuth token' }]);
+    expect(paused).toContain('en pausa');
+    expect(paused).toContain('Failed to refresh OAuth token');
+    expect(paused).toContain('forja proveedores reanudar claude');
+
+    store.update('claude', PRINCIPAL, { activa: false });
+    expect(explainNoAccount(store, 'claude', [])).toContain('desactivada');
   });
 });

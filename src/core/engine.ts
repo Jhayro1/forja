@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { newId } from '../domain/ids.js';
 import type { Prices } from '../plan/estimate.js';
-import { type AccountChoice, type AccountProvider, type AccountStore, accountPauseKey, chooseAccount, PRINCIPAL } from '../providers/accounts.js';
+import { type AccountChoice, type AccountProvider, type AccountStore, accountPauseKey, chooseAccount, explainNoAccount, PRINCIPAL } from '../providers/accounts.js';
 import { AdapterError, ClaudeAdapter, CodexAdapter, type LaunchParams, type ProviderAdapter, SimulatedAdapter, type ToolProfile } from '../providers/adapters.js';
 import { type Effort, effortFor } from '../providers/catalog.js';
 import type { ForjaConfig } from '../registry/config.js';
@@ -230,7 +230,7 @@ export async function callRole(engine: Engine, opts: CallOptions): Promise<CallR
     const { provider, model } = parseRef(ref);
     const account = accountFor(engine, provider, 'orden');
     if (account === null) {
-      skipped.push(`${ref}: ninguna cuenta disponible (sin sesión, en pausa o desactivadas)`);
+      skipped.push(`${ref}: ninguna cuenta disponible → ${engine.accounts && isAccountProvider(provider) ? explainNoAccount(engine.accounts, provider, activePauses(engine)) : 'sin detalle'}`);
       continue;
     }
     const pause = account === undefined ? providerPause(engine, ref) : null;

@@ -63,17 +63,45 @@ forja bd usar pruebas --bases devventas --lectura preguntar --pruebas
 # O por partes (la clave se pide sin eco, nunca como argumento):
 forja bd nueva pruebas --url "jdbc:mysql://172.16.0.10:3306/devventas" --usuario usuario_app --con-clave
 
+forja bd ver pruebas                     # qué alcanza: bases del servidor, tablas, filas aprox. y tamaño
+forja bd ver pruebas --columnas --contar # + columnas con PK/FK y filas exactas
 forja bd esquema pruebas --base devventas
+forja bd contexto                        # lo que ve el planeador en este proyecto (--completo: el bloque exacto)
 forja bd solicitudes            # lo que pidieron los agentes
 forja bd aprobar bdq_…          # aprueba y ejecuta
 forja bd rechazar bdq_… "usa la tabla de pagos que ya existe"
 forja bd tablas                 # tablas creadas por Forja
 ```
 
+## Comprobar que se ve todo
+
+Antes de planear, en este orden:
+
+1. **`forja bd probar <nombre>`**: se conecta a cada base y muestra la versión del servidor.
+2. **`forja bd ver <nombre>`**: no necesita proyecto y no lee filas. Muestra:
+   - las bases que el usuario ve en el servidor (con `*` las configuradas);
+   - las tablas y vistas de cada base, con filas aproximadas, tamaño y comentario.
+
+   Opciones:
+   - `--columnas`: añade las columnas, con sus claves primarias (PK) y foráneas (→).
+   - `--contar`: cuenta las filas exactas con `COUNT(*)`.
+
+   Si falta una tabla, casi siempre es un permiso del usuario de la base.
+3. **`forja bd contexto`** (dentro del proyecto): muestra lo que recibe el planeador en
+   descubrir, especificar y dividir. Por cada base dice cuántas tablas y claves foráneas
+   llegan, si se recortó por tamaño y si sólo llega un error. Con `--completo` imprime el
+   bloque tal cual.
+
+Todo esto lee sólo el catálogo de la base, en una transacción de solo lectura que se deshace.
+No modifica nada.
+
 ## Qué ven los agentes y el planeador
 
-**El planeador** recibe el esquema de las bases vinculadas (nombres y tipos, sin datos) para
-planear con las tablas reales.
+**El planeador** recibe la estructura de las bases vinculadas, sin datos: tablas, columnas
+con tipo, claves primarias y foráneas. Lo recibe en el descubrimiento, al especificar y al
+dividir en tareas. Usa las tablas reales, no pregunta lo que el esquema ya muestra y, si hace
+falta guardar algo nuevo, propone una tabla nueva en vez de cambiar las que existen. Si una
+base no responde, recibe el error y te avisa en vez de suponer su contenido.
 
 **Los agentes** tienen estas herramientas:
 

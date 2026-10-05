@@ -1,13 +1,27 @@
 import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { DB_ENGINES, DbConnectionError, type DbConnectionInput, DbConnectionStore, DEFAULT_PORT, parseDbUrl, parseVariables, suggestFromVariables } from '../../db/connections.js';
-import { ping } from '../../db/driver.js';
+import { ping, readOverview, readSchema, type TableInfo } from '../../db/driver.js';
 import { dbServiceFor } from '../../db/project.js';
 import { DbServiceError } from '../../db/service.js';
 import { forjaHome } from '../../registry/home.js';
 import { CliError, EXIT, type GlobalOptions, print, printJson } from '../context.js';
 import { openEngine } from '../engine-context.js';
 import { readSecret } from '../secret-input.js';
+
+const fmtBytes = (n: number | null): string => {
+  if (n === null) return '—';
+  const units = ['B', 'kB', 'MB', 'GB', 'TB'];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+};
+const fmtRows = (n: number | null): string => (n === null ? '—' : n.toLocaleString('es'));
+const fmtColumns = (t: TableInfo): string => t.columns.map((c) => `${c.name} ${c.type}${c.key === 'PRI' ? ' PK' : ''}${c.ref ? ` → ${c.ref}` : ''}${c.nullable ? '' : ' no nulo'}`).join(', ');
 
 /**
  * `forja bd …` (docs/guias/BASES-DE-DATOS.md): register a database (from a JDBC URL or
@@ -113,6 +127,107 @@ export function registerDatabaseCommands(program: Command): void {
       }
     });
 
+  bd.command('ver <nombre>')
+    .alias('mostrar')
+    .description('muestra qué alcanza la conexión, sin leer filas: bases del servidor, tablas, vistas, filas aproximadas y tamaño (no hace falta un proyecto)')
+    .option('--base <base>', 'sólo esta base (por defecto, todas las de la conexión)')
+    .option('--columnas', 'también las columnas de cada tabla, con claves primarias y foráneas')
+    .option('--contar', 'cuenta las filas exactas con COUNT(*) (más lento en bases grandes)')
+    .action(async (name: string, o: { base?: string; columnas?: boolean; contar?: boolean }, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const store = new DbConnectionStore(forjaHome());
+      try {
+        const conn = store.get(name);
+        if (o.base && !conn.bases.includes(o.base)) throw new CliError(`«${name}» no tiene la base «${o.base}» (${conn.bases.join(', ')})`, EXIT.precondition);
+        const password = store.secrets(name).clave;
+        const out: { base: string; ok: boolean; error?: string; version?: string; bases_del_servidor?: string[]; tablas?: unknown[]; columnas?: TableInfo[] }[] = [];
+        for (const base of o.base ? [o.base] : conn.bases) {
+          const target = { conn, base, password };
+          try {
+            const ov = await readOverview(target, { count: o.contar ?? false });
+            const cols = o.columnas ? await readSchema(target) : undefined;
+            out.push({ base, ok: true, version: ov.version, bases_del_servidor: ov.serverBases, tablas: ov.tables, ...(cols ? { columnas: cols } : {}) });
+            if (g.json) continue;
+            if (out.filter((x) => x.ok).length === 1) {
+              print(`✔ conectado a ${conn.motor} ${ov.version.split(' ').slice(0, 2).join(' ')} en ${conn.host}:${conn.port} como ${conn.usuario}`);
+              print(`  bases que este usuario ve en el servidor: ${ov.serverBases.map((b) => (conn.bases.includes(b) ? `${b}*` : b)).join(', ') || '(ninguna)'}  (* = configuradas en «${name}»)`);
+            }
+            const tablas = ov.tables.filter((t) => t.kind === 'tabla');
+            const vistas = ov.tables.filter((t) => t.kind === 'vista');
+            print('');
+            print(`── ${base} · ${tablas.length} tabla(s)${vistas.length ? ` · ${vistas.length} vista(s)` : ''} · ${fmtBytes(ov.tables.reduce((a, t) => a + (t.bytes ?? 0), 0))}`);
+            if (!ov.tables.length) {
+              print('   (vacía: no hay tablas, o este usuario no tiene permiso para verlas)');
+              continue;
+            }
+            const label = (t: { table: string; kind: string }) => (t.kind === 'vista' ? `${t.table} (vista)` : t.table);
+            const width = Math.min(48, Math.max(...ov.tables.map((t) => label(t).length)));
+            print(`   ${'tabla'.padEnd(width)}  ${(o.contar ? 'filas' : 'filas aprox.').padStart(12)}  ${'tamaño'.padStart(8)}`);
+            const byName = new Map((cols ?? []).map((c) => [c.table, c]));
+            for (const t of ov.tables) {
+              print(
+                `   ${(t.kind === 'vista' ? `${t.table} (vista)` : t.table).padEnd(width)}  ${fmtRows(t.rows).padStart(12)}  ${fmtBytes(t.bytes).padStart(8)}${t.comment ? `  · ${t.comment}` : ''}`,
+              );
+              const c = byName.get(t.table);
+              if (c) print(`      ${fmtColumns(c)}`);
+            }
+          } catch (error) {
+            out.push({ base, ok: false, error: (error as Error).message });
+            if (!g.json) print(`✘ ${base}: ${(error as Error).message}`);
+          }
+        }
+        if (g.json) printJson({ conexion: name, motor: conn.motor, bases: out });
+        else if (!o.contar && out.some((x) => x.ok)) print('\nLas filas son la estimación del motor (— = todavía no la calculó); para contarlas exactas: --contar. Para ver las columnas: --columnas.');
+        if (out.some((x) => !x.ok)) process.exitCode = EXIT.environment;
+      } catch (error) {
+        known(error);
+      }
+    });
+
+  bd.command('contexto')
+    .description('lo que el planeador ve de tus bases en este proyecto (descubrir, especificar y dividir): úsalo para comprobar que le llega todo')
+    .option('--completo', 'imprime el bloque exacto que recibe el planeador')
+    .action(async (o: { completo?: boolean }, cmd: Command) => {
+      const g = cmd.optsWithGlobals<GlobalOptions>();
+      const ctx = openEngine(g);
+      try {
+        const svc = dbServiceFor(ctx.engine, ctx.home);
+        const block = (await svc.schemaForPrompt()) as {
+          bases: { conexion: string; base: string; motor: string; tablas?: string[]; tablas_total?: number; error?: string; tablas_creadas_por_forja: string[] }[];
+        } | null;
+        if (g.json) return printJson({ bases_de_datos: block, caracteres: block ? JSON.stringify(block).length : 0 });
+        if (!block) {
+          print('El planeador no ve ninguna base: este proyecto no tiene conexiones vinculadas.');
+          print('Vincula una con: forja bd usar <nombre> (míralas con forja bd listar)');
+          process.exitCode = EXIT.precondition;
+          return;
+        }
+        let bad = 0;
+        for (const b of block.bases) {
+          if (b.error) {
+            bad++;
+            print(`✘ ${b.conexion}/${b.base}: el planeador recibe sólo el error → ${b.error}`);
+            continue;
+          }
+          const shown = b.tablas?.length ?? 0;
+          const fks = (b.tablas ?? []).reduce((a, t) => a + (t.match(/ → /g)?.length ?? 0), 0);
+          print(
+            `✔ ${b.conexion}/${b.base} (${b.motor}): ${shown} tabla(s)${b.tablas_total !== undefined && shown < b.tablas_total ? ` de ${b.tablas_total} — recortada por tamaño` : ''} · ${fks} clave(s) foránea(s)${b.tablas_creadas_por_forja.length ? ` · creadas por Forja: ${b.tablas_creadas_por_forja.join(', ')}` : ''}`,
+          );
+        }
+        print(`Tamaño del bloque: ${JSON.stringify(block).length.toLocaleString('es')} caracteres (sin datos, sólo la estructura).`);
+        if (o.completo) {
+          print('');
+          print(JSON.stringify(block, null, 2));
+        } else print('Para ver el bloque exacto: forja bd contexto --completo');
+        if (bad) process.exitCode = EXIT.environment;
+      } catch (error) {
+        known(error);
+      } finally {
+        ctx.close();
+      }
+    });
+
   bd.command('eliminar <nombre>')
     .description('borra la conexión de esta máquina (la base de datos no se toca)')
     .action((name: string) => {
@@ -170,7 +285,7 @@ export function registerDatabaseCommands(program: Command): void {
       try {
         const tables = await dbServiceFor(ctx.engine, ctx.home).schema(name, o.base, true);
         if (g.json) return printJson({ esquema: tables });
-        for (const t of tables) print(`${t.table}: ${t.columns.map((c) => `${c.name} ${c.type}${c.key === 'PRI' ? ' PK' : ''}`).join(', ')}`);
+        for (const t of tables) print(`${t.table}: ${fmtColumns(t)}`);
       } catch (error) {
         known(error);
       } finally {

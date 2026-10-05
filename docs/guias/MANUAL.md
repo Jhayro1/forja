@@ -226,8 +226,13 @@ quieras.
 
 En **Conexiones → Bases de datos** registras tu base de pruebas (MySQL o PostgreSQL) pegando
 la URL `jdbc:…` o el bloque de variables que ya usas. Los agentes ven el esquema; consultar,
-crear o cambiar sigue tus reglas, y las tablas que ya existían nunca se modifican. Guía:
-[BASES-DE-DATOS.md](BASES-DE-DATOS.md).
+crear o cambiar sigue tus reglas, y las tablas que ya existían nunca se modifican.
+
+Para comprobar que se ve todo:
+- `forja bd ver <nombre>` muestra las tablas, las filas y las relaciones;
+- `forja bd contexto` muestra lo que recibe el planeador.
+
+Guía: [BASES-DE-DATOS.md](BASES-DE-DATOS.md).
 
 ### 4.5 Proyectos
 

@@ -171,3 +171,29 @@ export function chooseAccount(accounts: AccountStore, provider: AccountProvider,
   if (!best) return null;
   return { alias: best.a.alias, credentialFile: accounts.credentialFile(provider, best.a.alias), pauseKey: accountPauseKey(provider, best.a.alias) };
 }
+
+/**
+ * Why no account of `provider` can take a launch, one line per account: deactivated,
+ * no session file (and where it was looked for), or paused until when and why.
+ */
+export function explainNoAccount(accounts: AccountStore, provider: AccountProvider, pauses: { key: string; until: number; reason: string }[]): string {
+  const parts: string[] = [];
+  for (const a of accounts.list(provider)) {
+    const name = a.principal ? `cuenta principal` : `cuenta ${a.alias}`;
+    if (!a.activa) {
+      parts.push(`${name}: desactivada (actívala en Ajustes → Cuentas)`);
+      continue;
+    }
+    if (!accounts.signedIn(provider, a.alias)) {
+      parts.push(`${name}: sin sesión, no existe ${accounts.credentialFile(provider, a.alias)} (inicia sesión con «${provider}» en esta máquina)`);
+      continue;
+    }
+    const pause = pauses.find((p) => p.key === accountPauseKey(provider, a.alias));
+    if (pause) {
+      parts.push(`${name}: en pausa hasta las ${new Date(pause.until).toLocaleTimeString()} por un fallo anterior (${pause.reason}); si ya está resuelto: forja proveedores reanudar ${pause.key}`);
+      continue;
+    }
+    parts.push(`${name}: al límite de agentes a la vez`);
+  }
+  return parts.join(' · ');
+}

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { DbConnectionStore, parseDbUrl } from '../../src/db/connections.js';
-import { ping, readSchema, runChange, runRead } from '../../src/db/driver.js';
+import { ping, readOverview, readSchema, runChange, runRead } from '../../src/db/driver.js';
 import { DbService } from '../../src/db/service.js';
 import { testEngine } from '../helpers/engine.js';
 
@@ -38,6 +38,29 @@ for (const [label, url] of [
       // The database's own barrier: a READ ONLY transaction.
       await expect(runRead(target(), "INSERT INTO clientes VALUES (2, 'Beto')")).rejects.toThrow();
       expect((await runRead(target(), 'SELECT COUNT(*) FROM clientes')).rows[0]![0]).toBe('1');
+    });
+
+    it('ver la base: bases del servidor, tablas con filas y claves foráneas, sin escribir nada', async () => {
+      await runChange(target(), 'DROP TABLE IF EXISTS forja_hijos').catch(() => undefined);
+      await runChange(target(), 'DROP TABLE IF EXISTS forja_padres').catch(() => undefined);
+      await runChange(target(), 'CREATE TABLE forja_padres (id INT PRIMARY KEY, nombre VARCHAR(30))');
+      await runChange(target(), 'CREATE TABLE forja_hijos (id INT PRIMARY KEY, padre_id INT NOT NULL, FOREIGN KEY (padre_id) REFERENCES forja_padres(id))');
+      await runChange(target(), "INSERT INTO forja_padres VALUES (1, 'a'), (2, 'b'), (3, 'c')");
+      const name = (t: string) => (u?.motor === 'postgres' ? `public.${t}` : t);
+
+      const ov = await readOverview(target(), { count: true });
+      expect(ov.version).toBeTruthy();
+      expect(ov.serverBases).toContain(u!.base);
+      const padres = ov.tables.find((t) => t.table === name('forja_padres'));
+      expect(padres).toMatchObject({ kind: 'tabla', rows: 3, exact: true });
+
+      const hijos = (await readSchema(target())).find((t) => t.table === name('forja_hijos'));
+      expect(hijos?.columns.find((c) => c.name === 'padre_id')?.ref).toBe(`${name('forja_padres')}.id`);
+      expect(hijos?.columns.find((c) => c.name === 'id')?.key).toBe('PRI');
+
+      expect((await runRead(target(), 'SELECT COUNT(*) FROM forja_padres')).rows[0]![0]).toBe('3');
+      await runChange(target(), 'DROP TABLE forja_hijos');
+      await runChange(target(), 'DROP TABLE forja_padres');
     });
 
     it('las reglas de punta a punta: crear con aprobación, cambiar lo propio, nunca lo que ya existía', async () => {

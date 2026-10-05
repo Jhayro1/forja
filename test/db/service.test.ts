@@ -118,6 +118,26 @@ describe('bases de datos: las reglas del usuario', () => {
     expect(svc.objects(true)[0]?.dropped_at).toBeTruthy();
   });
 
+  it('el planeador recibe la estructura con claves foráneas, y el error si una base no responde', async () => {
+    const { svc, fake } = setup();
+    fake.driver.schema = async () => [
+      { table: 'clientes', columns: [{ name: 'id', type: 'int', nullable: false, key: 'PRI' }] },
+      { table: 'facturas', columns: [{ name: 'cliente_id', type: 'int', nullable: false, key: null, ref: 'clientes.id' }] },
+    ];
+    const block = (await svc.schemaForPrompt()) as { bases: { base: string; tablas?: string[]; tablas_total?: number; error?: string }[] };
+    expect(block.bases[0]).toMatchObject({ base: 'devventas', tablas_total: 2 });
+    expect(block.bases[0]!.tablas).toEqual(['clientes(id int PK)', 'facturas(cliente_id int → clientes.id)']);
+    expect(JSON.stringify(block)).not.toContain('secreta-123');
+
+    const broken = setup();
+    broken.fake.driver.schema = async () => {
+      throw new Error('no se pudo conectar a 10.0.0.5:3306/devventas: ECONNREFUSED');
+    };
+    const failed = (await broken.svc.schemaForPrompt()) as { bases: { error?: string; tablas?: string[] }[] };
+    expect(failed.bases[0]!.error).toContain('ECONNREFUSED');
+    expect(failed.bases[0]!.tablas).toBeUndefined();
+  });
+
   it('una solicitud rechazada no se ejecuta; las variables sólo salen para las pruebas', async () => {
     const { svc, fake } = setup();
     const r = await svc.requestChange(agent, { conn: 'pruebas', base: 'devventas', sql: 'CREATE TABLE forja_x (id INT)', motivo: 'una tabla de prueba', para_que: 'nada en especial' });

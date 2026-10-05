@@ -415,6 +415,7 @@ export function registerPlanCommands(program: Command): void {
         let result: Awaited<ReturnType<typeof dividePlan>>;
         try {
           result = await dividePlan(ctx.engine, {
+            databases: await databasesForPrompt(ctx.engine, ctx.home),
             changeId: change.change_id,
             repoPath: ctx.checkout.path,
             hasCode: await hasProductCode(ctx.checkout.path),

@@ -346,7 +346,7 @@ export class DbService {
   async schemaForPrompt(maxChars = 60_000): Promise<object | null> {
     const links = this.activeLinks();
     if (!links.length) return null;
-    const out: { conexion: string; base: string; motor: string; tablas?: string[]; error?: string; tablas_creadas_por_forja: string[] }[] = [];
+    const out: { conexion: string; base: string; motor: string; tablas?: string[]; tablas_total?: number; error?: string; tablas_creadas_por_forja: string[] }[] = [];
     for (const l of links) {
       for (const base of l.bases) {
         const own = this.objects()
@@ -358,7 +358,8 @@ export class DbService {
             conexion: l.conn,
             base,
             motor: this.store.get(l.conn).motor,
-            tablas: tables.map((t) => `${t.table}(${t.columns.map((c) => `${c.name} ${c.type}${c.key === 'PRI' ? ' PK' : ''}`).join(', ')})`),
+            tablas: tables.map((t) => `${t.table}(${t.columns.map((c) => `${c.name} ${c.type}${c.key === 'PRI' ? ' PK' : ''}${c.ref ? ` → ${c.ref}` : ''}`).join(', ')})`),
+            tablas_total: tables.length,
             tablas_creadas_por_forja: own,
           });
         } catch (error) {
@@ -372,7 +373,7 @@ export class DbService {
       text = JSON.stringify(out);
     }
     return {
-      nota: 'Bases de datos del proyecto. Puedes consultar el esquema y leer datos; crear tablas o cambiar datos sólo con una solicitud aprobada por el usuario, y sólo sobre tablas creadas por Forja. Las tablas que ya existían nunca se modifican.',
+      nota: 'Bases de datos del proyecto (estructura real: tabla(columna tipo, PK = clave primaria, → = clave foránea)). Sin datos. Puedes consultar el esquema y leer datos; crear tablas o cambiar datos sólo con una solicitud aprobada por el usuario, y sólo sobre tablas creadas por Forja. Las tablas que ya existían nunca se modifican. Si tablas tiene menos elementos que tablas_total, la lista se recortó por tamaño.',
       bases: out,
     };
   }

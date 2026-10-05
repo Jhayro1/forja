@@ -39,7 +39,10 @@ export type DivideResult = { plan: Plan; hash: string; issues: PlanIssue[]; atte
  * Spec → plan: rules make the draft (0 tokens), the planner adjusts it in one call
  * (plus repairs), code validates the DAG, coverage and file overlaps.
  */
-export async function dividePlan(engine: Engine, input: { changeId: string; repoPath: string; workspace: string; hasCode: boolean; evidence?: object }): Promise<DivideResult> {
+export async function dividePlan(
+  engine: Engine,
+  input: { changeId: string; repoPath: string; workspace: string; hasCode: boolean; evidence?: object; databases?: object | null },
+): Promise<DivideResult> {
   const change = getChange(engine, input.changeId);
   // «ejecutar» = re-plan mid-run (V2-037): the new revision goes back to «aprobar»
   // and the next run inherits the tasks already integrated with an identical definition.
@@ -73,6 +76,7 @@ export async function dividePlan(engine: Engine, input: { changeId: string; repo
     linea_base: baselineSummary(engine),
     borrador_de_tareas: draft,
     evidencia_del_repositorio: input.evidence,
+    bases_de_datos: input.databases ?? null,
   });
   const schema = llmSchema(PlanOutput);
 
